@@ -1,0 +1,1185 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const ROOT_DIR = resolve(import.meta.dirname, "..");
+const API_HOST = "api." + "mind" + "bodyonline.com";
+const BASE_URL = `https://${API_HOST}/public/v6`;
+const SESSION_COOKIE = "cave_session";
+const OAUTH_COOKIE = "cave_oauth";
+const STORE_CACHE_FILE = resolve(ROOT_DIR, "data", "studio-cache.json");
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const OAUTH_TTL_SECONDS = 10 * 60;
+const DEFAULT_OAUTH_SCOPE = "email profile openid offline_access Mindbody.Api.Public.v6";
+const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
+const rateLimitHits = new Map();
+
+loadLocalEnv();
+
+function loadLocalEnv() {
+  const envFile = resolve(ROOT_DIR, ".env");
+
+  if (!existsSync(envFile)) {
+    return;
+  }
+
+  for (const line of readFileSync(envFile, "utf-8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+      continue;
+    }
+
+    const [key, ...valueParts] = trimmed.split("=");
+    process.env[key.trim()] ||= valueParts.join("=").trim().replace(/^['"]|['"]$/g, "");
+  }
+}
+
+export function getBookingConfig() {
+  const apiKey = process.env.BOOKING_API_KEY || process.env.MINDBODY_API_KEY || "";
+  const siteId = process.env.BOOKING_SITE_ID || process.env.MINDBODY_SITE_ID || "5753835";
+  const oauthClientId =
+    process.env.BOOKING_OAUTH_CLIENT_ID ||
+    process.env.MINDBODY_OAUTH_CLIENT_ID ||
+    process.env.BOOKING_CLIENT_AUTH_CLIENT_ID ||
+    process.env.MINDBODY_CLIENT_AUTH_CLIENT_ID ||
+    "";
+  const oauthClientSecret =
+    process.env.BOOKING_OAUTH_CLIENT_SECRET ||
+    process.env.MINDBODY_OAUTH_CLIENT_SECRET ||
+    process.env.BOOKING_CLIENT_AUTH_CLIENT_SECRET ||
+    process.env.MINDBODY_CLIENT_AUTH_CLIENT_SECRET ||
+    "";
+  const oauthRedirectUri =
+    process.env.BOOKING_OAUTH_REDIRECT_URI ||
+    process.env.MINDBODY_OAUTH_REDIRECT_URI ||
+    `${process.env.PUBLIC_BASE_URL || `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 8765}`}/api/auth/callback`;
+  const oauthSubscriberId =
+    process.env.BOOKING_OAUTH_SUBSCRIBER_ID ||
+    process.env.MINDBODY_OAUTH_SUBSCRIBER_ID ||
+    process.env.BOOKING_SUBSCRIBER_ID ||
+    process.env.MINDBODY_SUBSCRIBER_ID ||
+    siteId;
+
+  return {
+    apiKey,
+    siteId,
+    sessionSecret: process.env.SESSION_SECRET || (process.env.NODE_ENV === "production" ? "" : apiKey),
+    secureCookies: process.env.NODE_ENV === "production" && process.env.DISABLE_SECURE_COOKIES !== "true",
+    oauthAuthorizeUrl:
+      process.env.BOOKING_OAUTH_AUTHORIZE_URL ||
+      process.env.MINDBODY_OAUTH_AUTHORIZE_URL ||
+      "https://signin.mindbodyonline.com/connect/authorize",
+    oauthTokenUrl:
+      process.env.BOOKING_OAUTH_TOKEN_URL ||
+      process.env.MINDBODY_OAUTH_TOKEN_URL ||
+      process.env.BOOKING_CLIENT_AUTH_URL ||
+      process.env.MINDBODY_CLIENT_AUTH_URL ||
+      "https://signin.mindbodyonline.com/connect/token",
+    oauthClientId,
+    oauthClientSecret,
+    oauthRedirectUri,
+    oauthScope:
+      process.env.BOOKING_OAUTH_SCOPE ||
+      process.env.MINDBODY_OAUTH_SCOPE ||
+      process.env.BOOKING_CLIENT_AUTH_SCOPE ||
+      process.env.MINDBODY_CLIENT_AUTH_SCOPE ||
+      DEFAULT_OAUTH_SCOPE,
+    oauthSubscriberId,
+    locationId: process.env.BOOKING_LOCATION_ID || process.env.MINDBODY_LOCATION_ID || "1",
+    staffToken: process.env.BOOKING_STAFF_TOKEN || process.env.MINDBODY_STAFF_TOKEN || "",
+    oauthConfigured: Boolean(oauthClientId && oauthClientSecret && oauthRedirectUri && oauthSubscriberId)
+  };
+}
+
+export async function handleApiRequest(request, response) {
+  const url = new URL(request.url || "/", "http://localhost");
+  const path = url.pathname;
+
+  if (!path.startsWith("/api/")) {
+    return false;
+  }
+
+  try {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method || "") && path !== "/api/auth/callback") {
+      enforceSameOrigin(request);
+    }
+
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/classes/book", "/api/store/purchase"].includes(path)) {
+      enforceRateLimit(request);
+    }
+
+    if (path === "/api/auth/status") {
+      const { apiKey, siteId, sessionSecret, oauthConfigured, oauthRedirectUri, oauthSubscriberId } = getBookingConfig();
+      sendJson(response, 200, {
+        configured: Boolean(apiKey),
+        oauthConfigured,
+        hasSessionSecret: Boolean(sessionSecret),
+        oauthRedirectUri,
+        oauthSubscriberId,
+        siteId
+      });
+      return true;
+    }
+
+    if (path === "/api/auth/session") {
+      const session = readSession(request);
+      sendJson(response, 200, { signedIn: Boolean(session), session: publicSession(session) });
+      return true;
+    }
+
+    if (path === "/api/auth/sign-out" && request.method === "POST") {
+      clearSessionCookie(response);
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+
+    if (path === "/api/client/required-fields") {
+      const data = await bookingRequest("/client/requiredclientfields");
+      sendJson(response, 200, data);
+      return true;
+    }
+
+    if (path === "/api/auth/start" && request.method === "GET") {
+      startOAuthSignIn(request, response, url.searchParams.get("returnTo"));
+      return true;
+    }
+
+    if (path === "/api/auth/callback" && ["GET", "POST"].includes(request.method || "")) {
+      const form = request.method === "POST" ? await readFormBody(request) : Object.fromEntries(url.searchParams);
+      await finishOAuthSignIn(request, response, form);
+      return true;
+    }
+
+    if (path === "/api/auth/sign-in" && request.method === "POST") {
+      sendJson(response, 409, {
+        message: "Use /api/auth/start for Mindbody OAuth sign-in."
+      });
+      return true;
+    }
+
+    if (path === "/api/auth/sign-up" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const missing = requiredSignupFields(body);
+      const waiver = normalizeWaiverPayload(body.waiver || body);
+
+      if (missing.length) {
+        sendJson(response, 400, { message: `Missing required field(s): ${missing.join(", ")}` });
+        return true;
+      }
+
+      if (!isSignedWaiver(waiver)) {
+        sendJson(response, 400, { message: "Please complete and sign the liability waiver." });
+        return true;
+      }
+
+      const payload = clientPayload(body, waiver);
+      const created = await addClient(payload);
+      const session = sessionFromCreatedClient(created, payload);
+      session.waiver = publicWaiver(waiver);
+      const waiverSync = await attachClientWaiver(session, waiver).catch((error) => ({
+        storedInMindbody: false,
+        message: error.message,
+        details: error.data || null
+      }));
+
+      setSessionCookie(response, session);
+      sendJson(response, 200, { created, session: publicSession(session), waiver: waiverSync });
+      return true;
+    }
+
+    if (path === "/api/client/waiver" && request.method === "POST") {
+      const session = readSession(request);
+      const body = await readJsonBody(request);
+      const waiver = normalizeWaiverPayload(body.waiver || body);
+
+      if (!isSignedWaiver(waiver)) {
+        sendJson(response, 400, { message: "Please complete and sign the liability waiver." });
+        return true;
+      }
+
+      if (!session?.signedIn && !session?.clientId && !session?.consumerIdentityToken && !session?.accessToken) {
+        sendJson(response, 401, {
+          message: "Please sign in before saving your waiver.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("policies.html#liability-waiver")}`
+        });
+        return true;
+      }
+
+      const waiverSync = await attachClientWaiver(session, waiver);
+      session.waiver = publicWaiver(waiver);
+      setSessionCookie(response, session);
+      sendJson(response, 200, { waiver: waiverSync, session: publicSession(session) });
+      return true;
+    }
+
+    if (path === "/api/classes/book" && request.method === "POST") {
+      const session = readSession(request);
+      const body = await readJsonBody(request);
+      const classId = Number(body.classId);
+
+      if (!Number.isInteger(classId) || classId <= 0) {
+        sendJson(response, 400, { message: "A valid class ID is required." });
+        return true;
+      }
+
+      if (!session?.consumerIdentityToken) {
+        sendJson(response, 401, {
+          message: "Please sign in before booking.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(`schedule.html?classId=${classId}`)}`
+        });
+        return true;
+      }
+
+      const booking = await bookClientIntoClass(session, classId);
+      sendJson(response, 200, { booking });
+      return true;
+    }
+
+    if (path === "/api/store/purchase" && request.method === "POST") {
+      const session = readSession(request);
+      const body = await readJsonBody(request);
+      const item = findStoreItem(body.itemId, body.kind);
+
+      if (!item) {
+        sendJson(response, 404, { message: "That pricing option is not available in the studio store cache." });
+        return true;
+      }
+
+      if (item.requiresWaiver && !body.acceptWaiver) {
+        sendJson(response, 400, { message: "Please accept the liability waiver before continuing." });
+        return true;
+      }
+
+      if (item.requiresTerms && !body.acceptTerms) {
+        sendJson(response, 400, { message: "Please accept the membership agreement before continuing." });
+        return true;
+      }
+
+      if (!session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+        const returnTo = safeReturnTo(body.returnTo || `pricing.html?purchase=${item.kind}-${item.id}`);
+        sendJson(response, 401, {
+          message: "Please sign in before buying.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`
+        });
+        return true;
+      }
+
+      const purchase = await purchaseStoreItem(session, item, body);
+      sendJson(response, 200, { purchase });
+      return true;
+    }
+
+    if (path === "/api/client/dashboard") {
+      const session = readSession(request);
+
+      if (!session?.accessToken && !session?.consumerIdentityToken) {
+        if (session?.authMode === "created-client") {
+          sendJson(response, 200, {
+            profile: { Client: session.user },
+            schedule: null,
+            services: null,
+            contracts: null,
+            errors: []
+          });
+          return true;
+        }
+
+        sendJson(response, 401, { message: "Please sign in first." });
+        return true;
+      }
+
+      if (session.consumerIdentityToken) {
+        const completeInfo = await Promise.allSettled([
+          bookingRequest("/client/clientcompleteinfo", {
+            consumerIdentityToken: session.consumerIdentityToken,
+            params: compactObject({
+              ClientId: session.clientId
+            })
+          })
+        ]);
+        const profile = fulfilledValue(completeInfo[0]);
+
+        sendJson(response, 200, {
+          profile,
+          schedule: profile?.ClientSchedule || profile?.Schedule || null,
+          services: profile?.ClientServices || profile?.Services || null,
+          contracts: profile?.ClientContracts || profile?.ClientMemberships || profile?.Memberships || null,
+          errors: completeInfo
+            .filter((result) => result.status === "rejected")
+            .map((result) => result.reason?.message || "Request failed.")
+        });
+        return true;
+      }
+
+      const requestOptions = {
+        token: session.accessToken
+      };
+      const [profile, schedule, services, contracts] = await Promise.allSettled([
+        bookingRequest("/client/clients", { ...requestOptions, params: { ClientIds: session.clientId } }),
+        bookingRequest("/client/clientschedule", { ...requestOptions, params: { ClientId: session.clientId } }),
+        bookingRequest("/client/clientservices", { ...requestOptions, params: { ClientId: session.clientId } }),
+        bookingRequest("/client/clientcontracts", { ...requestOptions, params: { ClientId: session.clientId } })
+      ]);
+
+      sendJson(response, 200, {
+        profile: fulfilledValue(profile),
+        schedule: fulfilledValue(schedule),
+        services: fulfilledValue(services),
+        contracts: fulfilledValue(contracts),
+        errors: [profile, schedule, services, contracts]
+          .filter((result) => result.status === "rejected")
+          .map((result) => result.reason?.message || "Request failed.")
+      });
+      return true;
+    }
+
+    sendJson(response, 404, { message: "API route not found." });
+    return true;
+  } catch (error) {
+    sendJson(response, error.status || 500, {
+      message: error.message || "Request failed.",
+      details: error.data || null
+    });
+    return true;
+  }
+}
+
+function fulfilledValue(result) {
+  return result.status === "fulfilled" ? result.value : null;
+}
+
+function startOAuthSignIn(request, response, requestedReturnTo) {
+  const {
+    oauthAuthorizeUrl,
+    oauthClientId,
+    oauthConfigured,
+    oauthRedirectUri,
+    oauthScope,
+    oauthSubscriberId
+  } = getBookingConfig();
+
+  if (!oauthConfigured) {
+    redirect(response, "/login.html?auth=not-ready");
+    return;
+  }
+
+  const state = randomBytes(24).toString("base64url");
+  const nonce = randomBytes(24).toString("base64url");
+  const returnTo = safeReturnTo(requestedReturnTo);
+  const authorizeUrl = new URL(oauthAuthorizeUrl);
+
+  authorizeUrl.searchParams.set("response_mode", "form_post");
+  authorizeUrl.searchParams.set("response_type", "code id_token");
+  authorizeUrl.searchParams.set("client_id", oauthClientId);
+  authorizeUrl.searchParams.set("redirect_uri", oauthRedirectUri);
+  authorizeUrl.searchParams.set("scope", oauthScope);
+  authorizeUrl.searchParams.set("subscriberId", oauthSubscriberId);
+  authorizeUrl.searchParams.set("nonce", nonce);
+  authorizeUrl.searchParams.set("state", state);
+
+  setOAuthCookie(response, { state, nonce, returnTo });
+  redirect(response, authorizeUrl.toString());
+}
+
+async function finishOAuthSignIn(request, response, form) {
+  const oauthSession = readOAuthSession(request);
+
+  if (form.error) {
+    clearOAuthCookie(response);
+    redirect(response, `/login.html?auth=error&message=${encodeURIComponent(form.error_description || form.error)}`);
+    return;
+  }
+
+  if (!oauthSession?.state || !form.state || oauthSession.state !== form.state) {
+    clearOAuthCookie(response);
+    redirect(response, "/login.html?auth=state");
+    return;
+  }
+
+  if (!form.code) {
+    clearOAuthCookie(response);
+    redirect(response, "/login.html?auth=missing-code");
+    return;
+  }
+
+  const tokenResponse = await exchangeOAuthCode(form.code);
+  const session = normalizeOAuthSession(tokenResponse);
+
+  setSessionCookie(response, session);
+  clearOAuthCookie(response);
+  redirect(response, oauthSession.returnTo || "/account.html");
+}
+
+async function exchangeOAuthCode(code) {
+  const {
+    oauthClientId,
+    oauthClientSecret,
+    oauthRedirectUri,
+    oauthScope,
+    oauthSubscriberId,
+    oauthTokenUrl
+  } = getBookingConfig();
+
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    client_id: oauthClientId,
+    client_secret: oauthClientSecret,
+    code,
+    redirect_uri: oauthRedirectUri,
+    subscriberId: oauthSubscriberId,
+    scope: oauthScope
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35_000);
+
+  try {
+    const response = await fetch(oauthTokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json"
+      },
+      body: body.toString(),
+      signal: controller.signal
+    });
+    const text = await response.text();
+    const data = parseResponseBody(text);
+
+    if (!response.ok) {
+      const message = data?.error_description || data?.message || data?.Message || "Mindbody OAuth token exchange failed.";
+      const error = httpError(response.status, message);
+      error.data = data;
+      throw error;
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeOAuthSession(data) {
+  const accessToken = data?.access_token || "";
+  const idClaims = parseJwtClaims(data?.id_token);
+  const accessClaims = parseJwtClaims(accessToken);
+  const claims = { ...accessClaims, ...idClaims };
+
+  if (!accessToken) {
+    throw httpError(502, "Mindbody OAuth did not return an access token.");
+  }
+
+  return {
+    authMode: "oauth",
+    accessToken,
+    consumerIdentityToken: accessToken,
+    refreshToken: data?.refresh_token || "",
+    tokenType: data?.token_type || "Bearer",
+    expiresAt: data?.expires_in ? new Date(Date.now() + Number(data.expires_in) * 1000).toISOString() : "",
+    clientId: claims.client_id || claims.clientId || claims.ClientId || claims.mindbody_client_id || "",
+    user: {
+      id: claims.sub || "",
+      firstName: claims.given_name || claims.firstName || "",
+      lastName: claims.family_name || claims.lastName || "",
+      email: claims.email || "",
+      username: claims.email || claims.preferred_username || ""
+    }
+  };
+}
+
+function addClient(payload) {
+  return bookingRequest("/client/addclient", {
+    method: "POST",
+    body: payload
+  }).catch((error) => {
+    if (error.status && error.status >= 400 && error.status < 500) {
+      return bookingRequest("/client/addclient", {
+        method: "POST",
+        body: { Client: payload }
+      });
+    }
+
+    throw error;
+  });
+}
+
+async function bookClientIntoClass(session, classId) {
+  const clientId = await resolveSessionClientId(session);
+
+  if (!clientId) {
+    throw httpError(400, "We could not match this login to a studio client account yet.");
+  }
+
+  return bookingRequest("/class/addclienttoclass", {
+    method: "POST",
+    consumerIdentityToken: session.consumerIdentityToken,
+    body: {
+      ClientId: clientId,
+      ClassId: classId,
+      Test: process.env.BOOKING_TEST_MODE === "true",
+      RequirePayment: true,
+      Waitlist: false,
+      SendEmail: true
+    }
+  });
+}
+
+async function purchaseStoreItem(session, item, body) {
+  const clientId = await resolveSessionClientId(session);
+
+  if (!clientId) {
+    throw httpError(400, "We could not match this login to a studio client account yet.");
+  }
+
+  if (item.kind === "contract") {
+    return purchaseContractItem(session, clientId, item, body);
+  }
+
+  if (item.kind === "service") {
+    return checkoutServiceItem(clientId, item, body);
+  }
+
+  throw httpError(400, "Unsupported pricing item type.");
+}
+
+function purchaseContractItem(session, clientId, item, body) {
+  const paymentPayload = buildPaymentPayload(body);
+
+  if (!Object.keys(paymentPayload).length) {
+    throw httpError(402, "A stored payment method is required to buy this membership on-site.");
+  }
+
+  const { locationId } = getBookingConfig();
+
+  return bookingRequest("/sale/purchasecontract", {
+    method: "POST",
+    consumerIdentityToken: session.consumerIdentityToken,
+    body: {
+      Test: process.env.BOOKING_TEST_MODE === "true",
+      ClientId: clientId,
+      ContractId: Number(item.id),
+      LocationId: Number(locationId),
+      SendNotifications: true,
+      ...paymentPayload
+    }
+  });
+}
+
+function checkoutServiceItem(clientId, item, body) {
+  const { staffToken } = getBookingConfig();
+
+  if (!staffToken) {
+    const error = httpError(501, "Service checkout needs a Mindbody staff-level token or hosted checkout fallback before release.");
+    error.data = { itemId: item.id };
+    throw error;
+  }
+
+  const paymentPayload = buildPaymentPayload(body);
+
+  if (!Object.keys(paymentPayload).length) {
+    throw httpError(402, "A stored payment method is required to buy this package on-site.");
+  }
+
+  return bookingRequest("/sale/checkoutshoppingcart", {
+    method: "POST",
+    token: staffToken,
+    body: {
+      Test: process.env.BOOKING_TEST_MODE === "true",
+      ClientId: clientId,
+      CartItems: [
+        {
+          Item: {
+            Type: "Service",
+            Metadata: {
+              Id: String(item.id)
+            }
+          },
+          Quantity: 1
+        }
+      ],
+      Payments: body.payments || [],
+      ...paymentPayload
+    }
+  });
+}
+
+function buildPaymentPayload(body) {
+  if (body.useAccountCredit) {
+    return { UseAccountCredit: true };
+  }
+
+  if (body.useDirectDebit) {
+    return { UseDirectDebit: true };
+  }
+
+  if (body.storedCardId) {
+    return {
+      StoredCardInfo: {
+        Id: body.storedCardId
+      }
+    };
+  }
+
+  return {};
+}
+
+async function resolveSessionClientId(session) {
+  if (session.clientId) {
+    return session.clientId;
+  }
+
+  if (!session.consumerIdentityToken) {
+    return "";
+  }
+
+  const completeInfo = await bookingRequest("/client/clientcompleteinfo", {
+    consumerIdentityToken: session.consumerIdentityToken
+  });
+
+  return extractClientId(completeInfo);
+}
+
+function readStoreCache() {
+  if (!existsSync(STORE_CACHE_FILE)) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(readFileSync(STORE_CACHE_FILE, "utf-8"));
+  } catch (error) {
+    return {};
+  }
+}
+
+function findStoreItem(itemId, kind) {
+  const id = String(itemId || "");
+  const expectedKind = String(kind || "");
+  const store = readStoreCache().store || {};
+  const items = Object.values(store).flatMap((group) => (Array.isArray(group) ? group : []));
+
+  return items.find((item) => String(item.id) === id && (!expectedKind || item.kind === expectedKind)) || null;
+}
+
+function extractClientId(data) {
+  const candidates = [
+    data?.Client,
+    data?.Clients?.[0],
+    data?.ClientCompleteInfo?.Client,
+    data?.ClientInfo?.Client,
+    data
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const value = candidate.Id || candidate.ClientId || candidate.UniqueId || candidate.UniqueClientId;
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function sessionFromCreatedClient(created, payload) {
+  const client = created?.Client || created?.Clients?.[0] || created?.ClientResponse?.Client || {};
+  const clientId = client?.Id || client?.ClientId || client?.UniqueId || "";
+
+  return {
+    authMode: "created-client",
+    clientId,
+    user: {
+      id: clientId,
+      firstName: client?.FirstName || payload.FirstName || "",
+      lastName: client?.LastName || payload.LastName || "",
+      email: client?.Email || payload.Email || "",
+      username: client?.Username || payload.Username || payload.Email || ""
+    }
+  };
+}
+
+function requiredSignupFields(body) {
+  return ["firstName", "lastName", "email", "password", "phone", "addressLine1", "city", "state", "postalCode"].filter(
+    (key) => !String(body[key] || "").trim()
+  );
+}
+
+function clientPayload(body, waiver) {
+  const payload = compactObject({
+    FirstName: body.firstName,
+    LastName: body.lastName,
+    Email: String(body.email || "").trim().toLowerCase(),
+    MobilePhone: body.phone,
+    Username: String(body.email || "").trim().toLowerCase(),
+    Password: body.password,
+    AddressLine1: body.addressLine1,
+    AddressLine2: body.addressLine2,
+    City: body.city,
+    State: body.state,
+    PostalCode: body.postalCode,
+    BirthDate: body.birthDate,
+    EmergencyContactInfoName: body.emergencyContactName,
+    EmergencyContactInfoPhone: body.emergencyContactPhone,
+    EmergencyContactInfoRelationship: body.emergencyContactRelationship,
+    ReferredBy: body.referredBy
+  });
+
+  const customFields = waiverCustomClientFields(waiver);
+
+  if (customFields.length) {
+    payload.CustomClientFields = customFields;
+  }
+
+  return payload;
+}
+
+function normalizeWaiverPayload(waiver = {}) {
+  return {
+    title: String(waiver.title || "Cave Pilates, LLC Waiver and Release of Liability").trim(),
+    version: String(waiver.version || "2026-06-14").trim(),
+    participantName: String(waiver.participantName || waiver.waiverParticipantName || "").trim(),
+    birthDate: String(waiver.birthDate || "").trim(),
+    address: String(waiver.address || "").trim(),
+    phone: String(waiver.phone || "").trim(),
+    email: String(waiver.email || "").trim().toLowerCase(),
+    signature: String(waiver.signature || waiver.waiverSignature || "").trim(),
+    signedDate: String(waiver.signedDate || waiver.waiverDate || new Date().toISOString().slice(0, 10)).trim(),
+    parentGuardianName: String(waiver.parentGuardianName || waiver.guardianName || "").trim(),
+    parentGuardianSignature: String(waiver.parentGuardianSignature || waiver.guardianSignature || "").trim(),
+    mediaOptOut: Boolean(waiver.mediaOptOut),
+    accepted: Boolean(waiver.accepted || waiver.acceptWaiver),
+    acceptedAt: String(waiver.acceptedAt || new Date().toISOString()).trim()
+  };
+}
+
+function isSignedWaiver(waiver) {
+  return Boolean(waiver?.accepted && waiver?.participantName && waiver?.signature && waiver?.signedDate);
+}
+
+function publicWaiver(waiver) {
+  return {
+    title: waiver.title,
+    version: waiver.version,
+    participantName: waiver.participantName,
+    signedDate: waiver.signedDate,
+    acceptedAt: waiver.acceptedAt,
+    mediaOptOut: waiver.mediaOptOut
+  };
+}
+
+function waiverSummary(waiver) {
+  return [
+    `${waiver.title} (${waiver.version})`,
+    `Participant: ${waiver.participantName}`,
+    waiver.birthDate ? `DOB: ${waiver.birthDate}` : "",
+    waiver.email ? `Email: ${waiver.email}` : "",
+    waiver.phone ? `Phone: ${waiver.phone}` : "",
+    waiver.address ? `Address: ${waiver.address}` : "",
+    `Signature: ${waiver.signature}`,
+    `Signed Date: ${waiver.signedDate}`,
+    waiver.parentGuardianName ? `Parent/Guardian: ${waiver.parentGuardianName}` : "",
+    waiver.parentGuardianSignature ? `Parent/Guardian Signature: ${waiver.parentGuardianSignature}` : "",
+    `Media opt-out: ${waiver.mediaOptOut ? "Yes" : "No"}`,
+    `Accepted At: ${waiver.acceptedAt}`
+  ].filter(Boolean).join("\n");
+}
+
+function waiverCustomClientFields(waiver) {
+  if (!waiver) {
+    return [];
+  }
+
+  const fieldMap = [
+    [process.env.BOOKING_WAIVER_CUSTOM_FIELD_ID || process.env.MINDBODY_WAIVER_CUSTOM_FIELD_ID, waiverSummary(waiver)],
+    [process.env.BOOKING_WAIVER_SIGNATURE_FIELD_ID || process.env.MINDBODY_WAIVER_SIGNATURE_FIELD_ID, waiver.signature],
+    [process.env.BOOKING_WAIVER_DATE_FIELD_ID || process.env.MINDBODY_WAIVER_DATE_FIELD_ID, waiver.signedDate],
+    [process.env.BOOKING_WAIVER_VERSION_FIELD_ID || process.env.MINDBODY_WAIVER_VERSION_FIELD_ID, waiver.version]
+  ];
+
+  return fieldMap
+    .filter(([id, value]) => id && value)
+    .map(([id, value]) => ({
+      Id: Number.isNaN(Number(id)) ? String(id) : Number(id),
+      Value: String(value)
+    }));
+}
+
+async function attachClientWaiver(session, waiver) {
+  const customFields = waiverCustomClientFields(waiver);
+
+  if (!customFields.length) {
+    return {
+      accepted: true,
+      storedInMindbody: false,
+      message: "Waiver captured by the site. Add Mindbody waiver custom field IDs to sync it into the client profile."
+    };
+  }
+
+  const clientId = await resolveSessionClientId(session);
+
+  if (!clientId) {
+    throw httpError(400, "We could not match this waiver to a studio client account yet.");
+  }
+
+  const body = {
+    Client: {
+      Id: clientId,
+      CustomClientFields: customFields
+    }
+  };
+
+  const tokenOptions = session?.consumerIdentityToken
+    ? { consumerIdentityToken: session.consumerIdentityToken }
+    : session?.accessToken
+      ? { token: session.accessToken }
+      : {};
+
+  const updated = await bookingRequest("/client/updateclient", {
+    method: "POST",
+    ...tokenOptions,
+    body
+  });
+
+  return {
+    accepted: true,
+    storedInMindbody: true,
+    updated
+  };
+}
+
+function compactObject(object) {
+  return Object.fromEntries(
+    Object.entries(object).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  );
+}
+
+async function bookingRequest(path, { method = "GET", body, params, token, consumerIdentityToken } = {}) {
+  const { apiKey, siteId } = getBookingConfig();
+
+  if (!apiKey) {
+    throw httpError(500, "Booking API key is not configured.");
+  }
+
+  const url = new URL(`${BASE_URL}${path}`);
+
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, value);
+      }
+    }
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35_000);
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        "Api-Key": apiKey,
+        SiteId: siteId,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(consumerIdentityToken ? { "consumer-identity-token": consumerIdentityToken } : {})
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+    const text = await response.text();
+    const data = parseResponseBody(text);
+
+    if (!response.ok) {
+      const message = data?.Message || data?.Error?.Message || data?.Errors?.[0]?.Message || "Booking API request failed.";
+      const error = httpError(response.status, message);
+      error.data = data;
+      throw error;
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseResponseBody(text) {
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return { raw_response: text };
+  }
+}
+
+function publicSession(session) {
+  if (!session) {
+    return null;
+  }
+
+  return {
+    signedIn: true,
+    clientId: session.clientId || "",
+    user: session.user || {},
+    waiver: session.waiver || null
+  };
+}
+
+function parseJwtClaims(token) {
+  const [, payload] = String(token || "").split(".");
+
+  if (!payload) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch (error) {
+    return {};
+  }
+}
+
+function readJsonBody(request) {
+  return readRawBody(request).then((body) => {
+    if (!body) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(body);
+    } catch (error) {
+      throw httpError(400, "Invalid JSON body.");
+    }
+  });
+}
+
+function readFormBody(request) {
+  return readRawBody(request).then((body) => Object.fromEntries(new URLSearchParams(body)));
+}
+
+function readRawBody(request) {
+  return new Promise((resolveBody, rejectBody) => {
+    let body = "";
+
+    request.on("data", (chunk) => {
+      body += chunk;
+
+      if (body.length > 1_000_000) {
+        rejectBody(httpError(413, "Request body is too large."));
+        request.destroy();
+      }
+    });
+
+    request.on("end", () => resolveBody(body));
+    request.on("error", rejectBody);
+  });
+}
+
+function readSession(request) {
+  const cookies = parseCookies(request.headers.cookie || "");
+  const value = cookies[SESSION_COOKIE];
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return unseal(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function readOAuthSession(request) {
+  const cookies = parseCookies(request.headers.cookie || "");
+  const value = cookies[OAUTH_COOKIE];
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return unseal(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function setSessionCookie(response, session) {
+  const value = seal({
+    ...session,
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
+  });
+  const { secureCookies } = getBookingConfig();
+  const cookie = [
+    `${SESSION_COOKIE}=${value}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${SESSION_TTL_SECONDS}`,
+    secureCookies ? "Secure" : ""
+  ].filter(Boolean).join("; ");
+
+  appendSetCookie(response, cookie);
+}
+
+function clearSessionCookie(response) {
+  appendSetCookie(response, `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function setOAuthCookie(response, payload) {
+  const value = seal({
+    ...payload,
+    exp: Math.floor(Date.now() / 1000) + OAUTH_TTL_SECONDS
+  });
+  const { secureCookies } = getBookingConfig();
+  const cookie = [
+    `${OAUTH_COOKIE}=${value}`,
+    "Path=/api/auth",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${OAUTH_TTL_SECONDS}`,
+    secureCookies ? "Secure" : ""
+  ].filter(Boolean).join("; ");
+
+  appendSetCookie(response, cookie);
+}
+
+function clearOAuthCookie(response) {
+  appendSetCookie(response, `${OAUTH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function appendSetCookie(response, cookie) {
+  const current = response.getHeader("Set-Cookie");
+
+  if (!current) {
+    response.setHeader("Set-Cookie", cookie);
+    return;
+  }
+
+  response.setHeader("Set-Cookie", Array.isArray(current) ? [...current, cookie] : [current, cookie]);
+}
+
+function redirect(response, location) {
+  response.statusCode = 303;
+  response.setHeader("Location", location);
+  response.end();
+}
+
+function safeReturnTo(value) {
+  const fallback = "account.html";
+  const text = String(value || fallback).trim();
+
+  if (!text || text.includes("://") || text.startsWith("//")) {
+    return fallback;
+  }
+
+  return text.startsWith("/") ? text : `/${text}`;
+}
+
+function seal(payload) {
+  const { sessionSecret } = getBookingConfig();
+
+  if (!sessionSecret) {
+    throw httpError(500, "SESSION_SECRET is not configured.");
+  }
+
+  const key = createHash("sha256").update(sessionSecret).digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return [iv, tag, encrypted].map((part) => part.toString("base64url")).join(".");
+}
+
+function unseal(value) {
+  const { sessionSecret } = getBookingConfig();
+  const [ivText, tagText, encryptedText] = String(value).split(".");
+
+  if (!sessionSecret || !ivText || !tagText || !encryptedText) {
+    throw new Error("Invalid session.");
+  }
+
+  const key = createHash("sha256").update(sessionSecret).digest();
+  const iv = Buffer.from(ivText, "base64url");
+  const tag = Buffer.from(tagText, "base64url");
+  const encrypted = Buffer.from(encryptedText, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  const payload = JSON.parse(decrypted.toString("utf8"));
+
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+    throw new Error("Session expired.");
+  }
+
+  return payload;
+}
+
+function parseCookies(header) {
+  return Object.fromEntries(
+    header
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+}
+
+function enforceSameOrigin(request) {
+  const origin = request.headers.origin;
+
+  if (!origin) {
+    return;
+  }
+
+  const host = request.headers.host;
+  const expected = new URL(origin).host;
+
+  if (host !== expected) {
+    throw httpError(403, "Cross-origin request blocked.");
+  }
+}
+
+function enforceRateLimit(request) {
+  const ip = request.socket?.remoteAddress || "unknown";
+  const now = Date.now();
+  const key = `${ip}:${request.url}`;
+  const current = rateLimitHits.get(key) || { count: 0, resetAt: now + AUTH_RATE_LIMIT.windowMs };
+
+  if (current.resetAt < now) {
+    current.count = 0;
+    current.resetAt = now + AUTH_RATE_LIMIT.windowMs;
+  }
+
+  current.count += 1;
+  rateLimitHits.set(key, current);
+
+  if (current.count > AUTH_RATE_LIMIT.count) {
+    throw httpError(429, "Too many attempts. Please wait and try again.");
+  }
+}
+
+function sendJson(response, status, payload) {
+  response.statusCode = status;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.setHeader("Cache-Control", "no-store");
+  response.end(JSON.stringify(payload));
+}
+
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
