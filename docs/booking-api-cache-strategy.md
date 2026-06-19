@@ -1,6 +1,6 @@
 # Booking API And Cache Strategy
 
-This starter treats the booking API as a server-side integration. Public pages render from cached data and never call the API directly from the browser on every visit.
+This site treats the booking API as a server-side integration. Public pages render from cached data and never call the API directly from the browser on every visit.
 
 ## Public Cache Targets
 
@@ -35,8 +35,8 @@ The browser should request only the local site cache endpoint or static cache sn
 
 Use embedded checkout widgets only for payment checkout, unusually complex purchase flows, emergency booking fallback, or account fallback while a custom API flow is incomplete.
 
-## Starter Data
+## Public Site Data
 
 - `data/studio-cache.json` stores public memberships, schedule preview, location, booking route, and cache policy.
 - `pricing.html` and `schedule.html` render from this cache.
-- `app.js` uses built-in fallback data for direct `file://` preview, then refreshes from `data/studio-cache.json` when served over HTTP.
+- `src/main.jsx` uses built-in fallback data for direct `file://` preview, then refreshes from `data/studio-cache.json` when served over HTTP.

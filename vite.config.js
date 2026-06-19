@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { handleApiRequest } from "./server/api.mjs";
 
-const htmlPages = ["index", "pricing", "starter", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"];
+const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
 
 function studioServerPlugin() {

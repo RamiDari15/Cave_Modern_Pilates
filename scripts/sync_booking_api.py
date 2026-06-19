@@ -211,8 +211,8 @@ def first_contract_item(contract: Dict[str, Any]) -> Dict[str, Any]:
 def service_category(name: str) -> str:
     lowered = name.lower()
 
-    if "new client" in lowered or "starter" in lowered or "intro" in lowered:
-        return "starter"
+    if "new client" in lowered or "newbie" in lowered or "starter" in lowered or "intro" in lowered:
+        return "newbie"
 
     return "classPacks"
 
@@ -294,7 +294,7 @@ def normalize_store(results: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[s
         )
 
     return {
-        "starter": sorted([item for item in services if item["category"] == "starter"], key=sort_key),
+        "newbie": sorted([item for item in services if item["category"] == "newbie"], key=sort_key),
         "memberships": sorted(contracts, key=sort_key),
         "classPacks": sorted([item for item in services if item["category"] == "classPacks"], key=sort_key),
     }
@@ -416,7 +416,7 @@ def normalize_location(results: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
         "address": address or "Launch address coming soon",
         "parking": "Parking details coming soon.",
         "hours": "",
-        "email": location.get("Email") or "cavemodernpilates@gmail.com",
+        "email": location.get("Email") or "support@cavemodernpilates.com",
     }
 
 

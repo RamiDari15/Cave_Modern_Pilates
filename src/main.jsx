@@ -24,7 +24,7 @@ const FOOTER_LINKS = [
 const PAGE_TITLES = {
   home: "Cave Modern Pilates",
   pricing: "Pricing | Cave Modern Pilates",
-  starter: "Starter Promo | Cave Modern Pilates",
+  newbie: "Newbie Promo | Cave Modern Pilates",
   memberships: "Memberships | Cave Modern Pilates",
   "class-packs": "Class Packs | Cave Modern Pilates",
   schedule: "Schedule | Cave Modern Pilates",
@@ -37,6 +37,32 @@ const PAGE_TITLES = {
   terms: "TOS | Cave Modern Pilates",
   policies: "Policies | Cave Modern Pilates"
 };
+
+const PAGE_DESCRIPTIONS = {
+  home: "Cave Modern Pilates is a modern reformer Pilates studio in Orland Park for high-intensity, low-impact strength, control, and confidence.",
+  pricing: "View Cave Modern Pilates pricing, newbie intro offers, monthly memberships, and class packs loaded from the studio booking system.",
+  newbie: "Newbie intro offers for first-time Cave Modern Pilates clients.",
+  memberships: "Monthly Cave Modern Pilates memberships with current options from the studio booking system.",
+  "class-packs": "Cave Modern Pilates drop-ins and class packs with current pricing from the studio booking system.",
+  schedule: "View the Cave Modern Pilates class schedule and book reformer Pilates classes online.",
+  about: "Learn about Cave Modern Pilates, its mission, and founder Hala.",
+  contact: "Contact Cave Modern Pilates in Orland Park for class, private session, and membership questions.",
+  faq: "Answers to Cave Modern Pilates booking, cancellation, membership, refund, privacy, and studio policy questions.",
+  login: "Sign in to your Cave Modern Pilates account.",
+  signup: "Create your Cave Modern Pilates client account and complete the first-class liability waiver.",
+  account: "View your Cave Modern Pilates account, bookings, credits, and memberships.",
+  terms: "Cave Modern Pilates terms of service and membership terms.",
+  policies: "Cave Modern Pilates studio policies, cancellation rules, privacy policy, and liability waiver."
+};
+
+const SITE_URL = "https://cavemodernpilates.com";
+const STUDIO_CACHE_POLL_MS = 5 * 60 * 1000;
+const CONTACT_EMAIL = "support@cavemodernpilates.com";
+const CONTACT_PHONE = "7085715730";
+const CONTACT_PHONE_DISPLAY = "(708) 571-5730";
+const INSTAGRAM_URL = "https://www.instagram.com/cavemodernpilates/";
+const TIKTOK_URL = "https://www.tiktok.com/@cavemodernpilates";
+const SOCIAL_HANDLE = "@cavemodernpilates";
 
 const PRICING_CATEGORIES = [
   {
@@ -54,10 +80,10 @@ const PRICING_CATEGORIES = [
     eyebrow: "Flexible credits"
   },
   {
-    key: "starter",
-    page: "starter",
-    href: "starter.html",
-    title: "Starter Promo",
+    key: "newbie",
+    page: "newbie",
+    href: "newbie.html",
+    title: "Newbie Promo",
     eyebrow: "First visit"
   }
 ];
@@ -144,6 +170,15 @@ const FAQ_ITEMS = [
     answer: [
       "After completing the selected commitment term, members must provide written notice at least fourteen days before the next billing date.",
       "Members who cancel before completing their commitment term remain responsible for the remaining payments due under the agreement."
+    ]
+  },
+  {
+    id: "renewal-notice",
+    category: "Memberships",
+    question: "What if I do not want to renew?",
+    answer: [
+      "Please send written notice at least fourteen days before your next billing date if you do not plan to renew a membership or package.",
+      "If notice is not received in time, the next scheduled renewal may still process."
     ]
   },
   {
@@ -323,7 +358,11 @@ function getPageFromPath() {
     return "home";
   }
 
-  return ["pricing", "starter", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"].includes(name) ? name : "home";
+  if (name === "starter") {
+    return "newbie";
+  }
+
+  return ["pricing", "newbie", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 async function apiRequest(path, { method = "GET", body, token } = {}) {
@@ -354,6 +393,7 @@ function useStudioCache() {
 
   useEffect(() => {
     let isMounted = true;
+    let pollTimer;
 
     async function loadCache() {
       if (window.location.protocol === "file:") {
@@ -378,9 +418,11 @@ function useStudioCache() {
     }
 
     loadCache();
+    pollTimer = window.setInterval(loadCache, STUDIO_CACHE_POLL_MS);
 
     return () => {
       isMounted = false;
+      window.clearInterval(pollTimer);
     };
   }, []);
 
@@ -444,6 +486,7 @@ function App() {
 
   useEffect(() => {
     document.title = PAGE_TITLES[page] || PAGE_TITLES.home;
+    updatePageMeta(page);
     document.body.classList.toggle("interior", isInterior);
     document.body.classList.toggle("menu-open", menuOpen);
 
@@ -489,6 +532,83 @@ function App() {
   );
 }
 
+function updatePageMeta(page) {
+  const title = PAGE_TITLES[page] || PAGE_TITLES.home;
+  const description = PAGE_DESCRIPTIONS[page] || PAGE_DESCRIPTIONS.home;
+  const canonicalPath = page === "home" ? "/" : `/${page}.html`;
+  const canonicalUrl = `${SITE_URL}${canonicalPath}`;
+
+  setMetaTag("description", description);
+  setMetaTag("og:title", title, "property");
+  setMetaTag("og:description", description, "property");
+  setMetaTag("og:type", "website", "property");
+  setMetaTag("og:url", canonicalUrl, "property");
+  setMetaTag("twitter:card", "summary_large_image", "name");
+  setMetaTag("twitter:title", title, "name");
+  setMetaTag("twitter:description", description, "name");
+  setCanonical(canonicalUrl);
+  setStructuredData(page);
+}
+
+function setMetaTag(key, content, attribute = "name") {
+  if (!content) {
+    return;
+  }
+
+  let tag = document.head.querySelector(`meta[${attribute}="${key}"]`);
+
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.setAttribute(attribute, key);
+    document.head.appendChild(tag);
+  }
+
+  tag.setAttribute("content", content);
+}
+
+function setCanonical(href) {
+  let tag = document.head.querySelector('link[rel="canonical"]');
+
+  if (!tag) {
+    tag = document.createElement("link");
+    tag.setAttribute("rel", "canonical");
+    document.head.appendChild(tag);
+  }
+
+  tag.setAttribute("href", href);
+}
+
+function setStructuredData(page) {
+  const id = "cave-modern-pilates-jsonld";
+  let tag = document.getElementById(id);
+
+  if (!tag) {
+    tag = document.createElement("script");
+    tag.type = "application/ld+json";
+    tag.id = id;
+    document.head.appendChild(tag);
+  }
+
+  tag.textContent = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "HealthClub",
+    name: "Cave Modern Pilates",
+    url: SITE_URL,
+    email: CONTACT_EMAIL,
+    telephone: CONTACT_PHONE,
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "31 Orland Square Drive, Suite B",
+      addressLocality: "Orland Park",
+      addressRegion: "IL",
+      postalCode: "60462",
+      addressCountry: "US"
+    },
+    sameAs: [INSTAGRAM_URL, TIKTOK_URL],
+    mainEntityOfPage: page === "home" ? SITE_URL : `${SITE_URL}/${page}.html`
+  });
+}
+
 function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle, onCloseMenu }) {
   const accountHref = clientSession?.signedIn ? "account.html" : "login.html";
   const accountLabel = clientSession?.signedIn ? "Account" : "Login";
@@ -510,6 +630,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
         <div className="nav-actions">
           <InstagramLink />
+          <TikTokLink />
           <a className="login-button" href={accountHref} aria-current={["login", "signup", "account"].includes(activePage) ? "page" : undefined}>
             {accountLabel}
           </a>
@@ -534,8 +655,11 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
               {item.label}
             </a>
           ))}
-          <a href="https://www.instagram.com/cavemodernpilates/" onClick={onCloseMenu}>
+          <a href={INSTAGRAM_URL} onClick={onCloseMenu}>
             Instagram
+          </a>
+          <a href={TIKTOK_URL} onClick={onCloseMenu}>
+            TikTok
           </a>
         </nav>
         <a className="mobile-book" href={accountHref} onClick={onCloseMenu}>
@@ -574,7 +698,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   }
 
   if (page === "login") {
-    return <LoginPage bookingUrl={bookingUrl} clientSession={clientSession} />;
+    return <LoginPage bookingUrl={bookingUrl} clientSession={clientSession} setClientSession={setClientSession} />;
   }
 
   if (page === "signup") {
@@ -614,8 +738,8 @@ function HomePage({ memberships, store, bookingUrl }) {
 
       <section className="home-pricing-preview section">
         <div className="section-heading center">
-          <h2>Real pricing, ready when you are.</h2>
-          <p>Choose a first-class offer, a monthly membership, or a flexible class pack.</p>
+          <h2>Pricing</h2>
+          <p>Newbie offers, memberships, and class packs.</p>
         </div>
 
         <div className="home-pricing-grid">
@@ -671,18 +795,18 @@ function HomePage({ memberships, store, bookingUrl }) {
 function getHomePricingPreview(store, memberships) {
   const fallbackStore = FALLBACK_CACHE.store || {};
   const classPacks = store.classPacks?.length ? store.classPacks : memberships.length ? memberships : fallbackStore.classPacks || [];
-  const starterOffers = store.starter?.length ? store.starter : fallbackStore.starter || [];
+  const newbieOffers = store.newbie?.length ? store.newbie : store.starter?.length ? store.starter : fallbackStore.newbie || fallbackStore.starter || [];
   const membershipOptions = store.memberships?.length ? store.memberships : fallbackStore.memberships || [];
 
   const visibleClassPacks = classPacks.filter((item) => !String(item.name).toLowerCase().includes("training"));
 
   return [
     {
-      title: "Starter Promo",
+      title: "Newbie Promo",
       label: "First visit",
-      href: "starter.html",
-      priceLabel: priceRangeLabel(starterOffers),
-      items: previewStoreItems(starterOffers, "starter", 2)
+      href: "newbie.html",
+      priceLabel: priceRangeLabel(newbieOffers),
+      items: previewStoreItems(newbieOffers, "newbie", 2)
     },
     {
       title: "Memberships",
@@ -915,7 +1039,7 @@ function PricingCategoryPage({ category, store, memberships }) {
 function pricingStoreGroups(store, legacyMemberships) {
   const fallback = FALLBACK_CACHE.store || {};
   const groups = {
-    starter: Array.isArray(store?.starter) && store.starter.length ? store.starter : fallback.starter || [],
+    newbie: Array.isArray(store?.newbie) && store.newbie.length ? store.newbie : Array.isArray(store?.starter) && store.starter.length ? store.starter : fallback.newbie || fallback.starter || [],
     memberships: Array.isArray(store?.memberships) && store.memberships.length ? store.memberships : fallback.memberships || [],
     classPacks: Array.isArray(store?.classPacks) && store.classPacks.length ? store.classPacks : fallback.classPacks || []
   };
@@ -1092,6 +1216,7 @@ function ContactPage({ location }) {
           <h1>Contact Us</h1>
           <p>Questions before class, private sessions, or memberships? Send us a note and we’ll get back to you.</p>
           <a href={`mailto:${contact.email}`}>{contact.email}</a>
+          <a href={`tel:${contact.phone}`}>{contact.phoneDisplay}</a>
         </div>
         <div className="contact-form-card" aria-label="Contact form preview">
           <label>
@@ -1156,7 +1281,7 @@ function FaqPage() {
         <div className="faq-hero-card" aria-label="Policy highlights">
           <span>12-hour cancellation window</span>
           <span>$28 no-show fee for unlimited members</span>
-          <span>14-day notice after commitment term</span>
+          <span>14-day notice for non-renewals</span>
         </div>
       </section>
 
@@ -1239,39 +1364,120 @@ function FaqPage() {
   );
 }
 
-function LoginPage({ bookingUrl, clientSession }) {
+function oauthStatusFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const authStatus = params.get("auth");
+  const explicitMessage = params.get("message");
+  const authMessages = {
+    "not-ready": "Online account login will turn on once the OAuth credentials are fully approved.",
+    state: "We could not verify the sign-in session. Please try again.",
+    "missing-code": "The secure sign-in did not return a code. Please try again.",
+    provider: "The secure sign-in could not be completed. Please try again.",
+    error: "We could not complete sign-in. Please try again."
+  };
+
+  if (!authStatus) {
+    return { type: "", message: "" };
+  }
+
+  return {
+    type: authStatus === "not-ready" ? "success" : "error",
+    message: explicitMessage || authMessages[authStatus] || authMessages.error
+  };
+}
+
+function normalizeLocalReturnTo(value) {
+  const text = String(value || "account.html").trim();
+
+  if (!text || text.includes("://") || text.startsWith("//")) {
+    return "account.html";
+  }
+
+  return text.startsWith("/") ? text.slice(1) : text;
+}
+
+function LoginPage({ bookingUrl, clientSession, setClientSession }) {
+  const [status, setStatus] = useState(oauthStatusFromQuery);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
   useEffect(() => {
     if (clientSession?.signedIn) {
       window.location.href = "account.html";
     }
   }, [clientSession]);
 
-  const authStatus = new URLSearchParams(window.location.search).get("auth");
-  const authMessages = {
-    "not-ready": "Online account login is wired and will turn on once Mindbody OAuth is approved.",
-    state: "We could not verify the sign-in session. Please try again.",
-    "missing-code": "Mindbody did not return a sign-in code. Please try again.",
-    error: "We could not complete sign-in. Please try again."
-  };
-  const status = authStatus
-    ? {
-        type: authStatus === "not-ready" ? "success" : "error",
-        message: authMessages[authStatus] || authMessages.error
+  useEffect(() => {
+    const onMessage = async (event) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "cave:auth:complete") {
+        return;
       }
-    : { type: "", message: "" };
+
+      setIsSigningIn(false);
+
+      if (!event.data.ok) {
+        setStatus({
+          type: "error",
+          message: event.data.message || "We could not complete sign-in. Please try again."
+        });
+        return;
+      }
+
+      setStatus({ type: "success", message: "Signed in. Taking you to your account." });
+
+      try {
+        const data = await apiRequest("/api/auth/session");
+        setClientSession(data.session || null);
+      } catch (error) {
+        setStatus({ type: "error", message: error.message });
+        return;
+      }
+
+      window.location.href = normalizeLocalReturnTo(event.data.returnTo);
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [setClientSession]);
+
+  const startSignIn = () => {
+    const returnTo = "account.html";
+    const popupUrl = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}&popup=1`;
+    const fallbackUrl = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`;
+    const width = 560;
+    const height = 760;
+    const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
+    const popup = window.open(
+      popupUrl,
+      "caveSecureSignIn",
+      `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    if (!popup || popup.closed || typeof popup.closed === "undefined") {
+      window.location.href = fallbackUrl;
+      return;
+    }
+
+    popup.focus();
+    setIsSigningIn(true);
+    setStatus({
+      type: "success",
+      message: "Secure sign-in opened. Finish there and this page will update automatically."
+    });
+  };
 
   return (
     <>
       <section className="login-page">
         <div className="login-copy">
           <h1>Sign in to your Cave account.</h1>
-          <p>Use your studio account to access bookings, class credits, memberships, and client details in one place.</p>
+          <p>Use your studio account to book classes, review credits, and manage your Cave details in one place.</p>
         </div>
 
         <div className="login-panel">
-          <a className="pill-button black" href="/api/auth/start?returnTo=account.html">
-            Sign In
-          </a>
+          <button className="pill-button black" type="button" onClick={startSignIn} disabled={isSigningIn}>
+            {isSigningIn ? "Waiting for Sign In..." : "Sign In"}
+          </button>
           <a className="pill-button outline" href="signup.html">
             Create Account
           </a>
@@ -1386,7 +1592,7 @@ function SignupPage({ setClientSession }) {
     <section className="login-page signup-page">
       <div className="login-copy">
         <h1>Start your Cave account.</h1>
-        <p>Create your studio profile, sign the first-class waiver, and keep booking details ready for when account login is fully approved.</p>
+        <p>Create your studio profile, complete the first-class waiver, and use the same account for booking.</p>
       </div>
 
       <form className="login-panel signup-panel" onSubmit={submit}>
@@ -1431,7 +1637,7 @@ function LiabilityWaiverForm({ form, onChange }) {
   return (
     <div className="waiver-form-block" id="liability-waiver">
       <div className="waiver-form-copy">
-        <h3>Liability waiver</h3>
+        <strong>Waiver and release</strong>
         <p>Type your legal name to sign the Cave Pilates, LLC waiver before your first class.</p>
       </div>
       <div className="form-grid two">
@@ -1515,10 +1721,7 @@ function StandaloneWaiverForm() {
 
   return (
     <form className="login-panel waiver-panel" onSubmit={submit}>
-      <div className="form-grid two">
-        <FormField label="Participant Legal Name" name="waiverParticipantName" value={form.waiverParticipantName} onChange={updateField} required />
-        <FormField label="Date of Birth" name="birthDate" type="date" value={form.birthDate} onChange={updateField} required />
-      </div>
+      <FormField label="Date of Birth" name="birthDate" type="date" value={form.birthDate} onChange={updateField} required />
       <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" required />
       <FormField label="Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
       <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
@@ -2109,7 +2312,9 @@ function getContactDetails(location) {
     address: normalizedAddress || fallbackAddress,
     mapQuery: normalizedAddress || fallbackAddress,
     parking: location?.parking && !/coming soon/i.test(location.parking) ? location.parking : "",
-    email: location?.email || "cavemodernpilates@gmail.com"
+    email: location?.email || CONTACT_EMAIL,
+    phone: location?.phone || CONTACT_PHONE,
+    phoneDisplay: location?.phoneDisplay || CONTACT_PHONE_DISPLAY
   };
 }
 
@@ -2118,7 +2323,8 @@ function LocationDetails({ location }) {
     address: location.address || "Launch address coming soon",
     parking: location.parking || "Parking details coming soon.",
     hours: location.hours || "Hours coming soon.",
-    email: location.email || "cavemodernpilates@gmail.com"
+    email: location.email || CONTACT_EMAIL,
+    phoneDisplay: location.phoneDisplay || CONTACT_PHONE_DISPLAY
   };
 
   return (
@@ -2139,6 +2345,10 @@ function LocationDetails({ location }) {
         <strong>Email</strong>
         {details.email}
       </p>
+      <p>
+        <strong>Phone</strong>
+        {details.phoneDisplay}
+      </p>
     </div>
   );
 }
@@ -2153,7 +2363,9 @@ function cleanFooterAddress(address) {
 
 function Footer({ location }) {
   const address = cleanFooterAddress(location?.address) || "Launch address coming soon";
-  const email = location?.email || "cavemodernpilates@gmail.com";
+  const email = location?.email || CONTACT_EMAIL;
+  const phone = location?.phone || CONTACT_PHONE;
+  const phoneDisplay = location?.phoneDisplay || CONTACT_PHONE_DISPLAY;
   const year = new Date().getFullYear();
 
   return (
@@ -2184,10 +2396,15 @@ function Footer({ location }) {
           <div className="footer-contact">
             <span className="footer-label">Contact</span>
             <div className="footer-contact-list">
-              <a className="footer-instagram" href="https://www.instagram.com/cavemodernpilates/" aria-label="Cave Modern Pilates Instagram">
+              <a className="footer-social" href={INSTAGRAM_URL} aria-label="Cave Modern Pilates Instagram">
                 <Instagram aria-hidden="true" size={22} strokeWidth={1.8} />
-                <span>@cavemodernpilates</span>
+                <span>{SOCIAL_HANDLE}</span>
               </a>
+              <a className="footer-social" href={TIKTOK_URL} aria-label="Cave Modern Pilates TikTok">
+                <span className="tiktok-mark" aria-hidden="true">♪</span>
+                <span>TikTok</span>
+              </a>
+              <a href={`tel:${phone}`}>{phoneDisplay}</a>
               <a href={`mailto:${email}`}>{email}</a>
             </div>
           </div>
@@ -2203,8 +2420,16 @@ function Footer({ location }) {
 
 function InstagramLink() {
   return (
-    <a className="instagram-link" href="https://www.instagram.com/cavemodernpilates/" aria-label="Instagram">
+    <a className="social-icon-link" href={INSTAGRAM_URL} aria-label="Instagram">
       <Instagram aria-hidden="true" size={23} strokeWidth={1.8} />
+    </a>
+  );
+}
+
+function TikTokLink() {
+  return (
+    <a className="social-icon-link tiktok-link" href={TIKTOK_URL} aria-label="TikTok">
+      <span aria-hidden="true">♪</span>
     </a>
   );
 }

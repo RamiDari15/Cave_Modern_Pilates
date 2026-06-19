@@ -49,13 +49,13 @@ export const FALLBACK_CACHE = {
     }
   ],
   store: {
-    starter: [
+    newbie: [
       {
         id: "100006",
         kind: "service",
-        category: "starter",
+        category: "newbie",
         name: "New Client Drop in",
-        price: "$15.00",
+        price: "$22.50",
         sessions: 1,
         description: "Expires in 1 months",
         sellOnline: true,
@@ -65,7 +65,7 @@ export const FALLBACK_CACHE = {
       {
         id: "100007",
         kind: "service",
-        category: "starter",
+        category: "newbie",
         name: "New Client 3 class package",
         price: "$65.00",
         sessions: 3,
@@ -104,6 +104,18 @@ export const FALLBACK_CACHE = {
       }
     ],
     classPacks: [
+      {
+        id: "100031",
+        kind: "service",
+        category: "classPacks",
+        name: "Cave1",
+        price: "$30.00",
+        sessions: 1,
+        description: "Expires in 12 months",
+        sellOnline: true,
+        requiresWaiver: true,
+        requiresTerms: false
+      },
       {
         id: "100004",
         kind: "service",
@@ -175,6 +187,8 @@ export const FALLBACK_CACHE = {
     address: "Launch address coming soon",
     parking: "Parking details coming soon.",
     hours: "",
-    email: "cavemodernpilates@gmail.com"
+    email: "support@cavemodernpilates.com",
+    phone: "7085715730",
+    phoneDisplay: "(708) 571-5730"
   }
 };

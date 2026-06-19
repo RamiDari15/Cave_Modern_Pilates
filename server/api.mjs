@@ -13,6 +13,7 @@ const OAUTH_TTL_SECONDS = 10 * 60;
 const DEFAULT_OAUTH_SCOPE = "email profile openid offline_access Mindbody.Api.Public.v6";
 const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
+const pendingOAuthStates = new Map();
 
 loadLocalEnv();
 
@@ -36,60 +37,100 @@ function loadLocalEnv() {
 }
 
 export function getBookingConfig() {
-  const apiKey = process.env.BOOKING_API_KEY || process.env.MINDBODY_API_KEY || "";
-  const siteId = process.env.BOOKING_SITE_ID || process.env.MINDBODY_SITE_ID || "5753835";
-  const oauthClientId =
-    process.env.BOOKING_OAUTH_CLIENT_ID ||
-    process.env.MINDBODY_OAUTH_CLIENT_ID ||
-    process.env.BOOKING_CLIENT_AUTH_CLIENT_ID ||
-    process.env.MINDBODY_CLIENT_AUTH_CLIENT_ID ||
-    "";
-  const oauthClientSecret =
-    process.env.BOOKING_OAUTH_CLIENT_SECRET ||
-    process.env.MINDBODY_OAUTH_CLIENT_SECRET ||
-    process.env.BOOKING_CLIENT_AUTH_CLIENT_SECRET ||
-    process.env.MINDBODY_CLIENT_AUTH_CLIENT_SECRET ||
-    "";
+  const apiKey = configuredEnvValue("BOOKING_API_KEY", "MINDBODY_API_KEY");
+  const siteId = configuredEnvValue("BOOKING_SITE_ID", "MINDBODY_SITE_ID") || "5753835";
+  const oauthClientId = configuredEnvValue(
+    "BOOKING_OAUTH_CLIENT_ID",
+    "MINDBODY_OAUTH_CLIENT_ID",
+    "BOOKING_CLIENT_AUTH_CLIENT_ID",
+    "MINDBODY_CLIENT_AUTH_CLIENT_ID"
+  );
+  const oauthClientSecret = configuredEnvValue(
+    "BOOKING_OAUTH_CLIENT_SECRET",
+    "MINDBODY_OAUTH_CLIENT_SECRET",
+    "BOOKING_CLIENT_AUTH_CLIENT_SECRET",
+    "MINDBODY_CLIENT_AUTH_CLIENT_SECRET"
+  );
   const oauthRedirectUri =
-    process.env.BOOKING_OAUTH_REDIRECT_URI ||
-    process.env.MINDBODY_OAUTH_REDIRECT_URI ||
+    configuredEnvValue("BOOKING_OAUTH_REDIRECT_URI", "MINDBODY_OAUTH_REDIRECT_URI") ||
     `${process.env.PUBLIC_BASE_URL || `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 8765}`}/api/auth/callback`;
   const oauthSubscriberId =
-    process.env.BOOKING_OAUTH_SUBSCRIBER_ID ||
-    process.env.MINDBODY_OAUTH_SUBSCRIBER_ID ||
-    process.env.BOOKING_SUBSCRIBER_ID ||
-    process.env.MINDBODY_SUBSCRIBER_ID ||
+    configuredEnvValue(
+      "BOOKING_OAUTH_SUBSCRIBER_ID",
+      "MINDBODY_OAUTH_SUBSCRIBER_ID",
+      "BOOKING_SUBSCRIBER_ID",
+      "MINDBODY_SUBSCRIBER_ID"
+    ) ||
     siteId;
+  const sessionSecret = configuredEnvValue("SESSION_SECRET") || (process.env.NODE_ENV === "production" ? "" : apiKey);
+  const oauthUsePkce = configuredEnvBoolean("BOOKING_OAUTH_USE_PKCE", "MINDBODY_OAUTH_USE_PKCE");
 
   return {
     apiKey,
     siteId,
-    sessionSecret: process.env.SESSION_SECRET || (process.env.NODE_ENV === "production" ? "" : apiKey),
+    sessionSecret,
     secureCookies: process.env.NODE_ENV === "production" && process.env.DISABLE_SECURE_COOKIES !== "true",
     oauthAuthorizeUrl:
-      process.env.BOOKING_OAUTH_AUTHORIZE_URL ||
-      process.env.MINDBODY_OAUTH_AUTHORIZE_URL ||
+      configuredEnvValue("BOOKING_OAUTH_AUTHORIZE_URL", "MINDBODY_OAUTH_AUTHORIZE_URL") ||
       "https://signin.mindbodyonline.com/connect/authorize",
     oauthTokenUrl:
-      process.env.BOOKING_OAUTH_TOKEN_URL ||
-      process.env.MINDBODY_OAUTH_TOKEN_URL ||
-      process.env.BOOKING_CLIENT_AUTH_URL ||
-      process.env.MINDBODY_CLIENT_AUTH_URL ||
+      configuredEnvValue(
+        "BOOKING_OAUTH_TOKEN_URL",
+        "MINDBODY_OAUTH_TOKEN_URL",
+        "BOOKING_CLIENT_AUTH_URL",
+        "MINDBODY_CLIENT_AUTH_URL"
+      ) ||
       "https://signin.mindbodyonline.com/connect/token",
     oauthClientId,
     oauthClientSecret,
     oauthRedirectUri,
     oauthScope:
-      process.env.BOOKING_OAUTH_SCOPE ||
-      process.env.MINDBODY_OAUTH_SCOPE ||
-      process.env.BOOKING_CLIENT_AUTH_SCOPE ||
-      process.env.MINDBODY_CLIENT_AUTH_SCOPE ||
+      configuredEnvValue(
+        "BOOKING_OAUTH_SCOPE",
+        "MINDBODY_OAUTH_SCOPE",
+        "BOOKING_CLIENT_AUTH_SCOPE",
+        "MINDBODY_CLIENT_AUTH_SCOPE"
+      ) ||
       DEFAULT_OAUTH_SCOPE,
+    oauthResponseMode: configuredEnvValue("BOOKING_OAUTH_RESPONSE_MODE", "MINDBODY_OAUTH_RESPONSE_MODE") || "form_post",
+    oauthResponseType: configuredEnvValue("BOOKING_OAUTH_RESPONSE_TYPE", "MINDBODY_OAUTH_RESPONSE_TYPE") || "code id_token",
+    oauthUsePkce,
     oauthSubscriberId,
-    locationId: process.env.BOOKING_LOCATION_ID || process.env.MINDBODY_LOCATION_ID || "1",
-    staffToken: process.env.BOOKING_STAFF_TOKEN || process.env.MINDBODY_STAFF_TOKEN || "",
-    oauthConfigured: Boolean(oauthClientId && oauthClientSecret && oauthRedirectUri && oauthSubscriberId)
+    locationId: configuredEnvValue("BOOKING_LOCATION_ID", "MINDBODY_LOCATION_ID") || "1",
+    staffToken: configuredEnvValue("BOOKING_STAFF_TOKEN", "MINDBODY_STAFF_TOKEN"),
+    oauthConfigured: Boolean(oauthClientId && oauthRedirectUri && oauthSubscriberId && (oauthClientSecret || oauthUsePkce))
   };
+}
+
+function configuredEnvValue(...keys) {
+  for (const key of keys) {
+    const value = String(process.env[key] || "").trim();
+
+    if (value && !isPlaceholderEnvValue(value)) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function isPlaceholderEnvValue(value) {
+  const lower = String(value || "").trim().toLowerCase();
+
+  return (
+    lower.includes("your_") ||
+    lower.includes("replace_with") ||
+    lower.includes("_here") ||
+    lower.includes("staff_level_user_token") ||
+    lower === "https://..." ||
+    lower === "..."
+  );
+}
+
+function configuredEnvBoolean(...keys) {
+  const value = configuredEnvValue(...keys);
+
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
 }
 
 export async function handleApiRequest(request, response) {
@@ -141,7 +182,7 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/auth/start" && request.method === "GET") {
-      startOAuthSignIn(request, response, url.searchParams.get("returnTo"));
+      startOAuthSignIn(request, response, url.searchParams.get("returnTo"), url.searchParams.get("popup") === "1");
       return true;
     }
 
@@ -223,7 +264,9 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      if (!session?.consumerIdentityToken) {
+      const canBookWithSession = Boolean(session?.consumerIdentityToken || (session?.clientId && getBookingConfig().staffToken));
+
+      if (!canBookWithSession) {
         sendJson(response, 401, {
           message: "Please sign in before booking.",
           loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(`schedule.html?classId=${classId}`)}`
@@ -349,14 +392,17 @@ function fulfilledValue(result) {
   return result.status === "fulfilled" ? result.value : null;
 }
 
-function startOAuthSignIn(request, response, requestedReturnTo) {
+function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
   const {
     oauthAuthorizeUrl,
     oauthClientId,
     oauthConfigured,
     oauthRedirectUri,
+    oauthResponseMode,
+    oauthResponseType,
     oauthScope,
-    oauthSubscriberId
+    oauthSubscriberId,
+    oauthUsePkce
   } = getBookingConfig();
 
   if (!oauthConfigured) {
@@ -366,11 +412,12 @@ function startOAuthSignIn(request, response, requestedReturnTo) {
 
   const state = randomBytes(24).toString("base64url");
   const nonce = randomBytes(24).toString("base64url");
+  const codeVerifier = oauthUsePkce ? randomBytes(32).toString("base64url") : "";
   const returnTo = safeReturnTo(requestedReturnTo);
   const authorizeUrl = new URL(oauthAuthorizeUrl);
 
-  authorizeUrl.searchParams.set("response_mode", "form_post");
-  authorizeUrl.searchParams.set("response_type", "code id_token");
+  authorizeUrl.searchParams.set("response_mode", oauthResponseMode);
+  authorizeUrl.searchParams.set("response_type", oauthResponseType);
   authorizeUrl.searchParams.set("client_id", oauthClientId);
   authorizeUrl.searchParams.set("redirect_uri", oauthRedirectUri);
   authorizeUrl.searchParams.set("scope", oauthScope);
@@ -378,40 +425,158 @@ function startOAuthSignIn(request, response, requestedReturnTo) {
   authorizeUrl.searchParams.set("nonce", nonce);
   authorizeUrl.searchParams.set("state", state);
 
-  setOAuthCookie(response, { state, nonce, returnTo });
+  if (oauthUsePkce) {
+    authorizeUrl.searchParams.set("code_challenge", createHash("sha256").update(codeVerifier).digest("base64url"));
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  }
+
+  setPendingOAuthState({ state, nonce, returnTo, popup: Boolean(popup), codeVerifier });
+  setOAuthCookie(response, { state, nonce, returnTo, popup: Boolean(popup), codeVerifier });
   redirect(response, authorizeUrl.toString());
 }
 
 async function finishOAuthSignIn(request, response, form) {
-  const oauthSession = readOAuthSession(request);
+  const formState = String(form.state || "");
+  const oauthSession = takePendingOAuthState(formState) || readOAuthSession(request);
+  const finishPopup = (payload) => {
+    clearOAuthCookie(response);
+    sendOAuthPopupResponse(response, payload);
+  };
 
   if (form.error) {
+    if (oauthSession?.popup) {
+      finishPopup({
+        ok: false,
+        error: "provider",
+        message: form.error_description || form.error || "Mindbody could not complete sign-in."
+      });
+      return;
+    }
+
     clearOAuthCookie(response);
     redirect(response, `/login.html?auth=error&message=${encodeURIComponent(form.error_description || form.error)}`);
     return;
   }
 
-  if (!oauthSession?.state || !form.state || oauthSession.state !== form.state) {
+  if (!oauthSession?.state || !formState || oauthSession.state !== formState) {
+    if (oauthSession?.popup) {
+      finishPopup({
+        ok: false,
+        error: "state",
+        message: "We could not verify the sign-in session. Please try again."
+      });
+      return;
+    }
+
     clearOAuthCookie(response);
     redirect(response, "/login.html?auth=state");
     return;
   }
 
   if (!form.code) {
+    if (oauthSession.popup) {
+      finishPopup({
+        ok: false,
+        error: "missing-code",
+        message: "Mindbody did not return a sign-in code. Please try again."
+      });
+      return;
+    }
+
     clearOAuthCookie(response);
     redirect(response, "/login.html?auth=missing-code");
     return;
   }
 
-  const tokenResponse = await exchangeOAuthCode(form.code);
-  const session = normalizeOAuthSession(tokenResponse);
+  const tokenResponse = await exchangeOAuthCode(form.code, oauthSession.codeVerifier);
+  const session = normalizeOAuthSession(tokenResponse, {
+    authorizationIdToken: form.id_token,
+    expectedNonce: oauthSession.nonce
+  });
 
   setSessionCookie(response, session);
+  if (oauthSession.popup) {
+    finishPopup({
+      ok: true,
+      returnTo: oauthSession.returnTo || "/account.html"
+    });
+    return;
+  }
+
   clearOAuthCookie(response);
   redirect(response, oauthSession.returnTo || "/account.html");
 }
 
-async function exchangeOAuthCode(code) {
+function sendOAuthPopupResponse(response, payload) {
+  const message = {
+    type: "cave:auth:complete",
+    ok: Boolean(payload.ok),
+    returnTo: safeReturnTo(payload.returnTo || "account.html"),
+    error: payload.error || "",
+    message: payload.message || ""
+  };
+  const scriptPayload = JSON.stringify(message).replace(/</g, "\\u003c");
+  const fallbackUrl = message.ok
+    ? message.returnTo
+    : `/login.html?auth=${encodeURIComponent(message.error || "error")}&message=${encodeURIComponent(message.message || "")}`;
+
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "text/html; charset=utf-8");
+  response.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Returning to Cave Modern Pilates</title>
+    <style>
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background: #202322;
+        color: #fff;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(100% - 40px, 440px);
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 2rem;
+        font-weight: 420;
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.72);
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Returning to Cave.</h1>
+      <p>You can close this window if it does not close automatically.</p>
+    </main>
+    <script>
+      (function () {
+        var payload = ${scriptPayload};
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(payload, window.location.origin);
+          window.close();
+        }
+        window.setTimeout(function () {
+          window.location.replace(${JSON.stringify(fallbackUrl)});
+        }, 700);
+      })();
+    </script>
+  </body>
+</html>`);
+}
+
+async function exchangeOAuthCode(code, codeVerifier = "") {
   const {
     oauthClientId,
     oauthClientSecret,
@@ -424,12 +589,19 @@ async function exchangeOAuthCode(code) {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     client_id: oauthClientId,
-    client_secret: oauthClientSecret,
     code,
     redirect_uri: oauthRedirectUri,
     subscriberId: oauthSubscriberId,
     scope: oauthScope
   });
+
+  if (oauthClientSecret) {
+    body.set("client_secret", oauthClientSecret);
+  }
+
+  if (codeVerifier) {
+    body.set("code_verifier", codeVerifier);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35_000);
 
@@ -459,14 +631,18 @@ async function exchangeOAuthCode(code) {
   }
 }
 
-function normalizeOAuthSession(data) {
+function normalizeOAuthSession(data, options = {}) {
   const accessToken = data?.access_token || "";
-  const idClaims = parseJwtClaims(data?.id_token);
+  const idClaims = parseJwtClaims(data?.id_token || options.authorizationIdToken);
   const accessClaims = parseJwtClaims(accessToken);
   const claims = { ...accessClaims, ...idClaims };
 
   if (!accessToken) {
     throw httpError(502, "Mindbody OAuth did not return an access token.");
+  }
+
+  if (options.expectedNonce && idClaims.nonce && idClaims.nonce !== options.expectedNonce) {
+    throw httpError(401, "Mindbody OAuth nonce verification failed.");
   }
 
   return {
@@ -512,7 +688,7 @@ async function bookClientIntoClass(session, classId) {
 
   return bookingRequest("/class/addclienttoclass", {
     method: "POST",
-    consumerIdentityToken: session.consumerIdentityToken,
+    ...(session.consumerIdentityToken ? { consumerIdentityToken: session.consumerIdentityToken } : { token: getBookingConfig().staffToken }),
     body: {
       ClientId: clientId,
       ClassId: classId,
@@ -546,7 +722,7 @@ function purchaseContractItem(session, clientId, item, body) {
   const paymentPayload = buildPaymentPayload(body);
 
   if (!Object.keys(paymentPayload).length) {
-    throw httpError(402, "A stored payment method is required to buy this membership on-site.");
+    throw httpError(402, "A saved payment method is required before this membership can be bought on-site.");
   }
 
   const { locationId } = getBookingConfig();
@@ -577,7 +753,7 @@ function checkoutServiceItem(clientId, item, body) {
   const paymentPayload = buildPaymentPayload(body);
 
   if (!Object.keys(paymentPayload).length) {
-    throw httpError(402, "A stored payment method is required to buy this package on-site.");
+    throw httpError(402, "A saved payment method is required before this package can be bought on-site.");
   }
 
   return bookingRequest("/sale/checkoutshoppingcart", {
@@ -858,6 +1034,7 @@ function compactObject(object) {
 
 async function bookingRequest(path, { method = "GET", body, params, token, consumerIdentityToken } = {}) {
   const { apiKey, siteId } = getBookingConfig();
+  const authToken = token || consumerIdentityToken;
 
   if (!apiKey) {
     throw httpError(500, "Booking API key is not configured.");
@@ -884,7 +1061,7 @@ async function bookingRequest(path, { method = "GET", body, params, token, consu
         SiteId: siteId,
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...(consumerIdentityToken ? { "consumer-identity-token": consumerIdentityToken } : {})
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -1008,6 +1185,41 @@ function readOAuthSession(request) {
     return unseal(value);
   } catch (error) {
     return null;
+  }
+}
+
+function setPendingOAuthState(payload) {
+  cleanupPendingOAuthStates();
+  pendingOAuthStates.set(payload.state, {
+    ...payload,
+    exp: Date.now() + OAUTH_TTL_SECONDS * 1000
+  });
+}
+
+function takePendingOAuthState(state) {
+  cleanupPendingOAuthStates();
+
+  if (!state || !pendingOAuthStates.has(state)) {
+    return null;
+  }
+
+  const session = pendingOAuthStates.get(state);
+  pendingOAuthStates.delete(state);
+
+  if (!session?.exp || session.exp < Date.now()) {
+    return null;
+  }
+
+  return session;
+}
+
+function cleanupPendingOAuthStates() {
+  const now = Date.now();
+
+  for (const [state, session] of pendingOAuthStates.entries()) {
+    if (!session?.exp || session.exp < now) {
+      pendingOAuthStates.delete(state);
+    }
   }
 }
 

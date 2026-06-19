@@ -121,11 +121,19 @@ svg {
   gap: 18px;
 }
 
-.instagram-link {
+.social-icon-link {
   display: grid;
   width: 34px;
   height: 34px;
   place-items: center;
+  color: inherit;
+}
+
+.tiktok-link,
+.tiktok-mark {
+  font-size: 1.35rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .login-button,
@@ -218,10 +226,9 @@ svg {
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.18) 33%, rgba(0, 0, 0, 0.08) 67%, rgba(0, 0, 0, 0.78)),
     linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 36%, rgba(0, 0, 0, 0.46)),
-    url("../assets/cave-founder-hero.png") center center / auto 100% no-repeat,
-    url("../assets/cave-founder-hero.png") center center / cover no-repeat;
+    url("../assets/cave-home-hero.jpeg") center center / cover no-repeat;
   content: "";
-  filter: grayscale(100%) contrast(0.96);
+  filter: saturate(0.95) contrast(0.98);
 }
 
 .hero::after {
@@ -291,7 +298,7 @@ svg {
 }
 
 .wave-fill {
-  fill: #62635d;
+  fill: #50534d;
 }
 
 .wave-line {
@@ -318,7 +325,7 @@ svg {
 .page-schedule,
 .page-about,
 .page-pricing,
-.page-starter,
+.page-newbie,
 .page-memberships,
 .page-class-packs,
 .page-login,
@@ -335,7 +342,7 @@ svg {
 body.interior:has(.page-schedule),
 body.interior:has(.page-about),
 body.interior:has(.page-pricing),
-body.interior:has(.page-starter),
+body.interior:has(.page-newbie),
 body.interior:has(.page-memberships),
 body.interior:has(.page-class-packs),
 body.interior:has(.page-login),
@@ -345,7 +352,7 @@ body.interior:has(.page-policies),
 .app-shell.interior:has(.page-schedule),
 .app-shell.interior:has(.page-about),
 .app-shell.interior:has(.page-pricing),
-.app-shell.interior:has(.page-starter),
+.app-shell.interior:has(.page-newbie),
 .app-shell.interior:has(.page-memberships),
 .app-shell.interior:has(.page-class-packs),
 .app-shell.interior:has(.page-login),
@@ -458,22 +465,22 @@ body.interior:has(.page-policies),
   filter: saturate(0.92) contrast(0.98);
 }
 
-.pricing-choice-card.starter .pricing-choice-image {
-  background-image: url("../assets/cave-starter.jpg");
-  background-size: 128%;
-  background-position: 50% 45%;
+.pricing-choice-card.newbie .pricing-choice-image {
+  background-image: url("../assets/cave-pricing-newbie.jpeg");
+  background-size: cover;
+  background-position: center;
 }
 
 .pricing-choice-card.memberships .pricing-choice-image {
-  background-image: url("../assets/cave-memberships.jpg");
-  background-size: 122%;
-  background-position: 50% 54%;
+  background-image: url("../assets/cave-pricing-memberships.jpg");
+  background-size: cover;
+  background-position: center;
 }
 
 .pricing-choice-card.classPacks .pricing-choice-image {
-  background-image: url("../assets/cave-studio-wide.jpg");
-  background-size: 162%;
-  background-position: 52% 50%;
+  background-image: url("../assets/cave-pricing-class-packs.jpeg");
+  background-size: cover;
+  background-position: center;
 }
 
 .pricing-choice-copy {
@@ -662,12 +669,13 @@ body.interior:has(.page-policies),
 }
 
 .pricing-card-grid.classPacks {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 400px));
+  justify-content: center;
   gap: clamp(20px, 2vw, 34px);
-  width: min(100%, 1500px);
+  width: min(100%, 1380px);
 }
 
-.pricing-card-grid.starter {
+.pricing-card-grid.newbie {
   grid-template-columns: repeat(2, minmax(280px, 460px));
   justify-content: center;
   gap: clamp(28px, 4vw, 56px);
@@ -703,7 +711,7 @@ body.interior:has(.page-policies),
     linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 243, 240, 0.92));
 }
 
-.pricing-card.starter {
+.pricing-card.newbie {
   min-height: clamp(300px, 24vw, 358px);
   align-content: center;
   border-radius: clamp(34px, 3.2vw, 52px);
@@ -729,7 +737,7 @@ body.interior:has(.page-policies),
   filter: grayscale(10%);
 }
 
-.pricing-card.starter .pricing-card-media {
+.pricing-card.newbie .pricing-card-media {
   background-position: 74% 44%;
 }
 
@@ -754,7 +762,7 @@ body.interior:has(.page-policies),
   font-size: clamp(2.75rem, 4vw, 4.35rem);
 }
 
-.pricing-card.starter .pricing-card-price {
+.pricing-card.newbie .pricing-card-price {
   font-size: clamp(2.75rem, 4.2vw, 4.45rem);
 }
 
@@ -1053,11 +1061,7 @@ body.interior:has(.page-policies),
   margin: 0;
   padding: clamp(104px, 10vw, 150px) max(26px, calc((100vw - 1320px) / 2 + 26px)) clamp(92px, 8vw, 132px);
   color: var(--white);
-  background:
-    radial-gradient(circle at 20% 16%, rgba(255, 255, 255, 0.1), transparent 24%),
-    radial-gradient(circle at 80% 28%, rgba(255, 255, 255, 0.06), transparent 28%),
-    linear-gradient(115deg, rgba(55, 57, 54, 0.78), rgba(87, 87, 82, 0.9)),
-    #62635d;
+  background: #50534d;
 }
 
 .home-pricing-preview .section-heading {
@@ -2493,11 +2497,11 @@ body.interior:has(.page-policies),
   gap: 8px;
 }
 
-.waiver-form-copy h3 {
+.waiver-form-copy strong {
   margin: 0;
   color: var(--black);
   font-size: clamp(1.55rem, 2.4vw, 2.35rem);
-  font-weight: 500;
+  font-weight: 520;
   line-height: 1;
 }
 
@@ -2766,7 +2770,7 @@ body.interior:has(.page-policies),
   gap: 10px;
 }
 
-.footer-instagram {
+.footer-social {
   display: inline-flex;
   gap: 10px;
   align-items: center;
@@ -3075,7 +3079,7 @@ body.interior:has(.page-policies),
     width: min(100%, 780px);
   }
 
-  .pricing-card-grid.starter {
+  .pricing-card-grid.newbie {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: min(100%, 820px);
   }
@@ -3311,7 +3315,7 @@ body.interior:has(.page-policies),
     width: min(100%, 390px);
   }
 
-  .pricing-card-grid.starter {
+  .pricing-card-grid.newbie {
     grid-template-columns: 1fr;
     width: min(100%, 390px);
   }
@@ -3324,7 +3328,7 @@ body.interior:has(.page-policies),
     font-size: clamp(2.7rem, 13vw, 3.85rem);
   }
 
-  .pricing-card.starter .pricing-card-price {
+  .pricing-card.newbie .pricing-card-price {
     font-size: clamp(2.7rem, 13vw, 3.85rem);
   }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T01:36:28.276157-04:00",
+  "generatedAt": "2026-06-19T15:56:15.892086-04:00",
   "source": "cached booking API snapshot",
   "booking": {
     "scheduleUrl": "schedule.html",
@@ -54,15 +54,15 @@
     }
   ],
   "store": {
-    "starter": [
+    "newbie": [
       {
         "id": "100006",
         "productId": 100006,
         "kind": "service",
-        "category": "starter",
+        "category": "newbie",
         "name": "New Client Drop in",
         "sourceName": "New Client Drop in",
-        "price": "$15.00",
+        "price": "$22.50",
         "sessions": 1,
         "description": "Expires in 1 months",
         "sellOnline": true,
@@ -73,7 +73,7 @@
         "id": "100007",
         "productId": 100007,
         "kind": "service",
-        "category": "starter",
+        "category": "newbie",
         "name": "New Client 3 class package",
         "sourceName": "New Client 3 class package",
         "price": "$65.00",
@@ -198,20 +198,6 @@
         "requiresTerms": false
       },
       {
-        "id": "100023",
-        "productId": 100023,
-        "kind": "service",
-        "category": "classPacks",
-        "name": "Drop-in (Instructors in training)",
-        "sourceName": "Drop-in (Instructors in training)",
-        "price": "$15.00",
-        "sessions": 1,
-        "description": "Expires in 3 days",
-        "sellOnline": true,
-        "requiresWaiver": true,
-        "requiresTerms": false
-      },
-      {
         "id": "100008",
         "productId": 100008,
         "kind": "service",
@@ -308,7 +294,7 @@
     "address": "31 Orland Square Drive suite b, Orland Park IL 60462, Orland Park, IL, 60462",
     "parking": "Parking details coming soon.",
     "hours": "",
-    "email": "cavemodernpilates@gmail.com"
+    "email": "support@cavemodernpilates.com"
   },
   "cachePolicy": {
     "publicSchedule": "5-15 minutes",

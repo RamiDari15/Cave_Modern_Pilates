@@ -1,7 +1,8 @@
+import { spawn } from "node:child_process";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
-import { handleApiRequest } from "./api.mjs";
+import { getBookingConfig, handleApiRequest } from "./api.mjs";
 
 const ROOT_DIR = resolve(import.meta.dirname, "..");
 const DIST_DIR = resolve(ROOT_DIR, "dist");
@@ -13,6 +14,8 @@ const TYPES = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -30,6 +33,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Cave Modern Pilates server running at http://${HOST}:${PORT}/`);
+  startStudioCacheRefresh();
 });
 
 function serveStatic(request, response) {
@@ -65,4 +69,70 @@ function resolveHtmlFallback(filePath) {
   }
 
   return null;
+}
+
+let isSyncingStudioCache = false;
+
+function startStudioCacheRefresh() {
+  const disabled = process.env.BOOKING_CACHE_SYNC === "false";
+  const { apiKey } = getBookingConfig();
+
+  if (disabled || !apiKey) {
+    return;
+  }
+
+  const requestedMinutes = Number(process.env.BOOKING_CACHE_REFRESH_MINUTES || 15);
+  const refreshMinutes = Number.isFinite(requestedMinutes) ? Math.max(requestedMinutes, 5) : 15;
+  const intervalMs = refreshMinutes * 60 * 1000;
+
+  if (process.env.BOOKING_SYNC_ON_START !== "false") {
+    runStudioCacheSync("startup");
+  }
+
+  const timer = setInterval(() => runStudioCacheSync("interval"), intervalMs);
+  timer.unref?.();
+}
+
+function runStudioCacheSync(reason) {
+  if (isSyncingStudioCache) {
+    return;
+  }
+
+  isSyncingStudioCache = true;
+
+  const child = spawn("python3", ["scripts/sync_booking_api.py"], {
+    cwd: ROOT_DIR,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  let output = "";
+  let errorOutput = "";
+
+  child.stdout.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+
+  child.stderr.on("data", (chunk) => {
+    errorOutput += chunk.toString();
+  });
+
+  child.on("close", (code) => {
+    isSyncingStudioCache = false;
+
+    if (code === 0) {
+      console.log(`Studio cache refreshed from Mindbody (${reason}).`);
+      return;
+    }
+
+    console.warn(`Studio cache refresh failed (${reason}) with exit code ${code}.`);
+    if (errorOutput || output) {
+      console.warn((errorOutput || output).slice(-1500));
+    }
+  });
+
+  child.on("error", (error) => {
+    isSyncingStudioCache = false;
+    console.warn(`Studio cache refresh could not start: ${error.message}`);
+  });
 }
