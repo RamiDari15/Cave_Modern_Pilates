@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T15:56:15.892086-04:00",
+  "generatedAt": "2026-06-22T07:07:57.807425-04:00",
   "source": "cached booking API snapshot",
   "booking": {
     "scheduleUrl": "schedule.html",
@@ -288,6 +288,17 @@
       "instructor": "Hala Abusham",
       "spotsLeft": "",
       "bookUrl": "schedule.html?classId=480"
+    },
+    {
+      "id": 481,
+      "classScheduleId": 10,
+      "date": "Tue Aug 4",
+      "time": "7:00 AM",
+      "startDateTime": "2026-08-04T07:00:00",
+      "className": "Cave burnout",
+      "instructor": "Hala Abusham",
+      "spotsLeft": "",
+      "bookUrl": "schedule.html?classId=481"
     }
   ],
   "location": {

@@ -151,13 +151,28 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/auth/status") {
-      const { apiKey, siteId, sessionSecret, oauthConfigured, oauthRedirectUri, oauthSubscriberId } = getBookingConfig();
+      const {
+        apiKey,
+        siteId,
+        sessionSecret,
+        oauthConfigured,
+        oauthRedirectUri,
+        oauthResponseMode,
+        oauthResponseType,
+        oauthScope,
+        oauthSubscriberId,
+        oauthUsePkce
+      } = getBookingConfig();
       sendJson(response, 200, {
         configured: Boolean(apiKey),
         oauthConfigured,
         hasSessionSecret: Boolean(sessionSecret),
         oauthRedirectUri,
+        oauthResponseMode,
+        oauthResponseType,
+        oauthScope,
         oauthSubscriberId,
+        oauthUsePkce,
         siteId
       });
       return true;
@@ -242,7 +257,7 @@ export async function handleApiRequest(request, response) {
       if (!session?.signedIn && !session?.clientId && !session?.consumerIdentityToken && !session?.accessToken) {
         sendJson(response, 401, {
           message: "Please sign in before saving your waiver.",
-          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("policies.html#liability-waiver")}`
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/policies#liability-waiver")}`
         });
         return true;
       }
@@ -269,7 +284,7 @@ export async function handleApiRequest(request, response) {
       if (!canBookWithSession) {
         sendJson(response, 401, {
           message: "Please sign in before booking.",
-          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(`schedule.html?classId=${classId}`)}`
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(`/schedule?classId=${classId}`)}`
         });
         return true;
       }
@@ -300,7 +315,7 @@ export async function handleApiRequest(request, response) {
       }
 
       if (!session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
-        const returnTo = safeReturnTo(body.returnTo || `pricing.html?purchase=${item.kind}-${item.id}`);
+        const returnTo = safeReturnTo(body.returnTo || `/pricing?purchase=${item.kind}-${item.id}`);
         sendJson(response, 401, {
           message: "Please sign in before buying.",
           loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`
@@ -406,7 +421,7 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
   } = getBookingConfig();
 
   if (!oauthConfigured) {
-    redirect(response, "/login.html?auth=not-ready");
+    redirect(response, "/login?auth=not-ready");
     return;
   }
 
@@ -454,7 +469,7 @@ async function finishOAuthSignIn(request, response, form) {
     }
 
     clearOAuthCookie(response);
-    redirect(response, `/login.html?auth=error&message=${encodeURIComponent(form.error_description || form.error)}`);
+    redirect(response, `/login?auth=error&message=${encodeURIComponent(form.error_description || form.error)}`);
     return;
   }
 
@@ -469,7 +484,7 @@ async function finishOAuthSignIn(request, response, form) {
     }
 
     clearOAuthCookie(response);
-    redirect(response, "/login.html?auth=state");
+    redirect(response, "/login?auth=state");
     return;
   }
 
@@ -484,7 +499,7 @@ async function finishOAuthSignIn(request, response, form) {
     }
 
     clearOAuthCookie(response);
-    redirect(response, "/login.html?auth=missing-code");
+    redirect(response, "/login?auth=missing-code");
     return;
   }
 
@@ -498,27 +513,27 @@ async function finishOAuthSignIn(request, response, form) {
   if (oauthSession.popup) {
     finishPopup({
       ok: true,
-      returnTo: oauthSession.returnTo || "/account.html"
+      returnTo: oauthSession.returnTo || "/account"
     });
     return;
   }
 
   clearOAuthCookie(response);
-  redirect(response, oauthSession.returnTo || "/account.html");
+  redirect(response, oauthSession.returnTo || "/account");
 }
 
 function sendOAuthPopupResponse(response, payload) {
   const message = {
     type: "cave:auth:complete",
     ok: Boolean(payload.ok),
-    returnTo: safeReturnTo(payload.returnTo || "account.html"),
+    returnTo: safeReturnTo(payload.returnTo || "/account"),
     error: payload.error || "",
     message: payload.message || ""
   };
   const scriptPayload = JSON.stringify(message).replace(/</g, "\\u003c");
   const fallbackUrl = message.ok
     ? message.returnTo
-    : `/login.html?auth=${encodeURIComponent(message.error || "error")}&message=${encodeURIComponent(message.message || "")}`;
+    : `/login?auth=${encodeURIComponent(message.error || "error")}&message=${encodeURIComponent(message.message || "")}`;
 
   response.statusCode = 200;
   response.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -1285,14 +1300,18 @@ function redirect(response, location) {
 }
 
 function safeReturnTo(value) {
-  const fallback = "account.html";
+  const fallback = "/account";
   const text = String(value || fallback).trim();
 
   if (!text || text.includes("://") || text.startsWith("//")) {
     return fallback;
   }
 
-  return text.startsWith("/") ? text : `/${text}`;
+  const clean = text
+    .replace(/^\/?index\.html(?=([?#]|$))/, "/")
+    .replace(/\.html(?=([?#]|$))/g, "");
+
+  return clean.startsWith("/") ? clean : `/${clean}`;
 }
 
 function seal(payload) {

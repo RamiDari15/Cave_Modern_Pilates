@@ -2,23 +2,42 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CalendarDays, ChevronLeft, ChevronRight, Instagram, Menu, Minus, Plus, Search, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
+import homeHeroPoster from "../assets/cave-home-hero.jpeg";
+import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
 import "./styles.css";
 
+const ROUTES = {
+  home: "/",
+  pricing: "/pricing",
+  newbie: "/newbie",
+  memberships: "/memberships",
+  classPacks: "/class-packs",
+  schedule: "/schedule",
+  about: "/about",
+  contact: "/contact",
+  faq: "/faq",
+  login: "/login",
+  signup: "/signup",
+  account: "/account",
+  terms: "/terms",
+  policies: "/policies"
+};
+
 const NAV_ITEMS = [
-  { label: "Home", href: "index.html", page: "home" },
-  { label: "Pricing", href: "pricing.html", page: "pricing" },
-  { label: "Schedule", href: "schedule.html", page: "schedule" },
-  { label: "About Us", href: "about.html", page: "about" },
-  { label: "Contact Us", href: "contact.html", page: "contact" },
-  { label: "FAQ", href: "faq.html", page: "faq" }
+  { label: "Home", href: ROUTES.home, page: "home" },
+  { label: "Pricing", href: ROUTES.pricing, page: "pricing" },
+  { label: "Schedule", href: ROUTES.schedule, page: "schedule" },
+  { label: "About Us", href: ROUTES.about, page: "about" },
+  { label: "Contact Us", href: ROUTES.contact, page: "contact" },
+  { label: "FAQ", href: ROUTES.faq, page: "faq" }
 ];
 
 const FOOTER_LINKS = [
-  { label: "About Us", href: "about.html", page: "about" },
-  { label: "Contact Us", href: "contact.html", page: "contact" },
-  { label: "FAQ", href: "faq.html", page: "faq" },
-  { label: "TOS", href: "terms.html", page: "terms" },
-  { label: "Policies", href: "policies.html", page: "policies" }
+  { label: "About Us", href: ROUTES.about, page: "about" },
+  { label: "Contact Us", href: ROUTES.contact, page: "contact" },
+  { label: "FAQ", href: ROUTES.faq, page: "faq" },
+  { label: "TOS", href: ROUTES.terms, page: "terms" },
+  { label: "Policies", href: ROUTES.policies, page: "policies" }
 ];
 
 const PAGE_TITLES = {
@@ -68,21 +87,21 @@ const PRICING_CATEGORIES = [
   {
     key: "memberships",
     page: "memberships",
-    href: "memberships.html",
+    href: ROUTES.memberships,
     title: "Memberships",
     eyebrow: "Monthly rhythm"
   },
   {
     key: "classPacks",
     page: "class-packs",
-    href: "class-packs.html",
+    href: ROUTES.classPacks,
     title: "Class Packs",
     eyebrow: "Flexible credits"
   },
   {
     key: "newbie",
     page: "newbie",
-    href: "newbie.html",
+    href: ROUTES.newbie,
     title: "Newbie Promo",
     eyebrow: "First visit"
   }
@@ -351,7 +370,7 @@ const LIABILITY_WAIVER_SECTIONS = [
 ];
 
 function getPageFromPath() {
-  const leaf = window.location.pathname.split("/").filter(Boolean).pop() || "index.html";
+  const leaf = window.location.pathname.split("/").filter(Boolean).pop() || "index";
   const name = leaf.replace(".html", "");
 
   if (name === "index") {
@@ -363,6 +382,24 @@ function getPageFromPath() {
   }
 
   return ["pricing", "newbie", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"].includes(name) ? name : "home";
+}
+
+function cleanInternalUrl(value, fallback = ROUTES.home) {
+  const text = String(value || fallback).trim();
+
+  if (!text || text.includes("://") || text.startsWith("//") || text.startsWith("mailto:") || text.startsWith("tel:") || text.startsWith("#")) {
+    return text;
+  }
+
+  let clean = text
+    .replace(/^\/?index\.html(?=([?#]|$))/, "/")
+    .replace(/\.html(?=([?#]|$))/g, "");
+
+  if (!clean.startsWith("/") && !clean.startsWith("/api/")) {
+    clean = `/${clean}`;
+  }
+
+  return clean;
 }
 
 async function apiRequest(path, { method = "GET", body, token } = {}) {
@@ -503,7 +540,7 @@ function App() {
     return () => window.removeEventListener("scroll", updateHeader);
   }, []);
 
-  const bookingUrl = cache.booking?.scheduleUrl || "schedule.html";
+  const bookingUrl = cleanInternalUrl(cache.booking?.scheduleUrl, ROUTES.schedule);
   const shellClass = `app-shell${isInterior ? " interior" : ""}`;
 
   return (
@@ -535,7 +572,7 @@ function App() {
 function updatePageMeta(page) {
   const title = PAGE_TITLES[page] || PAGE_TITLES.home;
   const description = PAGE_DESCRIPTIONS[page] || PAGE_DESCRIPTIONS.home;
-  const canonicalPath = page === "home" ? "/" : `/${page}.html`;
+  const canonicalPath = page === "home" ? "/" : `/${page}`;
   const canonicalUrl = `${SITE_URL}${canonicalPath}`;
 
   setMetaTag("description", description);
@@ -605,18 +642,18 @@ function setStructuredData(page) {
       addressCountry: "US"
     },
     sameAs: [INSTAGRAM_URL, TIKTOK_URL],
-    mainEntityOfPage: page === "home" ? SITE_URL : `${SITE_URL}/${page}.html`
+    mainEntityOfPage: page === "home" ? SITE_URL : `${SITE_URL}/${page}`
   });
 }
 
 function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle, onCloseMenu }) {
-  const accountHref = clientSession?.signedIn ? "account.html" : "login.html";
+  const accountHref = clientSession?.signedIn ? ROUTES.account : ROUTES.login;
   const accountLabel = clientSession?.signedIn ? "Account" : "Login";
 
   return (
     <>
       <header className={`site-header${isScrolled ? " is-scrolled" : ""}${menuOpen ? " menu-active" : ""}`}>
-        <a className="wordmark" href="index.html" aria-label="Cave Modern Pilates home">
+        <a className="wordmark" href={ROUTES.home} aria-label="Cave Modern Pilates home">
           Cave Modern Pilates
         </a>
 
@@ -726,6 +763,9 @@ function HomePage({ memberships, store, bookingUrl }) {
   return (
     <>
       <section className="hero" id="home" aria-label="Cave Modern Pilates home">
+        <video className="hero-video" autoPlay muted loop playsInline poster={homeHeroPoster} aria-hidden="true">
+          <source src={homeHeroVideo} type="video/mp4" />
+        </video>
         <a className="hero-book" href={bookingUrl}>
           Book Now
         </a>
@@ -766,7 +806,7 @@ function HomePage({ memberships, store, bookingUrl }) {
         </div>
 
         <div className="button-row compact">
-          <a className="pill-button black" href="pricing.html">
+          <a className="pill-button black" href={ROUTES.pricing}>
             View All Pricing
           </a>
         </div>
@@ -804,21 +844,21 @@ function getHomePricingPreview(store, memberships) {
     {
       title: "Newbie Promo",
       label: "First visit",
-      href: "newbie.html",
+      href: ROUTES.newbie,
       priceLabel: priceRangeLabel(newbieOffers),
       items: previewStoreItems(newbieOffers, "newbie", 2)
     },
     {
       title: "Memberships",
       label: "Monthly",
-      href: "memberships.html",
+      href: ROUTES.memberships,
       priceLabel: priceRangeLabel(membershipOptions, "/mo"),
       items: previewStoreItems(groupMembershipItems(membershipOptions), "memberships", 3)
     },
     {
       title: "Class Packs",
       label: "Flexible",
-      href: "class-packs.html",
+      href: ROUTES.classPacks,
       priceLabel: priceRangeLabel(visibleClassPacks),
       items: previewStoreItems(visibleClassPacks, "classPacks", 3)
     }
@@ -1319,7 +1359,7 @@ function FaqPage() {
             <p className="kicker">Quick Guide</p>
             <strong>Book with confidence.</strong>
             <p>Most questions come down to three rules: cancel early, keep payment current, and treat the studio like a shared focused space.</p>
-            <a className="pill-button black" href="schedule.html">View Schedule</a>
+            <a className="pill-button black" href={ROUTES.schedule}>View Schedule</a>
           </aside>
 
           <div className="faq-list">
@@ -1387,13 +1427,13 @@ function oauthStatusFromQuery() {
 }
 
 function normalizeLocalReturnTo(value) {
-  const text = String(value || "account.html").trim();
+  const text = cleanInternalUrl(value || ROUTES.account, ROUTES.account);
 
   if (!text || text.includes("://") || text.startsWith("//")) {
-    return "account.html";
+    return ROUTES.account;
   }
 
-  return text.startsWith("/") ? text.slice(1) : text;
+  return text.startsWith("/") ? text : `/${text}`;
 }
 
 function LoginPage({ bookingUrl, clientSession, setClientSession }) {
@@ -1402,7 +1442,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
 
   useEffect(() => {
     if (clientSession?.signedIn) {
-      window.location.href = "account.html";
+      window.location.href = ROUTES.account;
     }
   }, [clientSession]);
 
@@ -1440,7 +1480,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
   }, [setClientSession]);
 
   const startSignIn = () => {
-    const returnTo = "account.html";
+    const returnTo = ROUTES.account;
     const popupUrl = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}&popup=1`;
     const fallbackUrl = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`;
     const width = 560;
@@ -1478,7 +1518,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
           <button className="pill-button black" type="button" onClick={startSignIn} disabled={isSigningIn}>
             {isSigningIn ? "Waiting for Sign In..." : "Sign In"}
           </button>
-          <a className="pill-button outline" href="signup.html">
+          <a className="pill-button outline" href={ROUTES.signup}>
             Create Account
           </a>
           <a className="pill-button outline" href={bookingUrl}>
@@ -1576,7 +1616,7 @@ function SignupPage({ setClientSession }) {
 
       if (data.session?.signedIn) {
         setClientSession(data.session);
-        window.location.href = "account.html";
+        window.location.href = ROUTES.account;
         return;
       }
 
@@ -1618,13 +1658,13 @@ function SignupPage({ setClientSession }) {
         <label className="check-row">
           <input name="acceptPolicies" type="checkbox" checked={form.acceptPolicies} onChange={updateField} required />
           <span>
-            I agree to the <a href="terms.html">terms</a> and <a href="policies.html">studio policies</a>.
+            I agree to the <a href={ROUTES.terms}>terms</a> and <a href={ROUTES.policies}>studio policies</a>.
           </span>
         </label>
         <button className="pill-button black" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Creating Account..." : "Create Account"}
         </button>
-        <a className="pill-button outline" href="login.html">
+        <a className="pill-button outline" href={ROUTES.login}>
           Already Have an Account
         </a>
         {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
@@ -1652,7 +1692,7 @@ function LiabilityWaiverForm({ form, onChange }) {
       <label className="check-row waiver-consent">
         <input name="acceptWaiver" type="checkbox" checked={form.acceptWaiver} onChange={onChange} required />
         <span>
-          I have read and agree to the <a href="policies.html#waiver-copy">Waiver and Release of Liability</a>.
+          I have read and agree to the <a href={`${ROUTES.policies}#waiver-copy`}>Waiver and Release of Liability</a>.
         </span>
       </label>
       <label className="check-row">
@@ -1780,7 +1820,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   const signOut = () => {
     apiRequest("/api/auth/sign-out", { method: "POST" }).finally(() => {
       setClientSession(null);
-      window.location.href = "login.html";
+      window.location.href = ROUTES.login;
     });
   };
 
@@ -1805,8 +1845,8 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           <p>Your account page shows bookings, class credits, and memberships once connected.</p>
         </div>
         <div className="login-panel">
-          <a className="pill-button black" href="login.html">Sign In</a>
-          <a className="pill-button outline" href="signup.html">Create Account</a>
+          <a className="pill-button black" href={ROUTES.login}>Sign In</a>
+          <a className="pill-button outline" href={ROUTES.signup}>Create Account</a>
           <a className="pill-button outline" href={bookingUrl}>View Schedule</a>
         </div>
       </section>
@@ -1997,7 +2037,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession }) {
     }
 
     if (!clientSession?.signedIn) {
-      window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(`schedule.html?classId=${classId}`)}`;
+      window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(`${ROUTES.schedule}?classId=${classId}`)}`;
       return;
     }
 
@@ -2372,7 +2412,7 @@ function Footer({ location }) {
     <footer className="site-footer">
       <div className="footer-main">
         <div className="footer-brand">
-          <a className="footer-title" href="index.html">
+          <a className="footer-title" href={ROUTES.home}>
             Cave Modern Pilates
           </a>
           <p className="footer-address">

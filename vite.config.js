@@ -6,6 +6,19 @@ import { handleApiRequest } from "./server/api.mjs";
 
 const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
+const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
+
+function cleanHtmlPath(pathname) {
+  if (pathname === "/index.html" || pathname === "/index") {
+    return "/";
+  }
+
+  if (pathname.endsWith(".html")) {
+    return pathname.slice(0, -5) || "/";
+  }
+
+  return pathname;
+}
 
 function studioServerPlugin() {
   return {
@@ -16,7 +29,23 @@ function studioServerPlugin() {
           return;
         }
 
-        if (request.url?.split("?")[0] !== "/data/studio-cache.json") {
+        const parsed = new URL(request.url || "/", "http://localhost");
+        const cleanPathname = cleanHtmlPath(parsed.pathname);
+
+        if (cleanPathname !== parsed.pathname) {
+          response.statusCode = 308;
+          response.setHeader("Location", `${cleanPathname}${parsed.search}`);
+          response.end();
+          return;
+        }
+
+        if (cleanPagePaths.has(parsed.pathname)) {
+          request.url = `${parsed.pathname}.html${parsed.search}`;
+          next();
+          return;
+        }
+
+        if (parsed.pathname !== "/data/studio-cache.json") {
           next();
           return;
         }

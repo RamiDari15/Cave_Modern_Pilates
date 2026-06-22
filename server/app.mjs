@@ -20,7 +20,8 @@ const TYPES = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".mp4": "video/mp4"
 };
 
 const server = createServer(async (request, response) => {
@@ -39,6 +40,15 @@ server.listen(PORT, HOST, () => {
 function serveStatic(request, response) {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   const pathname = decodeURIComponent(url.pathname);
+  const cleanPathname = cleanHtmlPath(pathname);
+
+  if (cleanPathname !== pathname) {
+    response.statusCode = 308;
+    response.setHeader("Location", `${cleanPathname}${url.search}`);
+    response.end();
+    return;
+  }
+
   const safePath = normalize(pathname).replace(/^(\.\.[/\\])+/, "");
   const candidate = resolve(DIST_DIR, safePath === "/" ? "index.html" : safePath.slice(1));
   const filePath = candidate.startsWith(DIST_DIR) ? candidate : join(DIST_DIR, "index.html");
@@ -53,6 +63,18 @@ function serveStatic(request, response) {
   response.statusCode = 200;
   response.setHeader("Content-Type", TYPES[extname(finalPath)] || "application/octet-stream");
   createReadStream(finalPath).pipe(response);
+}
+
+function cleanHtmlPath(pathname) {
+  if (pathname === "/index.html" || pathname === "/index") {
+    return "/";
+  }
+
+  if (pathname.endsWith(".html")) {
+    return pathname.slice(0, -5) || "/";
+  }
+
+  return pathname;
 }
 
 function resolveHtmlFallback(filePath) {

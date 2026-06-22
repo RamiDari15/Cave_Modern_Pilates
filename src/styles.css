@@ -222,22 +222,32 @@ svg {
 
 .hero::before {
   position: absolute;
+  z-index: 1;
   inset: 0;
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.18) 33%, rgba(0, 0, 0, 0.08) 67%, rgba(0, 0, 0, 0.78)),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 36%, rgba(0, 0, 0, 0.46)),
-    url("../assets/cave-home-hero.jpeg") center center / cover no-repeat;
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12), transparent 36%, rgba(0, 0, 0, 0.48));
   content: "";
-  filter: saturate(0.95) contrast(0.98);
 }
 
 .hero::after {
   position: absolute;
+  z-index: 1;
   inset: 0;
   background:
     radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.16), transparent 33%),
     linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent 42%, rgba(0, 0, 0, 0.14));
   content: "";
+}
+
+.hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  filter: saturate(0.95) contrast(1.03);
 }
 
 .hero-grid {
@@ -462,7 +472,7 @@ body.interior:has(.page-policies),
   background-size: cover;
   background-position: center;
   box-shadow: 0 24px 70px rgba(5, 5, 5, 0.12);
-  filter: saturate(0.92) contrast(0.98);
+  filter: grayscale(1) contrast(1.08);
 }
 
 .pricing-choice-card.newbie .pricing-choice-image {
@@ -472,15 +482,15 @@ body.interior:has(.page-policies),
 }
 
 .pricing-choice-card.memberships .pricing-choice-image {
-  background-image: url("../assets/cave-pricing-memberships.jpg");
+  background-image: url("../assets/cave-home-hero.jpeg");
   background-size: cover;
   background-position: center;
 }
 
 .pricing-choice-card.classPacks .pricing-choice-image {
   background-image: url("../assets/cave-pricing-class-packs.jpeg");
-  background-size: cover;
-  background-position: center;
+  background-size: 118%;
+  background-position: 50% 52%;
 }
 
 .pricing-choice-copy {

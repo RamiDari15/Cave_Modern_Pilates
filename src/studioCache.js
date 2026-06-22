@@ -2,7 +2,7 @@ export const FALLBACK_CACHE = {
   generatedAt: "2026-06-10T09:00:00-04:00",
   source: "fallback studio cache snapshot",
   booking: {
-    scheduleUrl: "schedule.html",
+    scheduleUrl: "/schedule",
     accountUrl: "https://clients.mindbodyonline.com/classic/ws?studioid=5753835&stype=-7&sView=week&sLoc=0",
     mode: "booking-api-cache"
   },
@@ -156,7 +156,7 @@ export const FALLBACK_CACHE = {
   },
   waiver: {
     title: "Cave Pilates, LLC Waiver and Release of Liability",
-    url: "policies.html#liability-waiver",
+    url: "/policies#liability-waiver",
     version: "2026-06-14",
     requiredBeforeFirstClass: true
   },
