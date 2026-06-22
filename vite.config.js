@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, cpSync } from "node:fs";
+import { copyFileSync, cpSync, createReadStream, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -65,6 +65,16 @@ function studioServerPlugin() {
 
       if (existsSync(source)) {
         cpSync(source, target, { recursive: true });
+      }
+
+      for (const page of htmlPages.filter((page) => page !== "index")) {
+        const sourceFile = resolve(__dirname, "dist", `${page}.html`);
+        const targetDirectory = resolve(__dirname, "dist", page);
+
+        if (existsSync(sourceFile)) {
+          mkdirSync(targetDirectory, { recursive: true });
+          copyFileSync(sourceFile, resolve(targetDirectory, "index.html"));
+        }
       }
     }
   };
