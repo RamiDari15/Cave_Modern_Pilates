@@ -1,6 +1,6 @@
-import { handleApiRequest } from "../server/api.mjs";
+import { handleApiRequest } from "./api.mjs";
 
-export default async function handler(request, response) {
+export default async function vercelApiHandler(request, response) {
   const handled = await handleApiRequest(request, response);
 
   if (!handled && !response.headersSent) {
