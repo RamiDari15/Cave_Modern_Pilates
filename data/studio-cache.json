@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T02:37:53.145286-04:00",
+  "generatedAt": "2026-06-24T04:47:20.607160-04:00",
   "source": "cached booking API snapshot",
   "booking": {
     "scheduleUrl": "schedule.html",
@@ -48,7 +48,7 @@
       "sessions": 10,
       "serviceType": "Classes",
       "serviceCategory": "CAVE MODERN PILATES",
-      "price": "$350.00",
+      "price": "$300.00",
       "sellOnline": true,
       "imagePosition": "60% 72%"
     }
@@ -62,7 +62,7 @@
         "category": "newbie",
         "name": "New Client Drop in",
         "sourceName": "New Client Drop in",
-        "price": "$22.50",
+        "price": "$25.00",
         "sessions": 1,
         "description": "Expires in 1 months",
         "sellOnline": true,
@@ -218,7 +218,7 @@
         "category": "classPacks",
         "name": "10 class pack",
         "sourceName": "10 class pack",
-        "price": "$350.00",
+        "price": "$300.00",
         "sessions": 10,
         "description": "Expires in 1 months",
         "sellOnline": true,

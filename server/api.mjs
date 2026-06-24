@@ -64,6 +64,10 @@ export function getBookingConfig() {
     siteId;
   const sessionSecret = configuredEnvValue("SESSION_SECRET") || (process.env.NODE_ENV === "production" ? "" : apiKey);
   const oauthUsePkce = configuredEnvBoolean("BOOKING_OAUTH_USE_PKCE", "MINDBODY_OAUTH_USE_PKCE");
+  const oauthIncludeSubscriberId = configuredEnvBoolean(
+    "BOOKING_OAUTH_INCLUDE_SUBSCRIBER_ID",
+    "MINDBODY_OAUTH_INCLUDE_SUBSCRIBER_ID"
+  );
 
   return {
     apiKey,
@@ -95,6 +99,7 @@ export function getBookingConfig() {
     oauthResponseMode: configuredEnvValue("BOOKING_OAUTH_RESPONSE_MODE", "MINDBODY_OAUTH_RESPONSE_MODE") || "form_post",
     oauthResponseType: configuredEnvValue("BOOKING_OAUTH_RESPONSE_TYPE", "MINDBODY_OAUTH_RESPONSE_TYPE") || "code id_token",
     oauthUsePkce,
+    oauthIncludeSubscriberId,
     oauthSubscriberId,
     locationId: configuredEnvValue("BOOKING_LOCATION_ID", "MINDBODY_LOCATION_ID") || "1",
     staffToken: configuredEnvValue("BOOKING_STAFF_TOKEN", "MINDBODY_STAFF_TOKEN"),
@@ -146,7 +151,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/classes/book", "/api/store/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/classes/book", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -156,6 +161,7 @@ export async function handleApiRequest(request, response) {
         siteId,
         sessionSecret,
         oauthConfigured,
+        oauthIncludeSubscriberId,
         oauthRedirectUri,
         oauthResponseMode,
         oauthResponseType,
@@ -171,10 +177,16 @@ export async function handleApiRequest(request, response) {
         oauthResponseMode,
         oauthResponseType,
         oauthScope,
+        oauthIncludeSubscriberId,
         oauthSubscriberId,
         oauthUsePkce,
         siteId
       });
+      return true;
+    }
+
+    if (path === "/api/mindbody/readiness") {
+      sendJson(response, 200, await mindbodyReadinessReport());
       return true;
     }
 
@@ -193,6 +205,19 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/client/required-fields") {
       const data = await bookingRequest("/client/requiredclientfields");
       sendJson(response, 200, data);
+      return true;
+    }
+
+    if (path === "/api/assistant/chat" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const message = String(body.message || "").trim().slice(0, 800);
+
+      if (!message) {
+        sendJson(response, 400, { message: "Please ask the assistant a question." });
+        return true;
+      }
+
+      sendJson(response, 200, buildAssistantReply(message, body));
       return true;
     }
 
@@ -407,6 +432,338 @@ function fulfilledValue(result) {
   return result.status === "fulfilled" ? result.value : null;
 }
 
+function buildAssistantReply(message, context = {}) {
+  const cache = readStoreCache();
+  const text = String(message || "").toLowerCase();
+  const signedIn = Boolean(context.signedIn);
+  const store = cache.store || {};
+  const schedule = Array.isArray(cache.schedule) ? cache.schedule : [];
+  const location = cache.location || {};
+
+  if (matchesAny(text, ["price", "pricing", "cost", "membership", "package", "drop in", "drop-in", "newbie", "intro", "buy"])) {
+    return pricingAssistantReply(text, store);
+  }
+
+  if (matchesAny(text, ["schedule", "book", "class", "time", "spot", "available", "availability"])) {
+    return scheduleAssistantReply(schedule, signedIn);
+  }
+
+  if (matchesAny(text, ["login", "log in", "sign in", "account", "credit", "credits", "dashboard"])) {
+    return {
+      reply: signedIn
+        ? "You’re signed in. Head to your account to review bookings, credits, memberships, and saved client details."
+        : "Use the Login page to access your Cave account. Once the secure account connection is active, booking, credits, memberships, and client details will stay inside the Cave site experience.",
+      actions: signedIn
+        ? [{ label: "My Account", href: "/account" }, { label: "Schedule", href: "/schedule" }]
+        : [{ label: "Login", href: "/login" }, { label: "Create Account", href: "/signup" }]
+    };
+  }
+
+  if (matchesAny(text, ["sign up", "signup", "create account", "waiver", "liability", "first time", "first class"])) {
+    return {
+      reply: "First-time clients can create an account and complete the liability waiver before class. The signup form captures the required client details and waiver signature, then sends the profile to the studio booking system.",
+      actions: [
+        { label: "Create Account", href: "/signup" },
+        { label: "Read Policies", href: "/policies#waiver-copy" },
+        { label: "Newbie Promo", href: "/newbie" }
+      ]
+    };
+  }
+
+  if (matchesAny(text, ["cancel", "late", "no show", "no-show", "refund", "renew", "notice", "policy", "policies"])) {
+    return {
+      reply: "Classes need to be canceled at least 12 hours before start time. Package holders lose the reserved credit for late cancels or no-shows, and unlimited members may be charged the applicable fee. Membership or package non-renewal needs 14 days written notice before the next billing date. All sales are final unless Cave approves an exception.",
+      actions: [
+        { label: "FAQ", href: "/faq" },
+        { label: "Policies", href: "/policies" },
+        { label: "Contact Us", href: "/contact" }
+      ]
+    };
+  }
+
+  if (matchesAny(text, ["contact", "email", "phone", "call", "address", "location", "parking", "instagram", "tiktok"])) {
+    return {
+      reply: `You can reach Cave at support@cavemodernpilates.com or (708) 571-5730. The studio is at ${cleanAssistantAddress(location.address) || "31 Orland Square Drive Suite B, Orland Park IL 60462"}. Instagram and TikTok are both @cavemodernpilates.`,
+      actions: [
+        { label: "Contact Page", href: "/contact" },
+        { label: "Instagram", href: "https://www.instagram.com/cavemodernpilates/" },
+        { label: "TikTok", href: "https://www.tiktok.com/@cavemodernpilates" }
+      ]
+    };
+  }
+
+  if (matchesAny(text, ["mindbody", "mind body", "api", "oauth", "payment", "checkout"])) {
+    return {
+      reply: "The site is set up so clients stay on Cave for account, booking, waiver, and purchase actions. The backend sends the secure requests to the studio booking system, and the remaining release checks are OAuth portal matching, staff checkout token, saved payment method support, and waiver custom field IDs.",
+      actions: [
+        { label: "Login", href: "/login" },
+        { label: "Schedule", href: "/schedule" },
+        { label: "Pricing", href: "/pricing" }
+      ]
+    };
+  }
+
+  return {
+    reply: "I can help with booking a class, current pricing, newbie offers, memberships, class packs, policies, account setup, or contacting the studio. What do you want to do next?",
+    actions: [
+      { label: "Book a Class", href: "/schedule" },
+      { label: "View Pricing", href: "/pricing" },
+      { label: "Create Account", href: "/signup" },
+      { label: "Contact", href: "/contact" }
+    ]
+  };
+}
+
+function pricingAssistantReply(text, store) {
+  const wantsMemberships = matchesAny(text, ["membership", "memberships", "monthly", "contract"]);
+  const wantsPacks = matchesAny(text, ["class pack", "class packs", "package", "packages", "drop in", "drop-in"]);
+  const wantsNewbie = matchesAny(text, ["newbie", "intro", "new client", "first"]);
+
+  if (wantsMemberships && !wantsPacks && !wantsNewbie) {
+    return {
+      reply: `Memberships currently include ${assistantItemList(store.memberships, 4)}. Choose a membership to review terms and buy on-site after signing in.`,
+      actions: [{ label: "Memberships", href: "/memberships" }, { label: "Login", href: "/login" }]
+    };
+  }
+
+  if (wantsPacks && !wantsMemberships && !wantsNewbie) {
+    return {
+      reply: `Class packs currently include ${assistantItemList(store.classPacks, 4)}. You can buy from the class packs page once checkout is fully connected.`,
+      actions: [{ label: "Class Packs", href: "/class-packs" }, { label: "Schedule", href: "/schedule" }]
+    };
+  }
+
+  if (wantsNewbie && !wantsMemberships && !wantsPacks) {
+    return {
+      reply: `Newbie offers currently include ${assistantItemList(store.newbie, 3)}. First-time clients should create an account and complete the waiver before class.`,
+      actions: [{ label: "Newbie Promo", href: "/newbie" }, { label: "Create Account", href: "/signup" }]
+    };
+  }
+
+  return {
+    reply: `Current pricing is grouped into newbie offers, memberships, and class packs. Newbie: ${assistantItemList(store.newbie, 2)}. Memberships: ${assistantItemList(store.memberships, 3)}. Class packs: ${assistantItemList(store.classPacks, 3)}.`,
+    actions: [
+      { label: "All Pricing", href: "/pricing" },
+      { label: "Newbie Promo", href: "/newbie" },
+      { label: "Memberships", href: "/memberships" },
+      { label: "Class Packs", href: "/class-packs" }
+    ]
+  };
+}
+
+function scheduleAssistantReply(schedule, signedIn) {
+  const upcoming = schedule
+    .filter((item) => item?.startDateTime && new Date(item.startDateTime).getTime() >= Date.now() - 60 * 60 * 1000)
+    .sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime())
+    .slice(0, 3);
+
+  const classSummary = upcoming.length
+    ? upcoming.map((item) => `${item.className || "Class"} with ${item.instructor || "the Cave team"} on ${item.date || formatAssistantDate(item.startDateTime)} at ${item.time || formatAssistantTime(item.startDateTime)}`).join("; ")
+    : "The schedule page has the latest available classes.";
+
+  return {
+    reply: `${classSummary}. ${signedIn ? "Pick a class and tap Book to reserve your spot." : "You can view the schedule now; sign in before booking so the reservation is attached to your studio account."}`,
+    actions: [
+      { label: "View Schedule", href: "/schedule" },
+      signedIn ? { label: "My Account", href: "/account" } : { label: "Login", href: "/login" }
+    ]
+  };
+}
+
+function assistantItemList(items = [], limit = 3) {
+  const visible = (Array.isArray(items) ? items : [])
+    .filter((item) => item?.sellOnline !== false)
+    .slice(0, limit)
+    .map((item) => `${item.name || item.sourceName || "Option"} (${item.price || "price shown on page"})`);
+
+  return visible.length ? visible.join(", ") : "options shown on the pricing page";
+}
+
+function matchesAny(text, needles) {
+  return needles.some((needle) => text.includes(needle));
+}
+
+function cleanAssistantAddress(address) {
+  return String(address || "")
+    .replace(/\s+/g, " ")
+    .replace(/\bsuite\s+b\b/i, "Suite B")
+    .replace(/,\s*Orland Park,\s*IL,?\s*60462$/i, "")
+    .trim();
+}
+
+function formatAssistantDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "an upcoming date" : date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatAssistantTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "the listed time" : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+async function mindbodyReadinessReport() {
+  const config = getBookingConfig();
+  const waiverFieldIds = [
+    "BOOKING_WAIVER_CUSTOM_FIELD_ID",
+    "BOOKING_WAIVER_SIGNATURE_FIELD_ID",
+    "BOOKING_WAIVER_DATE_FIELD_ID",
+    "BOOKING_WAIVER_VERSION_FIELD_ID"
+  ];
+  const missingWaiverFields = waiverFieldIds.filter((key) => !configuredEnvValue(key, key.replace("BOOKING_", "MINDBODY_")));
+  const scopeTokens = String(config.oauthScope || "").split(/\s+/).filter(Boolean);
+  const hasPublicApiScope = scopeTokens.includes("Mindbody.Api.Public.v6");
+
+  const checks = {
+    publicCache: {
+      ready: Boolean(config.apiKey && config.siteId),
+      missing: [config.apiKey ? "" : "BOOKING_API_KEY", config.siteId ? "" : "BOOKING_SITE_ID"].filter(Boolean),
+      note: "Loads public schedule and pricing from the server-side Mindbody cache."
+    },
+    clientLogin: {
+      ready: Boolean(config.oauthConfigured),
+      missing: [
+        config.oauthClientId ? "" : "BOOKING_OAUTH_CLIENT_ID",
+        config.oauthClientSecret || config.oauthUsePkce ? "" : "BOOKING_OAUTH_CLIENT_SECRET or BOOKING_OAUTH_USE_PKCE=true",
+        config.oauthRedirectUri ? "" : "BOOKING_OAUTH_REDIRECT_URI"
+      ].filter(Boolean),
+      note: "Uses Mindbody OAuth. Password entry stays on Mindbody's secure authorization screen, then returns to Cave."
+    },
+    clientApiAccess: {
+      ready: Boolean(config.oauthConfigured && hasPublicApiScope),
+      missing: hasPublicApiScope ? [] : ["BOOKING_OAUTH_SCOPE should include Mindbody.Api.Public.v6 if the OAuth client is approved for Public API calls"],
+      note: "Needed for on-site dashboard, booking, and client-owned account data calls after OAuth."
+    },
+    createClient: {
+      ready: Boolean(config.apiKey),
+      missing: config.apiKey ? [] : ["BOOKING_API_KEY"],
+      note: "Creates a Mindbody client profile from the Cave sign-up form."
+    },
+    bookClasses: {
+      ready: Boolean(config.oauthConfigured && (hasPublicApiScope || config.staffToken)),
+      missing: [
+        config.oauthConfigured ? "" : "BOOKING_OAUTH_*",
+        hasPublicApiScope || config.staffToken ? "" : "Mindbody.Api.Public.v6 OAuth scope or BOOKING_STAFF_TOKEN"
+      ].filter(Boolean),
+      note: "Books through /class/addclienttoclass from the Cave schedule page."
+    },
+    buyServices: {
+      ready: Boolean(config.staffToken),
+      missing: config.staffToken ? [] : ["BOOKING_STAFF_TOKEN"],
+      note: "Drop-ins and class packs use /sale/checkoutshoppingcart, which requires a staff-level token plus a saved/tokenized payment method."
+    },
+    buyMemberships: {
+      ready: Boolean(config.oauthConfigured && hasPublicApiScope),
+      missing: [
+        config.oauthConfigured ? "" : "BOOKING_OAUTH_*",
+        hasPublicApiScope ? "" : "BOOKING_OAUTH_SCOPE should include Mindbody.Api.Public.v6"
+      ].filter(Boolean),
+      note: "Membership contracts use /sale/purchasecontract and still need a saved/tokenized payment method."
+    },
+    waiverSync: {
+      ready: missingWaiverFields.length === 0,
+      missing: missingWaiverFields,
+      note: "Stores the signed Cave liability waiver into Mindbody custom client fields."
+    },
+    sessionSecurity: {
+      ready: Boolean(config.sessionSecret),
+      missing: config.sessionSecret ? [] : ["SESSION_SECRET"],
+      note: "Encrypts the Cave site session cookie."
+    }
+  };
+
+  checks.oauthAuthorizeRequest = await checkOAuthAuthorizeRequest(config);
+
+  return {
+    ready: Object.values(checks).every((check) => check.ready),
+    siteId: config.siteId,
+    oauth: {
+      configured: config.oauthConfigured,
+      redirectUri: config.oauthRedirectUri,
+      responseMode: config.oauthResponseMode,
+      responseType: config.oauthResponseType,
+      scope: config.oauthScope,
+      includeSubscriberId: config.oauthIncludeSubscriberId,
+      usePkce: config.oauthUsePkce
+    },
+    checks
+  };
+}
+
+async function checkOAuthAuthorizeRequest(config) {
+  if (!config.oauthConfigured) {
+    return {
+      ready: false,
+      missing: ["BOOKING_OAUTH_*"],
+      note: "Mindbody authorize preflight was skipped because OAuth credentials are incomplete."
+    };
+  }
+
+  const authorizeUrl = new URL(config.oauthAuthorizeUrl);
+  authorizeUrl.searchParams.set("response_mode", config.oauthResponseMode);
+  authorizeUrl.searchParams.set("response_type", config.oauthResponseType);
+  authorizeUrl.searchParams.set("client_id", config.oauthClientId);
+  authorizeUrl.searchParams.set("redirect_uri", config.oauthRedirectUri);
+  authorizeUrl.searchParams.set("scope", config.oauthScope);
+  authorizeUrl.searchParams.set("nonce", "readiness");
+  authorizeUrl.searchParams.set("state", "readiness");
+
+  if (config.oauthIncludeSubscriberId && config.oauthSubscriberId) {
+    authorizeUrl.searchParams.set("subscriberId", config.oauthSubscriberId);
+  }
+
+  if (config.oauthUsePkce) {
+    authorizeUrl.searchParams.set("code_challenge", createHash("sha256").update("readiness").digest("base64url"));
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    const response = await fetch(authorizeUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal: controller.signal
+    });
+    const location = response.headers.get("location") || "";
+    const redirectedToError = isMindbodyErrorRedirect(location);
+    const accepted = response.status >= 300 && response.status < 400 && !redirectedToError;
+
+    return {
+      ready: accepted,
+      missing: accepted
+        ? []
+        : [
+            "Mindbody rejected the OAuth authorize request. Check OAuth client ID, redirect URI, app type, scopes, and subscriber/site settings in the Mindbody developer portal."
+          ],
+      note: accepted
+        ? "Mindbody accepts the OAuth authorize request and should show the secure sign-in screen."
+        : "The Cave backend can build the OAuth request, but Mindbody is returning an error before login."
+    };
+  } catch (error) {
+    return {
+      ready: false,
+      missing: ["Mindbody OAuth authorize endpoint could not be reached from the server."],
+      note: error.name === "AbortError" ? "The OAuth authorize preflight timed out." : "The OAuth authorize preflight failed."
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isMindbodyErrorRedirect(location) {
+  if (!location) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(location);
+    return parsed.pathname.toLowerCase().includes("error");
+  } catch (error) {
+    return String(location).toLowerCase().includes("error");
+  }
+}
+
 function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
   const {
     oauthAuthorizeUrl,
@@ -416,6 +773,7 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
     oauthResponseMode,
     oauthResponseType,
     oauthScope,
+    oauthIncludeSubscriberId,
     oauthSubscriberId,
     oauthUsePkce
   } = getBookingConfig();
@@ -436,9 +794,12 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
   authorizeUrl.searchParams.set("client_id", oauthClientId);
   authorizeUrl.searchParams.set("redirect_uri", oauthRedirectUri);
   authorizeUrl.searchParams.set("scope", oauthScope);
-  authorizeUrl.searchParams.set("subscriberId", oauthSubscriberId);
   authorizeUrl.searchParams.set("nonce", nonce);
   authorizeUrl.searchParams.set("state", state);
+
+  if (oauthIncludeSubscriberId && oauthSubscriberId) {
+    authorizeUrl.searchParams.set("subscriberId", oauthSubscriberId);
+  }
 
   if (oauthUsePkce) {
     authorizeUrl.searchParams.set("code_challenge", createHash("sha256").update(codeVerifier).digest("base64url"));
@@ -596,6 +957,7 @@ async function exchangeOAuthCode(code, codeVerifier = "") {
     oauthClientId,
     oauthClientSecret,
     oauthRedirectUri,
+    oauthIncludeSubscriberId,
     oauthScope,
     oauthSubscriberId,
     oauthTokenUrl
@@ -606,9 +968,12 @@ async function exchangeOAuthCode(code, codeVerifier = "") {
     client_id: oauthClientId,
     code,
     redirect_uri: oauthRedirectUri,
-    subscriberId: oauthSubscriberId,
     scope: oauthScope
   });
+
+  if (oauthIncludeSubscriberId && oauthSubscriberId) {
+    body.set("subscriberId", oauthSubscriberId);
+  }
 
   if (oauthClientSecret) {
     body.set("client_secret", oauthClientSecret);

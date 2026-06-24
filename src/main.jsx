@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CalendarDays, ChevronLeft, ChevronRight, Instagram, Menu, Minus, Plus, Search, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
@@ -565,6 +565,7 @@ function App() {
         />
       </main>
       <Footer location={cache.location} />
+      <AiAssistant page={page} bookingUrl={bookingUrl} clientSession={clientSession} />
     </div>
   );
 }
@@ -2455,6 +2456,151 @@ function Footer({ location }) {
         <span>Copyright © {year} Cave Modern Pilates. All rights reserved.</span>
       </div>
     </footer>
+  );
+}
+
+const ASSISTANT_QUICK_PROMPTS = [
+  "Help me book a class",
+  "Show pricing",
+  "New client offer",
+  "Cancellation policy"
+];
+
+function AiAssistant({ page, bookingUrl, clientSession }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      role: "assistant",
+      text: "Hi, I’m the Cave assistant. I can help with booking, pricing, memberships, policies, or getting in touch."
+    }
+  ]);
+
+  const sendMessage = async (text = input) => {
+    const message = String(text || "").trim();
+
+    if (!message || isSending) {
+      return;
+    }
+
+    setInput("");
+    setMessages((current) => [...current, { role: "user", text: message }]);
+    setIsSending(true);
+
+    try {
+      const result = await apiRequest("/api/assistant/chat", {
+        method: "POST",
+        body: {
+          message,
+          page,
+          signedIn: Boolean(clientSession?.signedIn),
+          returnTo: page === "schedule" ? ROUTES.schedule : window.location.pathname
+        }
+      });
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: result.reply || "I can help with booking, pricing, memberships, policies, and contact info.",
+          actions: Array.isArray(result.actions) ? result.actions : []
+        }
+      ]);
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: "I’m having trouble connecting right now. You can still book, view pricing, or contact the studio from the links below.",
+          actions: [
+            { label: "Schedule", href: bookingUrl || ROUTES.schedule },
+            { label: "Pricing", href: ROUTES.pricing },
+            { label: "Contact", href: ROUTES.contact }
+          ]
+        }
+      ]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    sendMessage();
+  };
+
+  return (
+    <aside className={`ai-assistant ${isOpen ? "is-open" : ""}`} aria-label="Cave virtual assistant">
+      <button
+        className="ai-assistant-trigger"
+        type="button"
+        onClick={() => setIsOpen((value) => !value)}
+        aria-label={isOpen ? "Close Cave assistant" : "Open Cave assistant"}
+        aria-expanded={isOpen}
+      >
+        {isOpen ? <X aria-hidden="true" size={23} /> : <MessageCircle aria-hidden="true" size={24} />}
+      </button>
+
+      {isOpen && (
+        <section className="ai-assistant-panel">
+          <div className="ai-assistant-header">
+            <span className="ai-assistant-mark" aria-hidden="true">
+              <Bot size={22} />
+            </span>
+            <div>
+              <strong>Cave Assistant</strong>
+              <span>Virtual studio help</span>
+            </div>
+          </div>
+
+          <div className="ai-assistant-messages" aria-live="polite">
+            {messages.map((message, index) => (
+              <div className={`ai-message ${message.role}`} key={`${message.role}-${index}`}>
+                <p>{message.text}</p>
+                {message.actions?.length ? (
+                  <div className="ai-message-actions">
+                    {message.actions.map((action) => (
+                      <a key={`${action.label}-${action.href}`} href={cleanInternalUrl(action.href, ROUTES.home)}>
+                        {action.label}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {isSending ? (
+              <div className="ai-message assistant ai-thinking">
+                <p>Checking that for you...</p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ai-quick-prompts" aria-label="Quick assistant prompts">
+            {ASSISTANT_QUICK_PROMPTS.map((prompt) => (
+              <button key={prompt} type="button" onClick={() => sendMessage(prompt)}>
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          <form className="ai-assistant-form" onSubmit={handleSubmit}>
+            <label className="sr-only" htmlFor="ai-assistant-input">Ask the Cave assistant</label>
+            <input
+              id="ai-assistant-input"
+              type="text"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Ask about classes, pricing, policies..."
+              maxLength={280}
+            />
+            <button type="submit" aria-label="Send message" disabled={isSending || !input.trim()}>
+              <Send aria-hidden="true" size={18} />
+            </button>
+          </form>
+        </section>
+      )}
+    </aside>
   );
 }
 
