@@ -10,7 +10,7 @@ const OAUTH_COOKIE = "cave_oauth";
 const STORE_CACHE_FILE = resolve(ROOT_DIR, "data", "studio-cache.json");
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const OAUTH_TTL_SECONDS = 10 * 60;
-const DEFAULT_OAUTH_SCOPE = "email profile openid offline_access Mindbody.Api.Public.v6";
+const DEFAULT_OAUTH_SCOPE = "email openid profile Mindbody.Api.Public.v6";
 const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
 const pendingOAuthStates = new Map();
@@ -51,9 +51,14 @@ export function getBookingConfig() {
     "BOOKING_CLIENT_AUTH_CLIENT_SECRET",
     "MINDBODY_CLIENT_AUTH_CLIENT_SECRET"
   );
+  const defaultBaseUrl =
+    process.env.PUBLIC_BASE_URL ||
+    (process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 8765}`);
   const oauthRedirectUri =
     configuredEnvValue("BOOKING_OAUTH_REDIRECT_URI", "MINDBODY_OAUTH_REDIRECT_URI") ||
-    `${process.env.PUBLIC_BASE_URL || `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 8765}`}/api/auth/callback`;
+    `${defaultBaseUrl}/api/auth/callback`;
   const oauthSubscriberId =
     configuredEnvValue(
       "BOOKING_OAUTH_SUBSCRIBER_ID",
