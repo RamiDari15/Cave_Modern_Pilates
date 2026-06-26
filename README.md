@@ -88,7 +88,9 @@ The proxy and production server read `BOOKING_API_KEY`, `BOOKING_SITE_ID`, and `
 
 Sessions are stored in encrypted, HttpOnly cookies. Browser JavaScript receives only a safe public session object.
 
-Mindbody Public API v6 user tokens are staff tokens, not client password login tokens. `/login` starts Mindbody OAuth through `/api/auth/start`; Mindbody posts the authorization code to `/api/auth/callback`; the backend exchanges that code at `https://signin.mindbodyonline.com/connect/token` and stores the returned access token in an encrypted HttpOnly cookie. See `docs/mindbody-auth-release-checklist.md`.
+Mindbody Public API v6 user tokens are staff/source user tokens, not client password login tokens. `/login` starts Mindbody OAuth through `/api/auth/start`; Mindbody posts the authorization code to `/api/auth/callback`; the backend exchanges that code at `https://signin.mindbodyonline.com/connect/token` and stores the returned consumer token in an encrypted HttpOnly cookie.
+
+Mindbody confirmed that OAuth consumer tokens are only functional for `GET /client/clientcompleteinfo`. Booking, buying, cancellation, checkout, and waiver profile updates run through server routes with `BOOKING_STAFF_TOKEN` or `BOOKING_USER_TOKEN`. See `docs/mindbody-auth-release-checklist.md`.
 
 The sign-up form sends the liability waiver with the new client payload. To store waiver signatures in Mindbody, create custom client fields in Mindbody and set the field IDs:
 
@@ -116,5 +118,6 @@ The sign-up form includes the required client fields returned by the studio API:
 4. Run `GET /api/mindbody/readiness` after deploy. It reports login, booking, checkout, waiver sync, cache refresh, and OAuth preflight status without exposing secrets.
 5. Run `npm run sync` or enable `BOOKING_CACHE_SYNC=true` so pricing and schedule refresh from Mindbody automatically.
 6. Create Mindbody custom client fields for waiver storage and set the `BOOKING_WAIVER_*` IDs.
-7. For direct on-site purchases, confirm the studio has a Mindbody-supported saved-card/tokenized payment flow or set `BOOKING_STAFF_TOKEN` for service checkout. Do not collect raw card numbers in this app.
-8. Test with a real approved studio test client: sign in, create account, save waiver, book a class, view account dashboard, and attempt each pricing category.
+7. Add `BOOKING_STAFF_TOKEN` or `BOOKING_USER_TOKEN` from a Mindbody Staff/User token or Source Credential-derived token before testing booking, checkout, cancellation, or waiver sync.
+8. For direct on-site purchases, confirm the studio has a Mindbody-supported saved-card/tokenized payment flow. Do not collect raw card numbers in this app unless a PCI-compliant tokenization flow is added first.
+9. Test with a real approved studio test client: sign in, create account, save waiver, book a class, view account dashboard, and attempt each pricing category.

@@ -511,7 +511,7 @@ function friendlyApiErrorMessage(error, fallback = "That request could not be co
   }
 
   if (error?.status === 501) {
-    return "Online checkout is waiting on a final Mindbody checkout setting. Please contact Cave to complete this purchase.";
+    return "Online booking and checkout are waiting on the final Mindbody staff/source token. Please contact Cave to finish this for now.";
   }
 
   if (error?.status === 401) {
