@@ -10,7 +10,9 @@ const OAUTH_COOKIE = "cave_oauth";
 const STORE_CACHE_FILE = resolve(ROOT_DIR, "data", "studio-cache.json");
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const OAUTH_TTL_SECONDS = 10 * 60;
-const DEFAULT_OAUTH_SCOPE = "email openid profile Mindbody.Api.Public.v6";
+const DEFAULT_OAUTH_SCOPE =
+  "email openid profile Platform.Contacts.Api.Write Platform.Contacts.Api.Read Platform.Accounts.Api.Read Mindbody.Api.Public.v6 Platform.ProductInventory.Api.Read Platform.ProductInventory.Api.Write";
+const OAUTH_PROFILE_REFRESH_MS = 10 * 60 * 1000;
 const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
 const pendingOAuthStates = new Map();
@@ -196,7 +198,7 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/auth/session") {
-      const session = readSession(request);
+      const session = await readHydratedSession(request, response);
       sendJson(response, 200, { signedIn: Boolean(session), session: publicSession(session) });
       return true;
     }
@@ -275,7 +277,7 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/client/waiver" && request.method === "POST") {
-      const session = readSession(request);
+      const session = await readHydratedSession(request, response);
       const body = await readJsonBody(request);
       const waiver = normalizeWaiverPayload(body.waiver || body);
 
@@ -300,7 +302,7 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/classes/book" && request.method === "POST") {
-      const session = readSession(request);
+      const session = await readHydratedSession(request, response);
       const body = await readJsonBody(request);
       const classId = Number(body.classId);
 
@@ -325,7 +327,7 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/store/purchase" && request.method === "POST") {
-      const session = readSession(request);
+      const session = await readHydratedSession(request, response);
       const body = await readJsonBody(request);
       const item = findStoreItem(body.itemId, body.kind);
 
@@ -359,7 +361,7 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/client/dashboard") {
-      const session = readSession(request);
+      const session = await readHydratedSession(request, response);
 
       if (!session?.accessToken && !session?.consumerIdentityToken) {
         if (session?.authMode === "created-client") {
@@ -368,6 +370,7 @@ export async function handleApiRequest(request, response) {
             schedule: null,
             services: null,
             contracts: null,
+            session: publicSession(session),
             errors: []
           });
           return true;
@@ -393,6 +396,7 @@ export async function handleApiRequest(request, response) {
           schedule: profile?.ClientSchedule || profile?.Schedule || null,
           services: profile?.ClientServices || profile?.Services || null,
           contracts: profile?.ClientContracts || profile?.ClientMemberships || profile?.Memberships || null,
+          session: publicSession(session),
           errors: completeInfo
             .filter((result) => result.status === "rejected")
             .map((result) => result.reason?.message || "Request failed.")
@@ -415,6 +419,7 @@ export async function handleApiRequest(request, response) {
         schedule: fulfilledValue(schedule),
         services: fulfilledValue(services),
         contracts: fulfilledValue(contracts),
+        session: publicSession(session),
         errors: [profile, schedule, services, contracts]
           .filter((result) => result.status === "rejected")
           .map((result) => result.reason?.message || "Request failed.")
@@ -870,10 +875,10 @@ async function finishOAuthSignIn(request, response, form) {
   }
 
   const tokenResponse = await exchangeOAuthCode(form.code, oauthSession.codeVerifier);
-  const session = normalizeOAuthSession(tokenResponse, {
+  const session = await hydrateOAuthSession(normalizeOAuthSession(tokenResponse, {
     authorizationIdToken: form.id_token,
     expectedNonce: oauthSession.nonce
-  });
+  }));
 
   setSessionCookie(response, session);
   if (oauthSession.popup) {
@@ -1037,7 +1042,8 @@ function normalizeOAuthSession(data, options = {}) {
     refreshToken: data?.refresh_token || "",
     tokenType: data?.token_type || "Bearer",
     expiresAt: data?.expires_in ? new Date(Date.now() + Number(data.expires_in) * 1000).toISOString() : "",
-    clientId: claims.client_id || claims.clientId || claims.ClientId || claims.mindbody_client_id || "",
+    clientId: extractOAuthClientIdFromClaims(claims),
+    oauthSubject: claims.sub || "",
     user: {
       id: claims.sub || "",
       firstName: claims.given_name || claims.firstName || "",
@@ -1046,6 +1052,174 @@ function normalizeOAuthSession(data, options = {}) {
       username: claims.email || claims.preferred_username || ""
     }
   };
+}
+
+async function readHydratedSession(request, response) {
+  const session = readSession(request);
+
+  if (!session) {
+    return null;
+  }
+
+  const hydrated = await hydrateOAuthSession(session);
+
+  if (hydrated !== session) {
+    setSessionCookie(response, hydrated);
+  }
+
+  return hydrated;
+}
+
+async function hydrateOAuthSession(session) {
+  if (!shouldHydrateOAuthSession(session)) {
+    return session;
+  }
+
+  const profile = await fetchOAuthClientProfile(session).catch(() => null);
+  const hydratedAt = new Date().toISOString();
+
+  if (!profile) {
+    return { ...session, hydratedAt };
+  }
+
+  return {
+    ...mergeSessionClientProfile(session, profile),
+    hydratedAt
+  };
+}
+
+function shouldHydrateOAuthSession(session) {
+  if (!session || session.authMode !== "oauth" || (!session.consumerIdentityToken && !session.accessToken)) {
+    return false;
+  }
+
+  const hydratedAt = Date.parse(session.hydratedAt || "");
+  const isFresh = hydratedAt && Date.now() - hydratedAt < OAUTH_PROFILE_REFRESH_MS;
+
+  return !isFresh || !session.clientId || !session.user?.email;
+}
+
+async function fetchOAuthClientProfile(session) {
+  const tokenOptions = session.consumerIdentityToken
+    ? { consumerIdentityToken: session.consumerIdentityToken }
+    : { token: session.accessToken };
+  const email = session.user?.email || session.user?.username || "";
+  const attempts = [];
+
+  if (session.clientId) {
+    attempts.push(["/client/clientcompleteinfo", { ClientId: session.clientId }]);
+    attempts.push(["/client/clients", { ClientIds: session.clientId }]);
+  }
+
+  attempts.push(["/client/clientcompleteinfo", {}]);
+
+  if (email) {
+    attempts.push(["/client/clients", { SearchText: email }]);
+  }
+
+  for (const [path, params] of attempts) {
+    try {
+      const data = await bookingRequest(path, {
+        ...tokenOptions,
+        params: compactObject(params)
+      });
+      const profile = extractClientProfile(data, email);
+
+      if (profile?.clientId || profile?.email) {
+        return profile;
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function mergeSessionClientProfile(session, profile) {
+  const user = session.user || {};
+
+  return {
+    ...session,
+    clientId: profile.clientId || session.clientId || "",
+    user: {
+      ...user,
+      id: profile.clientId || user.id || session.oauthSubject || "",
+      firstName: profile.firstName || user.firstName || "",
+      lastName: profile.lastName || user.lastName || "",
+      email: profile.email || user.email || "",
+      username: profile.username || profile.email || user.username || ""
+    }
+  };
+}
+
+function extractOAuthClientIdFromClaims(claims = {}) {
+  return firstNonEmpty(
+    claims.mindbody_client_id,
+    claims.mindbodyClientId,
+    claims.studio_client_id,
+    claims.studioClientId,
+    claims.clientId,
+    claims.ClientId,
+    claims.ClientID,
+    claims.contact_id,
+    claims.contactId,
+    claims.ContactId,
+    claims.consumer_client_id,
+    claims.consumerClientId
+  );
+}
+
+function extractClientProfile(data, preferredEmail = "") {
+  const preferred = String(preferredEmail || "").trim().toLowerCase();
+  const candidates = [
+    data?.Client,
+    data?.Clients,
+    data?.ClientCompleteInfo?.Client,
+    data?.ClientInfo?.Client,
+    data?.ClientProfile,
+    data?.Profile,
+    data
+  ].flatMap((candidate) => (Array.isArray(candidate) ? candidate : [candidate]));
+  const normalized = candidates
+    .filter((candidate) => candidate && typeof candidate === "object")
+    .map(normalizeClientProfile)
+    .filter((profile) => profile.clientId || profile.email);
+
+  if (preferred) {
+    const emailMatch = normalized.find((profile) => profile.email.toLowerCase() === preferred);
+
+    if (emailMatch) {
+      return emailMatch;
+    }
+  }
+
+  return normalized[0] || null;
+}
+
+function normalizeClientProfile(client) {
+  const clientId = firstNonEmpty(client.Id, client.ClientId, client.UniqueId, client.UniqueClientId, client.ContactId);
+  const email = firstNonEmpty(client.Email, client.email, client.UserName, client.Username, client.username);
+
+  return {
+    clientId,
+    firstName: firstNonEmpty(client.FirstName, client.firstName, client.GivenName, client.given_name),
+    lastName: firstNonEmpty(client.LastName, client.lastName, client.FamilyName, client.family_name),
+    email,
+    username: firstNonEmpty(client.Username, client.UserName, client.username, email)
+  };
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+
+    if (text && text !== "0") {
+      return text;
+    }
+  }
+
+  return "";
 }
 
 function addClient(payload) {
@@ -1189,6 +1363,14 @@ async function resolveSessionClientId(session) {
     return session.clientId;
   }
 
+  const hydrated = await hydrateOAuthSession(session);
+
+  if (hydrated.clientId) {
+    session.clientId = hydrated.clientId;
+    session.user = hydrated.user;
+    return hydrated.clientId;
+  }
+
   if (!session.consumerIdentityToken) {
     return "";
   }
@@ -1222,27 +1404,7 @@ function findStoreItem(itemId, kind) {
 }
 
 function extractClientId(data) {
-  const candidates = [
-    data?.Client,
-    data?.Clients?.[0],
-    data?.ClientCompleteInfo?.Client,
-    data?.ClientInfo?.Client,
-    data
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object") {
-      continue;
-    }
-
-    const value = candidate.Id || candidate.ClientId || candidate.UniqueId || candidate.UniqueClientId;
-
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
+  return extractClientProfile(data)?.clientId || "";
 }
 
 function sessionFromCreatedClient(created, payload) {
@@ -1487,7 +1649,10 @@ function publicSession(session) {
 
   return {
     signedIn: true,
+    authMode: session.authMode || "",
     clientId: session.clientId || "",
+    hasStudioClient: Boolean(session.clientId),
+    expiresAt: session.expiresAt || "",
     user: session.user || {},
     waiver: session.waiver || null
   };

@@ -473,25 +473,43 @@ function useClientSession() {
   useEffect(() => {
     let isMounted = true;
 
-    apiRequest("/api/auth/session")
-      .then((data) => {
-        if (isMounted) {
-          setClientSessionState(data.session || null);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setClientSessionState(null);
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsSessionLoading(false);
-        }
-      });
+    const loadSession = (showLoading = false) => {
+      if (showLoading) {
+        setIsSessionLoading(true);
+      }
+
+      apiRequest("/api/auth/session")
+        .then((data) => {
+          if (isMounted) {
+            setClientSessionState(data.session || null);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setClientSessionState(null);
+          }
+        })
+        .finally(() => {
+          if (isMounted) {
+            setIsSessionLoading(false);
+          }
+        });
+    };
+    const refreshOnFocus = () => loadSession(false);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        loadSession(false);
+      }
+    };
+
+    loadSession(true);
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       isMounted = false;
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 
@@ -1792,17 +1810,22 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         return;
       }
 
-      if (!clientSession.clientId) {
-        setStatus({ type: "success", message: "Signed in. Client details will appear after the account ID is returned by the studio API." });
-        return;
-      }
-
       try {
         const data = await apiRequest("/api/client/dashboard");
 
         if (isMounted) {
+          if (data.session?.signedIn && JSON.stringify(data.session) !== JSON.stringify(clientSession)) {
+            setClientSession(data.session);
+          }
+
           setDashboard(data);
-          setStatus(data.errors?.length ? { type: "error", message: data.errors.join(" ") } : { type: "", message: "" });
+          setStatus(
+            data.errors?.length
+              ? { type: "error", message: data.errors.join(" ") }
+              : data.session?.hasStudioClient === false
+                ? { type: "success", message: "Signed in. We are still matching this login to a studio client profile." }
+                : { type: "", message: "" }
+          );
         }
       } catch (error) {
         if (isMounted) {
