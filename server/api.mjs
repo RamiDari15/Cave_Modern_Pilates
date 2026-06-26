@@ -793,10 +793,11 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
     return;
   }
 
-  const state = randomBytes(24).toString("base64url");
   const nonce = randomBytes(24).toString("base64url");
   const codeVerifier = oauthUsePkce ? randomBytes(32).toString("base64url") : "";
   const returnTo = safeReturnTo(requestedReturnTo);
+  const statePayload = createOAuthState({ nonce, returnTo, popup, codeVerifier });
+  const state = seal(statePayload);
   const authorizeUrl = new URL(oauthAuthorizeUrl);
 
   authorizeUrl.searchParams.set("response_mode", oauthResponseMode);
@@ -816,14 +817,14 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
     authorizeUrl.searchParams.set("code_challenge_method", "S256");
   }
 
-  setPendingOAuthState({ state, nonce, returnTo, popup: Boolean(popup), codeVerifier });
-  setOAuthCookie(response, { state, nonce, returnTo, popup: Boolean(popup), codeVerifier });
+  setPendingOAuthState({ ...statePayload, state });
+  setOAuthCookie(response, { ...statePayload, state });
   redirect(response, authorizeUrl.toString());
 }
 
 async function finishOAuthSignIn(request, response, form) {
   const formState = String(form.state || "");
-  const oauthSession = takePendingOAuthState(formState) || readOAuthSession(request);
+  const oauthSession = resolveOAuthSession(request, formState);
   const finishPopup = (payload) => {
     clearOAuthCookie(response);
     sendOAuthPopupResponse(response, payload);
@@ -891,6 +892,60 @@ async function finishOAuthSignIn(request, response, form) {
 
   clearOAuthCookie(response);
   redirect(response, oauthSession.returnTo || "/account");
+}
+
+function createOAuthState({ nonce, returnTo, popup, codeVerifier }) {
+  return {
+    stateId: randomBytes(16).toString("base64url"),
+    nonce,
+    returnTo,
+    popup: Boolean(popup),
+    codeVerifier,
+    exp: Math.floor(Date.now() / 1000) + OAUTH_TTL_SECONDS
+  };
+}
+
+function resolveOAuthSession(request, formState) {
+  const stateSession = readOAuthState(formState);
+
+  if (stateSession) {
+    return stateSession;
+  }
+
+  const pendingSession = takePendingOAuthState(formState);
+
+  if (pendingSession) {
+    return pendingSession;
+  }
+
+  const cookieSession = readOAuthSession(request);
+
+  if (cookieSession?.state && cookieSession.state === formState) {
+    return cookieSession;
+  }
+
+  return null;
+}
+
+function readOAuthState(formState) {
+  if (!formState) {
+    return null;
+  }
+
+  try {
+    const payload = unseal(formState);
+
+    if (!payload?.nonce || !payload?.stateId) {
+      return null;
+    }
+
+    return {
+      ...payload,
+      state: formState
+    };
+  } catch (error) {
+    return null;
+  }
 }
 
 function sendOAuthPopupResponse(response, payload) {
