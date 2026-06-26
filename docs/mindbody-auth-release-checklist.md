@@ -9,7 +9,7 @@ This site now has the correct release shape for server-side account features: br
 - Sign-up validation blocks incomplete client payloads before any Mindbody write request.
 - Successful sign-up creates an encrypted on-site Cave session after the client record is created.
 - Public pages continue to load studio pricing and schedule from the local cache instead of calling Mindbody on every page load.
-- `login.html` stays on the Cave site and no longer calls `/usertoken/issue`, because that endpoint is for staff user tokens.
+- `/login` stays on the Cave site and no longer calls `/usertoken/issue`, because that endpoint is for staff user tokens.
 
 ## Must Be Verified Before Launch
 
@@ -26,9 +26,21 @@ This site now has the correct release shape for server-side account features: br
 
 - Set `BOOKING_API_KEY`, `BOOKING_SITE_ID`, `BOOKING_OAUTH_*`, and a long random `SESSION_SECRET` on the production server.
 - Serve the site over HTTPS so production cookies are sent with `Secure`.
+- Set `PUBLIC_BASE_URL` and `BOOKING_OAUTH_REDIRECT_URI` to the final production domain, for example `https://cavemodernpilates.com` and `https://cavemodernpilates.com/api/auth/callback`.
 - Do not expose the API key in Vite client env vars or browser JavaScript.
 - Keep booking, purchase, payment, waiver, and cancellation actions behind server routes.
 - Keep public schedule/pricing cache refreshes server-side and scheduled.
 - Direct class-pack/drop-in purchases through `/sale/checkoutshoppingcart` need `BOOKING_STAFF_TOKEN` and a saved/tokenized payment method.
 - Do not collect raw card numbers on this site unless a PCI-compliant Mindbody-approved tokenization flow is added first.
 - Signed waiver sync into Mindbody requires custom client field IDs in `BOOKING_WAIVER_*`; otherwise the site can capture the waiver but cannot write it into the Mindbody profile.
+
+## Release Smoke Test
+
+- Open `/`, `/pricing`, `/newbie`, `/memberships`, `/class-packs`, `/schedule`, `/about`, `/contact`, `/faq`, `/login`, `/signup`, `/account`, `/terms`, and `/policies` without `.html`.
+- Confirm legacy `.html` paths redirect to clean URLs.
+- Confirm `/api/auth/status` reports `configured: true`, `oauthConfigured: true`, and the exact production redirect URI.
+- Confirm `/api/mindbody/readiness` is green for public cache, client login, client API access, create client, book classes, waiver sync, and session security.
+- Confirm checkout readiness is green only after Mindbody payment/saved-card requirements are configured.
+- Sign in with a real test client, verify `/account` shows bookings, credits, and memberships in readable cards.
+- Try booking a real future class from `/schedule`.
+- Try a newbie offer, class pack, and membership purchase with a test client that has a Mindbody-supported saved payment method.

@@ -2643,13 +2643,39 @@ body.interior:has(.page-policies),
   color: var(--stone);
 }
 
-.account-card pre {
-  max-height: 260px;
-  margin: 0;
-  overflow: auto;
-  color: var(--charcoal);
-  font-size: 0.75rem;
-  white-space: pre-wrap;
+.account-empty {
+  line-height: 1.55;
+}
+
+.account-list {
+  display: grid;
+  gap: 12px;
+}
+
+.account-list-item {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 18px;
+  background: rgba(247, 247, 244, 0.86);
+}
+
+.account-list-item strong {
+  color: var(--black);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.account-list-item span,
+.account-list-item small {
+  color: rgba(5, 5, 5, 0.62);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.account-list-item small {
+  color: rgba(5, 5, 5, 0.48);
 }
 
 .site-footer {

@@ -402,6 +402,85 @@ function cleanInternalUrl(value, fallback = ROUTES.home) {
   return clean;
 }
 
+function normalizeStudioCache(rawCache) {
+  const source = rawCache && typeof rawCache === "object" ? rawCache : FALLBACK_CACHE;
+  const booking = source.booking || {};
+  const waiver = source.waiver || FALLBACK_CACHE.waiver || {};
+  const location = source.location || FALLBACK_CACHE.location || {};
+  const schedule = Array.isArray(source.schedule) ? source.schedule : [];
+  const memberships = Array.isArray(source.memberships) ? source.memberships : [];
+
+  return {
+    ...source,
+    booking: {
+      ...booking,
+      scheduleUrl: cleanInternalUrl(booking.scheduleUrl || ROUTES.schedule, ROUTES.schedule)
+    },
+    memberships: filterPublicPricingItems(memberships),
+    store: normalizeStoreGroups(source.store || {}),
+    waiver: {
+      ...waiver,
+      url: cleanInternalUrl(waiver.url || `${ROUTES.policies}#liability-waiver`, `${ROUTES.policies}#liability-waiver`)
+    },
+    schedule: schedule.map((item) => ({
+      ...item,
+      bookUrl: cleanInternalUrl(item.bookUrl || (item.id ? `${ROUTES.schedule}?classId=${item.id}` : ROUTES.schedule), ROUTES.schedule)
+    })),
+    location: {
+      ...location,
+      email: CONTACT_EMAIL,
+      phone: CONTACT_PHONE,
+      phoneDisplay: CONTACT_PHONE_DISPLAY
+    }
+  };
+}
+
+function normalizeStoreGroups(store) {
+  return {
+    ...store,
+    newbie: filterPublicPricingItems(store.newbie || store.starter || []),
+    memberships: filterPublicPricingItems(store.memberships || []),
+    classPacks: filterPublicPricingItems(store.classPacks || [])
+  };
+}
+
+function filterPublicPricingItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.filter(isPublicPricingItem).map((item) => ({
+    ...item,
+    category: item.category === "starter" ? "newbie" : item.category,
+    requiresWaiver: item.requiresWaiver !== false,
+    sellOnline: item.sellOnline !== false
+  }));
+}
+
+function isPublicPricingItem(item) {
+  const name = String(item?.name || item?.sourceName || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const category = String(item?.category || "").toLowerCase();
+  const kind = String(item?.kind || "").toLowerCase();
+
+  if (!name || item?.sellOnline === false) {
+    return false;
+  }
+
+  if (/\bcave\s*1\b|\btest\b|\btraining\b/.test(name)) {
+    return false;
+  }
+
+  if (category === "newbie" || category === "starter") {
+    return /\b(new client|newbie|starter|intro)\b/.test(name);
+  }
+
+  if (category === "classpacks" || kind === "service") {
+    return /\b(new client|newbie|starter|intro)\b/.test(name) || /\bdrop[- ]?in\b/.test(name) || /\b\d+\s*class\s*(pack|package)?\b/.test(name);
+  }
+
+  return true;
+}
+
 async function apiRequest(path, { method = "GET", body, token } = {}) {
   const response = await fetch(path, {
     method,
@@ -419,14 +498,31 @@ async function apiRequest(path, { method = "GET", body, token } = {}) {
     error.status = response.status;
     error.loginUrl = data.loginUrl;
     error.details = data.details;
+    error.data = data;
     throw error;
   }
 
   return data;
 }
 
+function friendlyApiErrorMessage(error, fallback = "That request could not be completed.") {
+  if (error?.status === 402) {
+    return `${error.message || "A saved payment method is required."} Add a saved payment method to the studio account or contact Cave to finish this purchase.`;
+  }
+
+  if (error?.status === 501) {
+    return "Online checkout is waiting on a final Mindbody checkout setting. Please contact Cave to complete this purchase.";
+  }
+
+  if (error?.status === 401) {
+    return error.message || "Please sign in first.";
+  }
+
+  return error?.message || fallback;
+}
+
 function useStudioCache() {
-  const [cache, setCache] = useState(FALLBACK_CACHE);
+  const [cache, setCache] = useState(() => normalizeStudioCache(FALLBACK_CACHE));
 
   useEffect(() => {
     let isMounted = true;
@@ -438,7 +534,7 @@ function useStudioCache() {
       }
 
       try {
-        const response = await fetch("data/studio-cache.json", { cache: "no-store" });
+        const response = await fetch("/data/studio-cache.json", { cache: "no-store" });
 
         if (!response.ok) {
           return;
@@ -447,7 +543,7 @@ function useStudioCache() {
         const freshCache = await response.json();
 
         if (isMounted) {
-          setCache(freshCache);
+          setCache(normalizeStudioCache(freshCache));
         }
       } catch (error) {
         console.info("Using embedded studio cache snapshot.", error);
@@ -1071,7 +1167,7 @@ function PricingCategoryPage({ category, store, memberships }) {
         return;
       }
 
-      setPurchaseState({ itemId: item.id, type: "error", message: error.message });
+      setPurchaseState({ itemId: item.id, type: "error", message: friendlyApiErrorMessage(error, "Checkout could not be completed.") });
     }
   };
 
@@ -1891,9 +1987,9 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       </div>
 
       <div className="account-grid">
-        <AccountCard title="Upcoming Bookings" data={dashboard?.schedule} empty="Upcoming bookings will appear here." />
-        <AccountCard title="Class Credits" data={dashboard?.services} empty="Class credits will appear here." />
-        <AccountCard title="Memberships" data={dashboard?.contracts} empty="Membership details will appear here." />
+        <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} empty="Upcoming bookings will appear here." />
+        <AccountCard title="Class Credits" type="services" data={dashboard?.services} empty="Class credits will appear here." />
+        <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} empty="Membership details will appear here." />
       </div>
 
       {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
@@ -1902,15 +1998,163 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   );
 }
 
-function AccountCard({ title, data, empty }) {
-  const preview = JSON.stringify(data || {}, null, 2);
+function AccountCard({ title, data, empty, type }) {
+  const items = normalizeAccountItems(data, type);
 
   return (
     <article className="account-card">
       <h2>{title}</h2>
-      {data ? <pre>{preview.length > 700 ? `${preview.slice(0, 700)}...` : preview}</pre> : <p>{empty}</p>}
+      {items.length ? (
+        <div className="account-list">
+          {items.map((item, index) => (
+            <div className="account-list-item" key={`${title}-${item.title}-${index}`}>
+              <strong>{item.title}</strong>
+              {item.detail ? <span>{item.detail}</span> : null}
+              {item.meta ? <small>{item.meta}</small> : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="account-empty">{empty}</p>
+      )}
     </article>
   );
+}
+
+function normalizeAccountItems(data, type) {
+  const rows = firstArrayFromAccountData(data, accountPreferredKeys(type));
+
+  if (!rows.length) {
+    return [];
+  }
+
+  return rows.slice(0, 6).map((item) => {
+    if (type === "schedule") {
+      const title = firstText(
+        item.ClassDescription?.Name,
+        item.ClassName,
+        item.Name,
+        item.SessionType?.Name,
+        "Booked class"
+      );
+      const when = formatAccountDate(firstText(item.StartDateTime, item.StartDate, item.AppointmentStartDateTime, item.Date));
+      const instructor = firstText(item.Staff?.Name, item.StaffName, item.InstructorName);
+      const status = firstText(item.Status, item.BookingStatus, item.VisitStatus);
+
+      return {
+        title,
+        detail: [when, instructor].filter(Boolean).join(" with "),
+        meta: status
+      };
+    }
+
+    if (type === "services") {
+      const title = firstText(item.Name, item.ServiceName, item.Program?.Name, item.SessionType?.Name, "Class credit");
+      const remaining = firstText(item.Remaining, item.RemainingClasses, item.Count, item.Current, item.Balance, item.VisitsRemaining);
+      const expiration = formatAccountDate(firstText(item.ExpirationDate, item.Expires, item.ExpiryDate));
+
+      return {
+        title,
+        detail: remaining ? `${remaining} remaining` : "",
+        meta: expiration ? `Expires ${expiration}` : ""
+      };
+    }
+
+    const title = firstText(item.ContractName, item.Name, item.MembershipName, item.AgreementName, "Membership");
+    const status = firstText(item.Status, item.ContractStatus, item.Active === true ? "Active" : "");
+    const starts = formatAccountDate(firstText(item.StartDate, item.StartDateTime));
+    const ends = formatAccountDate(firstText(item.EndDate, item.EndDateTime, item.ExpirationDate));
+
+    return {
+      title,
+      detail: [status, starts ? `Started ${starts}` : ""].filter(Boolean).join(" · "),
+      meta: ends ? `Renews or ends ${ends}` : ""
+    };
+  });
+}
+
+function accountPreferredKeys(type) {
+  if (type === "schedule") {
+    return ["ClientSchedule", "Schedule", "Classes", "Appointments", "Visits"];
+  }
+
+  if (type === "services") {
+    return ["ClientServices", "Services", "Packages", "Credits"];
+  }
+
+  return ["ClientContracts", "Contracts", "Memberships", "Agreements"];
+}
+
+function firstArrayFromAccountData(data, preferredKeys = []) {
+  if (!data) {
+    return [];
+  }
+
+  if (Array.isArray(data)) {
+    return data.filter((item) => item && typeof item === "object");
+  }
+
+  if (typeof data !== "object") {
+    return [];
+  }
+
+  for (const key of preferredKeys) {
+    if (Array.isArray(data[key])) {
+      return data[key].filter((item) => item && typeof item === "object");
+    }
+  }
+
+  for (const value of Object.values(data)) {
+    if (Array.isArray(value)) {
+      return value.filter((item) => item && typeof item === "object");
+    }
+  }
+
+  for (const value of Object.values(data)) {
+    const nested = firstArrayFromAccountData(value, preferredKeys);
+
+    if (nested.length) {
+      return nested;
+    }
+  }
+
+  return [];
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    const text = String(value).trim();
+
+    if (text && text !== "0") {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+function formatAccountDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const hasTime = /T|\d:\d/.test(String(value));
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    ...(hasTime ? { hour: "numeric", minute: "2-digit" } : {})
+  });
 }
 
 function FormField({ label, name, type = "text", value, onChange, required = false, autoComplete }) {
@@ -2079,7 +2323,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession }) {
         return;
       }
 
-      setBookingState({ classId, type: "error", message: error.message });
+      setBookingState({ classId, type: "error", message: friendlyApiErrorMessage(error, "Booking could not be completed.") });
     }
   };
 

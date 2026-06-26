@@ -4,11 +4,15 @@ A multi-page React/Vite website for Cave Modern Pilates with a Beachhouse-style 
 
 ## Pages
 
-- `index.html` is the React home entry: hero, memberships, app-coming-soon block, and footer.
-- `pricing.html`, `newbie.html`, `memberships.html`, and `class-packs.html` render store pricing from `data/studio-cache.json`.
-- `schedule.html` renders class schedule data from `data/studio-cache.json`.
-- `about.html`, `contact.html`, `faq.html`, `login.html`, `signup.html`, and `account.html` are separate React entries.
+The public site uses clean URLs in production:
+
+- `/` is the React home entry: hero video, pricing preview, app-coming-soon block, and footer.
+- `/pricing`, `/newbie`, `/memberships`, and `/class-packs` render store pricing from `data/studio-cache.json`.
+- `/schedule` renders class schedule data from `data/studio-cache.json`.
+- `/about`, `/contact`, `/faq`, `/login`, `/signup`, `/account`, `/terms`, and `/policies` are separate React routes.
 - Shared app code lives in `src/main.jsx`, `src/studioCache.js`, and `src/styles.css`.
+
+Vercel clean URLs are enabled in `vercel.json`, and the Node server redirects legacy `.html` paths to their clean equivalents.
 
 ## Local Development
 
@@ -50,6 +54,7 @@ Put credentials in an ignored `.env` file first:
 BOOKING_API_KEY=your_key_here
 BOOKING_SITE_ID=5753835
 SESSION_SECRET=use_a_long_random_secret
+PUBLIC_BASE_URL=https://cavemodernpilates.com
 ```
 
 The script writes:
@@ -83,7 +88,7 @@ The proxy and production server read `BOOKING_API_KEY`, `BOOKING_SITE_ID`, and `
 
 Sessions are stored in encrypted, HttpOnly cookies. Browser JavaScript receives only a safe public session object.
 
-Mindbody Public API v6 user tokens are staff tokens, not client password login tokens. `login.html` starts Mindbody OAuth through `/api/auth/start`; Mindbody posts the authorization code to `/api/auth/callback`; the backend exchanges that code at `https://signin.mindbodyonline.com/connect/token` and stores the returned access token in an encrypted HttpOnly cookie. See `docs/mindbody-auth-release-checklist.md`.
+Mindbody Public API v6 user tokens are staff tokens, not client password login tokens. `/login` starts Mindbody OAuth through `/api/auth/start`; Mindbody posts the authorization code to `/api/auth/callback`; the backend exchanges that code at `https://signin.mindbodyonline.com/connect/token` and stores the returned access token in an encrypted HttpOnly cookie. See `docs/mindbody-auth-release-checklist.md`.
 
 The sign-up form sends the liability waiver with the new client payload. To store waiver signatures in Mindbody, create custom client fields in Mindbody and set the field IDs:
 
@@ -102,3 +107,14 @@ The sign-up form includes the required client fields returned by the studio API:
 - postal code
 - mobile phone
 - email
+
+## Production Publish Checklist
+
+1. Add the production environment variables from `.env.example` to Vercel.
+2. In Mindbody developer credentials, add the production redirect URI exactly: `https://your-domain.com/api/auth/callback`.
+3. Keep `BOOKING_OAUTH_SCOPE` limited to the approved scopes shown in the Mindbody OAuth client.
+4. Run `GET /api/mindbody/readiness` after deploy. It reports login, booking, checkout, waiver sync, cache refresh, and OAuth preflight status without exposing secrets.
+5. Run `npm run sync` or enable `BOOKING_CACHE_SYNC=true` so pricing and schedule refresh from Mindbody automatically.
+6. Create Mindbody custom client fields for waiver storage and set the `BOOKING_WAIVER_*` IDs.
+7. For direct on-site purchases, confirm the studio has a Mindbody-supported saved-card/tokenized payment flow or set `BOOKING_STAFF_TOKEN` for service checkout. Do not collect raw card numbers in this app.
+8. Test with a real approved studio test client: sign in, create account, save waiver, book a class, view account dashboard, and attempt each pricing category.

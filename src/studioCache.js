@@ -105,18 +105,6 @@ export const FALLBACK_CACHE = {
     ],
     classPacks: [
       {
-        id: "100031",
-        kind: "service",
-        category: "classPacks",
-        name: "Cave1",
-        price: "$30.00",
-        sessions: 1,
-        description: "Expires in 12 months",
-        sellOnline: true,
-        requiresWaiver: true,
-        requiresTerms: false
-      },
-      {
         id: "100004",
         kind: "service",
         category: "classPacks",

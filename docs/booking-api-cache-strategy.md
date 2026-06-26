@@ -38,5 +38,5 @@ Use embedded checkout widgets only for payment checkout, unusually complex purch
 ## Public Site Data
 
 - `data/studio-cache.json` stores public memberships, schedule preview, location, booking route, and cache policy.
-- `pricing.html` and `schedule.html` render from this cache.
+- `/pricing` and `/schedule` render from this cache.
 - `src/main.jsx` uses built-in fallback data for direct `file://` preview, then refreshes from `data/studio-cache.json` when served over HTTP.

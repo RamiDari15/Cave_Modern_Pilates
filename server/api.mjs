@@ -875,23 +875,53 @@ async function finishOAuthSignIn(request, response, form) {
     return;
   }
 
-  const tokenResponse = await exchangeOAuthCode(form.code, oauthSession.codeVerifier);
-  const session = await hydrateOAuthSession(normalizeOAuthSession(tokenResponse, {
-    authorizationIdToken: form.id_token,
-    expectedNonce: oauthSession.nonce
-  }));
+  try {
+    const tokenResponse = await exchangeOAuthCode(form.code, oauthSession.codeVerifier);
+    const session = await hydrateOAuthSession(normalizeOAuthSession(tokenResponse, {
+      authorizationIdToken: form.id_token,
+      expectedNonce: oauthSession.nonce
+    }));
 
-  setSessionCookie(response, session);
-  if (oauthSession.popup) {
-    finishPopup({
-      ok: true,
-      returnTo: oauthSession.returnTo || "/account"
-    });
-    return;
+    setSessionCookie(response, session);
+    if (oauthSession.popup) {
+      finishPopup({
+        ok: true,
+        returnTo: oauthSession.returnTo || "/account"
+      });
+      return;
+    }
+
+    clearOAuthCookie(response);
+    redirect(response, oauthSession.returnTo || "/account");
+  } catch (error) {
+    const message = oauthFailureMessage(error);
+
+    if (oauthSession.popup) {
+      finishPopup({
+        ok: false,
+        error: "token",
+        message
+      });
+      return;
+    }
+
+    clearOAuthCookie(response);
+    redirect(response, `/login?auth=error&message=${encodeURIComponent(message)}`);
+  }
+}
+
+function oauthFailureMessage(error) {
+  const text = String(error?.message || "").trim();
+
+  if (!text) {
+    return "We could not finish sign-in. Please try again.";
   }
 
-  clearOAuthCookie(response);
-  redirect(response, oauthSession.returnTo || "/account");
+  if (/invalid_grant/i.test(text)) {
+    return "That sign-in link expired. Please start sign-in again.";
+  }
+
+  return text;
 }
 
 function createOAuthState({ nonce, returnTo, popup, codeVerifier }) {
@@ -1449,10 +1479,50 @@ function readStoreCache() {
   }
 }
 
+function publicStoreGroups(store) {
+  return {
+    newbie: publicStoreItems(store?.newbie || store?.starter || []),
+    memberships: publicStoreItems(store?.memberships || []),
+    classPacks: publicStoreItems(store?.classPacks || [])
+  };
+}
+
+function publicStoreItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.filter(isPublicStoreItem);
+}
+
+function isPublicStoreItem(item) {
+  const name = String(item?.name || item?.sourceName || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const category = String(item?.category || "").toLowerCase();
+  const kind = String(item?.kind || "").toLowerCase();
+
+  if (!name || item?.sellOnline === false) {
+    return false;
+  }
+
+  if (/\bcave\s*1\b|\btest\b|\btraining\b/.test(name)) {
+    return false;
+  }
+
+  if (category === "newbie" || category === "starter") {
+    return /\b(new client|newbie|starter|intro)\b/.test(name);
+  }
+
+  if (category === "classpacks" || kind === "service") {
+    return /\b(new client|newbie|starter|intro)\b/.test(name) || /\bdrop[- ]?in\b/.test(name) || /\b\d+\s*class\s*(pack|package)?\b/.test(name);
+  }
+
+  return true;
+}
+
 function findStoreItem(itemId, kind) {
   const id = String(itemId || "");
   const expectedKind = String(kind || "");
-  const store = readStoreCache().store || {};
+  const store = publicStoreGroups(readStoreCache().store || {});
   const items = Object.values(store).flatMap((group) => (Array.isArray(group) ? group : []));
 
   return items.find((item) => String(item.id) === id && (!expectedKind || item.kind === expectedKind)) || null;
