@@ -14,6 +14,19 @@ The public site uses clean URLs in production:
 
 Vercel clean URLs are enabled in `vercel.json`, and the Node server redirects legacy `.html` paths to their clean equivalents.
 
+## Editable Site Content
+
+Most public copy, navigation labels, SEO titles, social links, contact details, FAQ content, and page routing lives near the top of `src/main.jsx`.
+
+- Change the official website URL in `SITE_URL`.
+- Change email, phone, Instagram, TikTok, and handle values in the contact/social constants.
+- Change navigation labels in `NAV_LINKS`.
+- Change SEO titles and meta descriptions in `PAGE_TITLES` and `PAGE_DESCRIPTIONS`.
+- Change FAQ questions and answers in `FAQ_ITEMS`.
+- Change pricing category names and routes in `PRICING_CATEGORIES`.
+
+Design styles live in `src/styles.css`. Public fallback data lives in `src/studioCache.js`, but live schedule and pricing should come from the Mindbody-backed `data/studio-cache.json` cache.
+
 ## Local Development
 
 Install dependencies once:
@@ -54,7 +67,7 @@ Put credentials in an ignored `.env` file first:
 BOOKING_API_KEY=your_key_here
 BOOKING_SITE_ID=5753835
 SESSION_SECRET=use_a_long_random_secret
-PUBLIC_BASE_URL=https://cavemodernpilates.com
+PUBLIC_BASE_URL=https://www.cavemodernpilates.com
 ```
 
 The script writes:
@@ -113,7 +126,7 @@ The sign-up form includes the required client fields returned by the studio API:
 ## Production Publish Checklist
 
 1. Add the production environment variables from `.env.example` to Vercel.
-2. In Mindbody developer credentials, add the production redirect URI exactly: `https://your-domain.com/api/auth/callback`.
+2. In Mindbody developer credentials, add the production redirect URI exactly: `https://www.cavemodernpilates.com/api/auth/callback`.
 3. Keep `BOOKING_OAUTH_SCOPE` limited to the approved scopes shown in the Mindbody OAuth client.
 4. Run `GET /api/mindbody/readiness` after deploy. It reports login, booking, checkout, waiver sync, cache refresh, and OAuth preflight status without exposing secrets.
 5. Run `npm run sync` or enable `BOOKING_CACHE_SYNC=true` so pricing and schedule refresh from Mindbody automatically.

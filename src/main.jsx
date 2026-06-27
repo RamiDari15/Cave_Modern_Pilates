@@ -74,7 +74,7 @@ const PAGE_DESCRIPTIONS = {
   policies: "Cave Modern Pilates studio policies, cancellation rules, privacy policy, and liability waiver."
 };
 
-const SITE_URL = "https://cavemodernpilates.com";
+const SITE_URL = "https://www.cavemodernpilates.com";
 const STUDIO_CACHE_POLL_MS = 5 * 60 * 1000;
 const CONTACT_EMAIL = "support@cavemodernpilates.com";
 const CONTACT_PHONE = "7085715730";
@@ -506,6 +506,12 @@ async function apiRequest(path, { method = "GET", body, token } = {}) {
 }
 
 function friendlyApiErrorMessage(error, fallback = "That request could not be completed.") {
+  const message = error?.message || "";
+
+  if (isStudioConnectionMessage(message)) {
+    return "The secure studio connection needs one final Mindbody credential update before online booking, buying, or account creation can finish.";
+  }
+
   if (error?.status === 402) {
     const setupUrl = error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || "";
     return `${error.message || "A saved payment method is required."} Use a card already saved on your studio account${setupUrl ? " or open the payment setup link" : ""}.`;
@@ -516,10 +522,14 @@ function friendlyApiErrorMessage(error, fallback = "That request could not be co
   }
 
   if (error?.status === 401) {
-    return error.message || "Please sign in first.";
+    return message || "Please sign in first.";
   }
 
-  return error?.message || fallback;
+  return message || fallback;
+}
+
+function isStudioConnectionMessage(value) {
+  return /source credential|staff identity|server-side user token|staff\/source token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
 
 function useStudioCache(activePage) {
@@ -817,12 +827,6 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
               {item.label}
             </a>
           ))}
-          <a href={INSTAGRAM_URL} onClick={onCloseMenu}>
-            Instagram
-          </a>
-          <a href={TIKTOK_URL} onClick={onCloseMenu}>
-            TikTok
-          </a>
         </nav>
         <a className="mobile-book" href={accountHref} onClick={onCloseMenu}>
           {accountLabel}
@@ -1165,7 +1169,7 @@ function PricingCategoryPage({ category, store, memberships }) {
     }
 
     if (!/^\d{4}$/.test(storedCardLastFour)) {
-      setPurchaseState({ itemId: item.id, type: "error", message: "Enter the last 4 digits of the saved card on your studio account." });
+      setPurchaseState({ itemId: item.id, type: "error", message: "Enter the last four digits of the saved studio card you want to use." });
       return;
     }
 
@@ -1282,21 +1286,23 @@ function PricingCard({ item, category, purchaseState, paymentLastFour, onPayment
         </h3>
       </div>
       <div className="pricing-card-actions">
-        <label className="payment-safe-field">
-          <span>Saved card ending</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            pattern="[0-9]{4}"
-            maxLength={4}
-            placeholder="1234"
-            value={paymentLastFour}
-            onChange={(event) => onPaymentLastFourChange(event.target.value)}
-            aria-label={`Saved card ending for ${item.name}`}
-          />
-        </label>
-        <p className="payment-safe-note">No full card numbers on this site.</p>
+        <div className="payment-safe-box">
+          <label className="payment-safe-field">
+            <span>Card on file</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              pattern="[0-9]{4}"
+              maxLength={4}
+              placeholder="Last 4"
+              value={paymentLastFour}
+              onChange={(event) => onPaymentLastFourChange(event.target.value)}
+              aria-label={`Last four digits for ${item.name}`}
+            />
+          </label>
+          <p className="payment-safe-note">Use a saved studio card. Full card numbers never touch this site.</p>
+        </div>
         <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={() => onBuy(item)}>
           {isLoading ? "Starting..." : "Buy Now"}
         </button>
@@ -1598,8 +1604,14 @@ function normalizeLocalReturnTo(value) {
   return text.startsWith("/") ? text : `/${text}`;
 }
 
-function authStartHref(returnTo = ROUTES.account) {
-  return `/api/auth/start?returnTo=${encodeURIComponent(normalizeLocalReturnTo(returnTo))}`;
+function authStartHref(returnTo = ROUTES.account, options = {}) {
+  const params = new URLSearchParams({ returnTo: normalizeLocalReturnTo(returnTo) });
+
+  if (options.force) {
+    params.set("force", "1");
+  }
+
+  return `/api/auth/start?${params.toString()}`;
 }
 
 function startOAuthRedirect(returnTo = ROUTES.account) {
@@ -1608,12 +1620,6 @@ function startOAuthRedirect(returnTo = ROUTES.account) {
 
 function LoginPage({ bookingUrl, clientSession, setClientSession }) {
   const [status, setStatus] = useState(oauthStatusFromQuery);
-
-  useEffect(() => {
-    if (clientSession?.signedIn) {
-      window.location.href = ROUTES.account;
-    }
-  }, [clientSession]);
 
   useEffect(() => {
     const onMessage = async (event) => {
@@ -1646,19 +1652,38 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
     return () => window.removeEventListener("message", onMessage);
   }, [setClientSession]);
 
+  const signOut = () => {
+    apiRequest("/api/auth/sign-out", { method: "POST" }).finally(() => {
+      setClientSession(null);
+      setStatus({ type: "success", message: "Signed out. Choose an account to continue." });
+    });
+  };
+
+  const signedInUser = clientSession?.user || {};
+
   return (
     <>
       <section className="login-page">
         <div className="login-copy">
-          <h1>Sign in to your Cave account.</h1>
-          <p>Use your studio account to book classes, review credits, and manage your Cave details in one place.</p>
+          <h1>{clientSession?.signedIn ? `You're signed in${signedInUser.firstName ? `, ${signedInUser.firstName}` : ""}.` : "Sign in to your Cave account."}</h1>
+          <p>{clientSession?.signedIn ? signedInUser.email || "Manage your Cave account from here." : "Use your studio account to book classes, review credits, and manage your Cave details in one place."}</p>
         </div>
 
         <div className="login-panel">
-          <a className="pill-button black" href={authStartHref(ROUTES.account)}>Sign In</a>
-          <a className="pill-button outline" href={ROUTES.signup}>
-            Create Account
-          </a>
+          {clientSession?.signedIn ? (
+            <>
+              <a className="pill-button black" href={ROUTES.account}>Go to Account</a>
+              <a className="pill-button outline" href={authStartHref(ROUTES.account, { force: true })}>Switch Account</a>
+              <button className="pill-button outline" type="button" onClick={signOut}>Sign Out</button>
+            </>
+          ) : (
+            <>
+              <a className="pill-button black" href={authStartHref(ROUTES.account)}>Sign In</a>
+              <a className="pill-button outline" href={ROUTES.signup}>
+                Create Account
+              </a>
+            </>
+          )}
           <a className="pill-button outline" href={bookingUrl}>
             View Schedule
           </a>
@@ -1938,17 +1963,20 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           }
 
           setDashboard(data);
+          const visibleErrors = Array.isArray(data.errors)
+            ? data.errors.filter((message) => !isStudioConnectionMessage(message))
+            : [];
+
           setStatus(
-            data.errors?.length
-              ? { type: "error", message: data.errors.join(" ") }
-              : data.session?.hasStudioClient === false
-                ? { type: "success", message: "Signed in. We are still matching this login to a studio client profile." }
-                : { type: "", message: "" }
+            visibleErrors.length
+              ? { type: "error", message: visibleErrors.map((message) => friendlyApiErrorMessage({ message })).join(" ") }
+              : { type: "", message: "" }
           );
         }
       } catch (error) {
         if (isMounted) {
-          setStatus({ type: "error", message: error.message });
+          const message = friendlyApiErrorMessage(error);
+          setStatus(isStudioConnectionMessage(error.message) ? { type: "", message: "" } : { type: "error", message });
         }
       }
     }
@@ -2006,7 +2034,10 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           <h1>{user.firstName ? `Hi, ${user.firstName}.` : "Your Cave account."}</h1>
           <p>{user.email || user.username}</p>
         </div>
-        <button className="pill-button outline" type="button" onClick={signOut}>Sign Out</button>
+        <div className="account-actions">
+          <a className="pill-button outline" href={authStartHref(ROUTES.account, { force: true })}>Switch Account</a>
+          <button className="pill-button outline" type="button" onClick={signOut}>Sign Out</button>
+        </div>
       </div>
 
       <div className="account-grid">

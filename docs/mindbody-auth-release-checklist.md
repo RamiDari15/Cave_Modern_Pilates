@@ -18,7 +18,7 @@ This site now has the correct release shape for server-side account features: br
 - Leave `BOOKING_OAUTH_INCLUDE_SUBSCRIBER_ID=false` unless Mindbody specifically tells you the approved OAuth client requires `subscriberId` in authorize and token requests.
 - For OAuth account lookup, make sure the approved OAuth scope includes the Mindbody Public API scope your app was granted, such as `Mindbody.Api.Public.v6`.
 - Mindbody confirmed OAuth consumer tokens are only functional for `GET /client/clientcompleteinfo`. Add `BOOKING_STAFF_USERNAME` + `BOOKING_STAFF_PASSWORD`, `BOOKING_SOURCE_NAME` + `BOOKING_SOURCE_PASSWORD`, or a fallback `BOOKING_STAFF_TOKEN`/`BOOKING_USER_TOKEN` before testing booking, purchasing, cancellation, dashboard detail calls, or waiver profile sync. The backend calls `POST /usertoken/issue` and caches the returned user token when username/password credentials are present.
-- Add the production redirect URI in the Mindbody developer credentials page, for example `https://your-domain.com/api/auth/callback`.
+- Add the production redirect URI in the Mindbody developer credentials page: `https://www.cavemodernpilates.com/api/auth/callback`.
 - Test `POST /api/auth/sign-up` only with an approved studio test client because a full valid request can create a real client record in Mindbody.
 - After a successful sign-in, verify `GET /api/client/dashboard` returns upcoming bookings, credits, and memberships for that client.
 - Check `GET /api/mindbody/readiness` after changing env vars. It reports whether login, booking, purchases, waiver sync, cache refresh, and the Mindbody OAuth authorize request are actually configured without exposing secrets.
@@ -27,7 +27,7 @@ This site now has the correct release shape for server-side account features: br
 
 - Set `BOOKING_API_KEY`, `BOOKING_SITE_ID`, the approved `BOOKING_OAUTH_*` values, staff/source token credentials, and a long random `SESSION_SECRET` on the production server.
 - Serve the site over HTTPS so production cookies are sent with `Secure`.
-- Set `PUBLIC_BASE_URL` and `BOOKING_OAUTH_REDIRECT_URI` to the final production domain, for example `https://cavemodernpilates.com` and `https://cavemodernpilates.com/api/auth/callback`.
+- Set `PUBLIC_BASE_URL` and `BOOKING_OAUTH_REDIRECT_URI` to the final production domain: `https://www.cavemodernpilates.com` and `https://www.cavemodernpilates.com/api/auth/callback`.
 - Do not expose the API key in Vite client env vars or browser JavaScript.
 - Keep booking, purchase, payment, waiver, and cancellation actions behind server routes.
 - Keep checkout PCI-safe. The website must never collect full card numbers or CVV. It only accepts saved-card last-four references today, with room to swap in a Mindbody-approved tokenized payment provider later.

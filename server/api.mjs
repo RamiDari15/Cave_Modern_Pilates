@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const ROOT_DIR = resolve(import.meta.dirname, "..");
 const API_HOST = "api." + "mind" + "bodyonline.com";
 const BASE_URL = `https://${API_HOST}/public/v6`;
+const OFFICIAL_SITE_URL = "https://www.cavemodernpilates.com";
 const SESSION_COOKIE = "cave_session";
 const OAUTH_COOKIE = "cave_oauth";
 const SESSION_COOKIE_CHUNK_SIZE = 3600;
@@ -69,8 +70,8 @@ export function getBookingConfig() {
   );
   const defaultBaseUrl =
     process.env.PUBLIC_BASE_URL ||
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
+    (process.env.NODE_ENV === "production"
+      ? OFFICIAL_SITE_URL
       : `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 8765}`);
   const oauthRedirectUri =
     configuredEnvValue("BOOKING_OAUTH_REDIRECT_URI", "MINDBODY_OAUTH_REDIRECT_URI") ||
@@ -293,7 +294,13 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/auth/start" && request.method === "GET") {
-      startOAuthSignIn(request, response, url.searchParams.get("returnTo"), url.searchParams.get("popup") === "1");
+      startOAuthSignIn(
+        request,
+        response,
+        url.searchParams.get("returnTo"),
+        url.searchParams.get("popup") === "1",
+        url.searchParams.get("force") === "1"
+      );
       return true;
     }
 
@@ -459,7 +466,7 @@ export async function handleApiRequest(request, response) {
           contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || null,
           session: publicSession(session),
           errors: [
-            ...errors,
+            ...errors.map(publicApiErrorMessage),
             config.actionTokenConfigured
               ? "We could not match this login to a studio client account yet."
               : "Full bookings, credits, memberships, and cancellation actions require BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, or staff/source credentials for /usertoken/issue."
@@ -485,8 +492,8 @@ export async function handleApiRequest(request, response) {
         session: publicSession(session),
         errors: [profile, schedule, services, contracts]
           .filter((result) => result.status === "rejected")
-          .map((result) => result.reason?.message || "Request failed.")
-          .concat(errors)
+          .map((result) => publicApiErrorMessage(result.reason))
+          .concat(errors.map(publicApiErrorMessage))
       });
       return true;
     }
@@ -875,7 +882,7 @@ function isMindbodyErrorRedirect(location) {
   }
 }
 
-function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
+function startOAuthSignIn(request, response, requestedReturnTo, popup = false, forceLogin = false) {
   const {
     oauthAuthorizeUrl,
     oauthClientId,
@@ -908,6 +915,10 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false) {
   authorizeUrl.searchParams.set("scope", oauthScope);
   authorizeUrl.searchParams.set("nonce", nonce);
   authorizeUrl.searchParams.set("state", state);
+
+  if (forceLogin) {
+    authorizeUrl.searchParams.set("prompt", "login");
+  }
 
   if (oauthIncludeSubscriberId && oauthSubscriberId) {
     authorizeUrl.searchParams.set("subscriberId", oauthSubscriberId);
@@ -2828,11 +2839,19 @@ function sendJson(response, status, payload) {
 function publicApiErrorMessage(error) {
   const message = String(error?.message || "");
 
+  if (isMindbodySetupErrorMessage(message)) {
+    return "The secure studio connection needs one final Mindbody credential update before online booking, buying, or account creation can finish.";
+  }
+
   if (/staff identity authentication failed/i.test(message)) {
     return sanitizeActionTokenError(error);
   }
 
   return message || "Request failed.";
+}
+
+function isMindbodySetupErrorMessage(message) {
+  return /source credential|staff identity|server-side user token|staff\/source token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(message || ""));
 }
 
 function httpError(status, message) {
