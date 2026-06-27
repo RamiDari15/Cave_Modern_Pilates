@@ -340,6 +340,7 @@ svg {
 .page-class-packs,
 .page-login,
 .page-signup,
+.page-account,
 .page-terms,
 .page-policies {
   background:
@@ -357,6 +358,7 @@ body.interior:has(.page-memberships),
 body.interior:has(.page-class-packs),
 body.interior:has(.page-login),
 body.interior:has(.page-signup),
+body.interior:has(.page-account),
 body.interior:has(.page-terms),
 body.interior:has(.page-policies),
 .app-shell.interior:has(.page-schedule),
@@ -367,6 +369,7 @@ body.interior:has(.page-policies),
 .app-shell.interior:has(.page-class-packs),
 .app-shell.interior:has(.page-login),
 .app-shell.interior:has(.page-signup),
+.app-shell.interior:has(.page-account),
 .app-shell.interior:has(.page-terms),
 .app-shell.interior:has(.page-policies) {
   background:

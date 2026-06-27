@@ -1598,6 +1598,10 @@ function normalizeLocalReturnTo(value) {
   return text.startsWith("/") ? text : `/${text}`;
 }
 
+function startOAuthRedirect(returnTo = ROUTES.account) {
+  window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(normalizeLocalReturnTo(returnTo))}`;
+}
+
 function LoginPage({ bookingUrl, clientSession, setClientSession }) {
   const [status, setStatus] = useState(oauthStatusFromQuery);
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -1648,7 +1652,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
       type: "success",
       message: "Taking you to secure sign-in."
     });
-    window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`;
+    startOAuthRedirect(returnTo);
   };
 
   return (
@@ -1974,6 +1978,10 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
     });
   };
 
+  const startSignIn = () => {
+    startOAuthRedirect(ROUTES.account);
+  };
+
   if (isSessionLoading) {
     return (
       <section className="login-page">
@@ -1995,7 +2003,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           <p>Your account page shows bookings, class credits, and memberships once connected.</p>
         </div>
         <div className="login-panel">
-          <a className="pill-button black" href={ROUTES.login}>Sign In</a>
+          <button className="pill-button black" type="button" onClick={startSignIn}>Sign In</button>
           <a className="pill-button outline" href={ROUTES.signup}>Create Account</a>
           <a className="pill-button outline" href={bookingUrl}>View Schedule</a>
         </div>
