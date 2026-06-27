@@ -7,6 +7,8 @@ const API_HOST = "api." + "mind" + "bodyonline.com";
 const BASE_URL = `https://${API_HOST}/public/v6`;
 const SESSION_COOKIE = "cave_session";
 const OAUTH_COOKIE = "cave_oauth";
+const SESSION_COOKIE_CHUNK_SIZE = 3600;
+const SESSION_COOKIE_MAX_CHUNKS = 8;
 const STORE_CACHE_FILE = resolve(ROOT_DIR, "data", "studio-cache.json");
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const OAUTH_TTL_SECONDS = 10 * 60;
@@ -2514,7 +2516,7 @@ function readRawBody(request) {
 
 function readSession(request) {
   const cookies = parseCookies(request.headers.cookie || "");
-  const value = cookies[SESSION_COOKIE];
+  const value = readChunkedCookie(cookies, SESSION_COOKIE);
 
   if (!value) {
     return null;
@@ -2582,21 +2584,84 @@ function setSessionCookie(response, session) {
     ...session,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
   });
-  const { secureCookies } = getBookingConfig();
-  const cookie = [
-    `${SESSION_COOKIE}=${value}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${SESSION_TTL_SECONDS}`,
-    secureCookies ? "Secure" : ""
-  ].filter(Boolean).join("; ");
 
-  appendSetCookie(response, cookie);
+  setChunkedCookie(response, SESSION_COOKIE, value, {
+    path: "/",
+    maxAge: SESSION_TTL_SECONDS
+  });
 }
 
 function clearSessionCookie(response) {
-  appendSetCookie(response, `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  clearChunkedCookie(response, SESSION_COOKIE, "/");
+}
+
+function readChunkedCookie(cookies, name) {
+  if (cookies[name]) {
+    return cookies[name];
+  }
+
+  const chunks = [];
+
+  for (let index = 0; index < SESSION_COOKIE_MAX_CHUNKS; index += 1) {
+    const chunk = cookies[`${name}_${index}`];
+
+    if (!chunk) {
+      break;
+    }
+
+    chunks.push(chunk);
+  }
+
+  return chunks.length ? chunks.join("") : "";
+}
+
+function setChunkedCookie(response, name, value, { path, maxAge }) {
+  const { secureCookies } = getBookingConfig();
+  const sameSite = secureCookies ? "SameSite=None" : "SameSite=Lax";
+  const chunks = [];
+
+  for (let index = 0; index < value.length; index += SESSION_COOKIE_CHUNK_SIZE) {
+    chunks.push(value.slice(index, index + SESSION_COOKIE_CHUNK_SIZE));
+  }
+
+  if (chunks.length > SESSION_COOKIE_MAX_CHUNKS) {
+    throw httpError(500, "The secure sign-in session is too large to store.");
+  }
+
+  if (chunks.length === 1) {
+    appendSetCookie(response, buildCookie(name, chunks[0], { path, maxAge, sameSite, secure: secureCookies }));
+  } else {
+    appendSetCookie(response, buildCookie(name, "", { path, maxAge: 0, sameSite, secure: secureCookies }));
+    chunks.forEach((chunk, index) => {
+      appendSetCookie(response, buildCookie(`${name}_${index}`, chunk, { path, maxAge, sameSite, secure: secureCookies }));
+    });
+  }
+
+  for (let index = chunks.length; index < SESSION_COOKIE_MAX_CHUNKS; index += 1) {
+    appendSetCookie(response, buildCookie(`${name}_${index}`, "", { path, maxAge: 0, sameSite, secure: secureCookies }));
+  }
+}
+
+function clearChunkedCookie(response, name, path) {
+  const { secureCookies } = getBookingConfig();
+  const sameSite = secureCookies ? "SameSite=None" : "SameSite=Lax";
+
+  appendSetCookie(response, buildCookie(name, "", { path, maxAge: 0, sameSite, secure: secureCookies }));
+
+  for (let index = 0; index < SESSION_COOKIE_MAX_CHUNKS; index += 1) {
+    appendSetCookie(response, buildCookie(`${name}_${index}`, "", { path, maxAge: 0, sameSite, secure: secureCookies }));
+  }
+}
+
+function buildCookie(name, value, { path, maxAge, sameSite, secure }) {
+  return [
+    `${name}=${value}`,
+    `Path=${path}`,
+    "HttpOnly",
+    sameSite,
+    `Max-Age=${maxAge}`,
+    secure ? "Secure" : ""
+  ].filter(Boolean).join("; ");
 }
 
 function setOAuthCookie(response, payload) {
