@@ -1632,29 +1632,12 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
 
   const startSignIn = () => {
     const returnTo = ROUTES.account;
-    const popupUrl = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}&popup=1`;
-    const fallbackUrl = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`;
-    const width = 560;
-    const height = 760;
-    const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
-    const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
-    const popup = window.open(
-      popupUrl,
-      "caveSecureSignIn",
-      `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-    );
-
-    if (!popup || popup.closed || typeof popup.closed === "undefined") {
-      window.location.href = fallbackUrl;
-      return;
-    }
-
-    popup.focus();
     setIsSigningIn(true);
     setStatus({
       type: "success",
-      message: "Secure sign-in opened. Finish there and this page will update automatically."
+      message: "Taking you to secure sign-in."
     });
+    window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`;
   };
 
   return (
@@ -1667,7 +1650,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
 
         <div className="login-panel">
           <button className="pill-button black" type="button" onClick={startSignIn} disabled={isSigningIn}>
-            {isSigningIn ? "Waiting for Sign In..." : "Sign In"}
+            {isSigningIn ? "Opening Sign In..." : "Sign In"}
           </button>
           <a className="pill-button outline" href={ROUTES.signup}>
             Create Account
