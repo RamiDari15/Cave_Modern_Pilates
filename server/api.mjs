@@ -223,10 +223,12 @@ export async function handleApiRequest(request, response) {
         oauthUsePkce
       } = getBookingConfig();
       const { actionTokenConfigured } = getBookingConfig();
+      const actionTokenMode = getMindbodyActionTokenMode(getBookingConfig());
       sendJson(response, 200, {
         configured: Boolean(apiKey),
         oauthConfigured,
         actionTokenConfigured,
+        actionTokenMode,
         hasSessionSecret: Boolean(sessionSecret),
         oauthRedirectUri,
         oauthResponseMode,
@@ -242,6 +244,11 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/mindbody/readiness") {
       sendJson(response, 200, await mindbodyReadinessReport());
+      return true;
+    }
+
+    if (path === "/api/mindbody/action-token-status") {
+      sendJson(response, 200, await mindbodyActionTokenStatus());
       return true;
     }
 
@@ -486,7 +493,7 @@ export async function handleApiRequest(request, response) {
     return true;
   } catch (error) {
     sendJson(response, error.status || 500, {
-      message: error.message || "Request failed.",
+      message: publicApiErrorMessage(error),
       details: error.data || null
     });
     return true;
@@ -668,6 +675,7 @@ function formatAssistantTime(value) {
 
 async function mindbodyReadinessReport() {
   const config = getBookingConfig();
+  const actionTokenMode = getMindbodyActionTokenMode(config);
   const waiverFieldIds = [
     "BOOKING_WAIVER_CUSTOM_FIELD_ID",
     "BOOKING_WAIVER_SIGNATURE_FIELD_ID",
@@ -745,6 +753,7 @@ async function mindbodyReadinessReport() {
   return {
     ready: Object.values(checks).every((check) => check.ready),
     siteId: config.siteId,
+    actionTokenMode,
     oauth: {
       configured: config.oauthConfigured,
       redirectUri: config.oauthRedirectUri,
@@ -756,6 +765,37 @@ async function mindbodyReadinessReport() {
     },
     checks
   };
+}
+
+async function mindbodyActionTokenStatus() {
+  const config = getBookingConfig();
+  const mode = getMindbodyActionTokenMode(config);
+
+  if (mode === "none") {
+    return {
+      ready: false,
+      mode,
+      message:
+        "Add BOOKING_STAFF_USERNAME and BOOKING_STAFF_PASSWORD, BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD, or a fallback BOOKING_STAFF_TOKEN."
+    };
+  }
+
+  try {
+    await getMindbodyActionToken("Mindbody action token check");
+
+    return {
+      ready: true,
+      mode,
+      message: "Server-side Mindbody action token is available."
+    };
+  } catch (error) {
+    return {
+      ready: false,
+      mode,
+      message: sanitizeActionTokenError(error),
+      status: error.status || 500
+    };
+  }
 }
 
 async function checkOAuthAuthorizeRequest(config) {
@@ -1408,15 +1448,9 @@ async function addClient(payload) {
 
 async function getMindbodyActionToken(actionName) {
   const config = getBookingConfig();
+  const mode = getMindbodyActionTokenMode(config);
 
-  if (config.staffToken) {
-    return config.staffToken;
-  }
-
-  const username = config.staffUsername || config.sourceName;
-  const password = config.staffPassword || config.sourcePassword;
-
-  if (!username || !password) {
+  if (mode === "none") {
     const error = httpError(
       501,
       `${actionName} requires BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, or staff/source credentials for /usertoken/issue. Mindbody OAuth consumer tokens only work with GET /client/clientcompleteinfo; booking, buying, canceling, and profile updates must use a server-side staff/source user token.`
@@ -1425,13 +1459,21 @@ async function getMindbodyActionToken(actionName) {
     throw error;
   }
 
-  const cacheKey = createHash("sha256").update(`${config.apiKey}:${config.siteId}:${username}`).digest("hex");
+  if (mode === "static-token") {
+    return config.staffToken;
+  }
+
+  const credentialName = mode === "staff-credentials" ? config.staffUsername : config.sourceName;
+  const cacheKey = createHash("sha256").update(`${config.apiKey}:${config.siteId}:${mode}:${credentialName}`).digest("hex");
 
   if (actionTokenCache.key === cacheKey && actionTokenCache.token && actionTokenCache.expiresAt > Date.now() + 60_000) {
     return actionTokenCache.token;
   }
 
-  const issued = await issueMindbodyUserToken(username, password);
+  const issued =
+    mode === "staff-credentials"
+      ? await issueMindbodyStaffUserToken(config.staffUsername, config.staffPassword)
+      : await issueMindbodySourceUserToken(config.sourceName, config.sourcePassword, config.siteId);
   const token = extractMindbodyUserToken(issued);
 
   if (!token) {
@@ -1447,7 +1489,23 @@ async function getMindbodyActionToken(actionName) {
   return token;
 }
 
-function issueMindbodyUserToken(username, password) {
+function getMindbodyActionTokenMode(config = getBookingConfig()) {
+  if (config.staffUsername && config.staffPassword) {
+    return "staff-credentials";
+  }
+
+  if (config.sourceName && config.sourcePassword) {
+    return "source-credentials";
+  }
+
+  if (config.staffToken) {
+    return "static-token";
+  }
+
+  return "none";
+}
+
+function issueMindbodyStaffUserToken(username, password) {
   return bookingRequest("/usertoken/issue", {
     method: "POST",
     body: {
@@ -1455,6 +1513,82 @@ function issueMindbodyUserToken(username, password) {
       Password: password
     }
   });
+}
+
+async function issueMindbodySourceUserToken(sourceName, sourcePassword, siteId) {
+  const numericSiteId = Number(siteId);
+  const siteValue = Number.isFinite(numericSiteId) ? numericSiteId : siteId;
+  const attempts = [
+    {
+      label: "SourceCredentials.SiteIDs",
+      body: {
+        SourceCredentials: {
+          SourceName: sourceName,
+          Password: sourcePassword,
+          SiteIDs: [siteValue]
+        }
+      }
+    },
+    {
+      label: "SourceCredentials.SiteIds",
+      body: {
+        SourceCredentials: {
+          SourceName: sourceName,
+          Password: sourcePassword,
+          SiteIds: [siteValue]
+        }
+      }
+    },
+    {
+      label: "source-name-as-username",
+      body: {
+        Username: sourceName,
+        Password: sourcePassword
+      }
+    }
+  ];
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    try {
+      return await bookingRequest("/usertoken/issue", {
+        method: "POST",
+        body: attempt.body
+      });
+    } catch (error) {
+      lastError = error;
+
+      if (!isActionTokenCredentialError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  const error = httpError(lastError?.status || 401, "Mindbody rejected the configured source credentials.");
+  error.data = {
+    mode: "source-credentials",
+    attempted: attempts.map((attempt) => attempt.label),
+    message: sanitizeActionTokenError(lastError)
+  };
+  throw error;
+}
+
+function isActionTokenCredentialError(error) {
+  return [400, 401, 403].includes(Number(error?.status));
+}
+
+function sanitizeActionTokenError(error) {
+  const message = String(error?.message || "");
+
+  if (/staff identity authentication failed/i.test(message)) {
+    return "Mindbody rejected the server-side user token. Remove any stale BOOKING_STAFF_TOKEN from Vercel, or confirm the staff/source credentials are correct.";
+  }
+
+  if (/source/i.test(message) || /credential/i.test(message)) {
+    return message;
+  }
+
+  return message || "Mindbody could not issue the server-side action token.";
 }
 
 function extractMindbodyUserToken(data) {
@@ -2612,6 +2746,16 @@ function sendJson(response, status, payload) {
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("Cache-Control", "no-store");
   response.end(JSON.stringify(payload));
+}
+
+function publicApiErrorMessage(error) {
+  const message = String(error?.message || "");
+
+  if (/staff identity authentication failed/i.test(message)) {
+    return sanitizeActionTokenError(error);
+  }
+
+  return message || "Request failed.";
 }
 
 function httpError(status, message) {
