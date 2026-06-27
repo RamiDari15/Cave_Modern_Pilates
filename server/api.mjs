@@ -16,6 +16,11 @@ const OAUTH_PROFILE_REFRESH_MS = 10 * 60 * 1000;
 const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
 const pendingOAuthStates = new Map();
+const actionTokenCache = {
+  key: "",
+  token: "",
+  expiresAt: 0
+};
 
 loadLocalEnv();
 
@@ -75,6 +80,32 @@ export function getBookingConfig() {
     "BOOKING_OAUTH_INCLUDE_SUBSCRIBER_ID",
     "MINDBODY_OAUTH_INCLUDE_SUBSCRIBER_ID"
   );
+  const staffUsername = configuredEnvValue(
+    "BOOKING_STAFF_USERNAME",
+    "BOOKING_USER_USERNAME",
+    "MINDBODY_STAFF_USERNAME",
+    "MINDBODY_USER_USERNAME"
+  );
+  const staffPassword = configuredEnvValue(
+    "BOOKING_STAFF_PASSWORD",
+    "BOOKING_USER_PASSWORD",
+    "MINDBODY_STAFF_PASSWORD",
+    "MINDBODY_USER_PASSWORD"
+  );
+  const sourceName = configuredEnvValue("BOOKING_SOURCE_NAME", "MINDBODY_SOURCE_NAME");
+  const sourcePassword = configuredEnvValue("BOOKING_SOURCE_PASSWORD", "MINDBODY_SOURCE_PASSWORD");
+  const staffToken = configuredEnvValue(
+    "BOOKING_STAFF_TOKEN",
+    "BOOKING_USER_TOKEN",
+    "MINDBODY_STAFF_TOKEN",
+    "MINDBODY_USER_TOKEN"
+  );
+  const paymentSetupUrl = configuredEnvValue("BOOKING_PAYMENT_SETUP_URL", "MINDBODY_PAYMENT_SETUP_URL");
+  const paymentAuthenticationCallbackUrl = configuredEnvValue(
+    "BOOKING_PAYMENT_AUTH_CALLBACK_URL",
+    "MINDBODY_PAYMENT_AUTH_CALLBACK_URL"
+  );
+  const actionTokenConfigured = Boolean(staffToken || (staffUsername && staffPassword) || (sourceName && sourcePassword));
 
   return {
     apiKey,
@@ -109,12 +140,14 @@ export function getBookingConfig() {
     oauthIncludeSubscriberId,
     oauthSubscriberId,
     locationId: configuredEnvValue("BOOKING_LOCATION_ID", "MINDBODY_LOCATION_ID") || "1",
-    staffToken: configuredEnvValue(
-      "BOOKING_STAFF_TOKEN",
-      "BOOKING_USER_TOKEN",
-      "MINDBODY_STAFF_TOKEN",
-      "MINDBODY_USER_TOKEN"
-    ),
+    staffToken,
+    staffUsername,
+    staffPassword,
+    sourceName,
+    sourcePassword,
+    paymentSetupUrl,
+    paymentAuthenticationCallbackUrl,
+    actionTokenConfigured,
     oauthConfigured: Boolean(oauthClientId && oauthRedirectUri && oauthSubscriberId)
   };
 }
@@ -182,9 +215,11 @@ export async function handleApiRequest(request, response) {
         oauthSubscriberId,
         oauthUsePkce
       } = getBookingConfig();
+      const { actionTokenConfigured } = getBookingConfig();
       sendJson(response, 200, {
         configured: Boolean(apiKey),
         oauthConfigured,
+        actionTokenConfigured,
         hasSessionSecret: Boolean(sessionSecret),
         oauthRedirectUri,
         oauthResponseMode,
@@ -333,6 +368,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/store/purchase" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
       const body = await readJsonBody(request);
+      assertNoRawCardPayload(body);
       const item = findStoreItem(body.itemId, body.kind);
 
       if (!item) {
@@ -389,10 +425,10 @@ export async function handleApiRequest(request, response) {
         }
       }
 
+      const config = getBookingConfig();
       const clientId = session.clientId || extractClientId(consumerProfile);
-      const staffToken = getBookingConfig().staffToken;
 
-      if (!staffToken || !clientId) {
+      if (!config.actionTokenConfigured || !clientId) {
         sendJson(response, 200, {
           profile: consumerProfile || { Client: session.user || {} },
           schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || null,
@@ -401,14 +437,15 @@ export async function handleApiRequest(request, response) {
           session: publicSession(session),
           errors: [
             ...errors,
-            staffToken
+            config.actionTokenConfigured
               ? "We could not match this login to a studio client account yet."
-              : "Full bookings, credits, memberships, and cancellation actions require BOOKING_STAFF_TOKEN or BOOKING_USER_TOKEN."
+              : "Full bookings, credits, memberships, and cancellation actions require BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, or staff/source credentials for /usertoken/issue."
           ]
         });
         return true;
       }
 
+      const staffToken = await getMindbodyActionToken("Account dashboard");
       const requestOptions = { token: staffToken };
       const [profile, schedule, services, contracts] = await Promise.allSettled([
         bookingRequest("/client/clients", { ...requestOptions, params: { ClientIds: clientId } }),
@@ -508,7 +545,7 @@ function buildAssistantReply(message, context = {}) {
 
   if (matchesAny(text, ["mindbody", "mind body", "api", "oauth", "payment", "checkout"])) {
     return {
-      reply: "The site is set up so clients stay on Cave for account, booking, waiver, and purchase actions. The backend sends the secure requests to the studio booking system, and the remaining release checks are OAuth portal matching, staff checkout token, saved payment method support, and waiver custom field IDs.",
+      reply: "The site is set up so clients stay on Cave for account, booking, waiver, and purchase actions. The backend sends secure requests to the studio booking system, and checkout only uses a saved-card ending or future Mindbody-approved tokenized payment data.",
       actions: [
         { label: "Login", href: "/login" },
         { label: "Schedule", href: "/schedule" },
@@ -626,6 +663,9 @@ async function mindbodyReadinessReport() {
   const missingWaiverFields = waiverFieldIds.filter((key) => !configuredEnvValue(key, key.replace("BOOKING_", "MINDBODY_")));
   const scopeTokens = String(config.oauthScope || "").split(/\s+/).filter(Boolean);
   const hasPublicApiScope = scopeTokens.includes("Mindbody.Api.Public.v6");
+  const actionTokenMissing = config.actionTokenConfigured
+    ? []
+    : ["BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, BOOKING_STAFF_USERNAME/PASSWORD, or BOOKING_SOURCE_NAME/PASSWORD"];
 
   const checks = {
     publicCache: {
@@ -647,33 +687,36 @@ async function mindbodyReadinessReport() {
       note: "OAuth consumer tokens are used only for GET /client/clientcompleteinfo. Booking, buying, cancellation, and profile updates need the server-side staff/source user token."
     },
     createClient: {
-      ready: Boolean(config.apiKey),
-      missing: config.apiKey ? [] : ["BOOKING_API_KEY"],
-      note: "Creates a Mindbody client profile from the Cave sign-up form."
+      ready: Boolean(config.apiKey && config.actionTokenConfigured),
+      missing: [config.apiKey ? "" : "BOOKING_API_KEY", ...actionTokenMissing].filter(Boolean),
+      note: "Creates a Mindbody client profile from the Cave sign-up form using the server-side staff/source user token."
     },
     bookClasses: {
-      ready: Boolean(config.oauthConfigured && config.staffToken),
+      ready: Boolean(config.oauthConfigured && config.actionTokenConfigured),
       missing: [
         config.oauthConfigured ? "" : "BOOKING_OAUTH_*",
-        config.staffToken ? "" : "BOOKING_STAFF_TOKEN or BOOKING_USER_TOKEN"
+        ...actionTokenMissing
       ].filter(Boolean),
-      note: "Books through /class/addclienttoclass from the Cave schedule page using a server-side staff/source user token."
+      note: "Books through /class/addclienttoclass from the Cave schedule page using a server-side staff/source user token. The backend can use a pasted token or issue one from staff/source credentials."
     },
     buyServices: {
-      ready: Boolean(config.staffToken),
-      missing: config.staffToken ? [] : ["BOOKING_STAFF_TOKEN or BOOKING_USER_TOKEN"],
+      ready: Boolean(config.actionTokenConfigured),
+      missing: actionTokenMissing,
       note: "Drop-ins and class packs use /sale/checkoutshoppingcart, which requires a server-side staff/source user token plus a saved/tokenized payment method."
     },
     buyMemberships: {
-      ready: Boolean(config.staffToken),
-      missing: [
-        config.staffToken ? "" : "BOOKING_STAFF_TOKEN or BOOKING_USER_TOKEN"
-      ].filter(Boolean),
+      ready: Boolean(config.actionTokenConfigured),
+      missing: actionTokenMissing,
       note: "Membership contracts use /sale/purchasecontract with a server-side staff/source user token and a saved/tokenized payment method."
     },
+    paymentFlow: {
+      ready: Boolean(config.actionTokenConfigured),
+      missing: actionTokenMissing,
+      note: "Checkout is PCI-safe: Cave only sends saved-card last-four references or future Mindbody-approved tokenized payment data. Raw card numbers and CVV are blocked by the backend."
+    },
     waiverSync: {
-      ready: missingWaiverFields.length === 0 && Boolean(config.staffToken),
-      missing: [...missingWaiverFields, config.staffToken ? "" : "BOOKING_STAFF_TOKEN or BOOKING_USER_TOKEN"].filter(Boolean),
+      ready: missingWaiverFields.length === 0 && Boolean(config.actionTokenConfigured),
+      missing: [...missingWaiverFields, ...actionTokenMissing].filter(Boolean),
       note: "Stores the signed Cave liability waiver into Mindbody custom client fields through /client/updateclient."
     },
     sessionSecurity: {
@@ -1202,7 +1245,7 @@ function shouldHydrateOAuthSession(session) {
 
 async function fetchOAuthClientProfile(session) {
   const consumerToken = session.consumerIdentityToken || session.accessToken || "";
-  const staffToken = getBookingConfig().staffToken;
+  const config = getBookingConfig();
   const email = session.user?.email || session.user?.username || "";
   const attempts = [];
 
@@ -1214,11 +1257,13 @@ async function fetchOAuthClientProfile(session) {
     attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: {} }]);
   }
 
-  if (staffToken && session.clientId) {
+  if (config.actionTokenConfigured && session.clientId) {
+    const staffToken = await getMindbodyActionToken("OAuth profile lookup");
     attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
   }
 
-  if (staffToken && email) {
+  if (config.actionTokenConfigured && email) {
+    const staffToken = await getMindbodyActionToken("OAuth profile lookup");
     attempts.push(["/client/clients", { token: staffToken, params: { SearchText: email } }]);
   }
 
@@ -1327,14 +1372,18 @@ function firstNonEmpty(...values) {
   return "";
 }
 
-function addClient(payload) {
+async function addClient(payload) {
+  const staffToken = await getMindbodyActionToken("Client account creation");
+
   return bookingRequest("/client/addclient", {
     method: "POST",
+    token: staffToken,
     body: payload
   }).catch((error) => {
     if (error.status && error.status >= 400 && error.status < 500) {
       return bookingRequest("/client/addclient", {
         method: "POST",
+        token: staffToken,
         body: { Client: payload }
       });
     }
@@ -1343,19 +1392,113 @@ function addClient(payload) {
   });
 }
 
-function requireMindbodyActionToken(actionName) {
-  const { staffToken } = getBookingConfig();
+async function getMindbodyActionToken(actionName) {
+  const config = getBookingConfig();
 
-  if (!staffToken) {
+  if (config.staffToken) {
+    return config.staffToken;
+  }
+
+  const username = config.staffUsername || config.sourceName;
+  const password = config.staffPassword || config.sourcePassword;
+
+  if (!username || !password) {
     const error = httpError(
       501,
-      `${actionName} requires BOOKING_STAFF_TOKEN or BOOKING_USER_TOKEN. Mindbody OAuth consumer tokens only work with GET /client/clientcompleteinfo; booking, buying, canceling, and profile updates must use a server-side staff/source user token.`
+      `${actionName} requires BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, or staff/source credentials for /usertoken/issue. Mindbody OAuth consumer tokens only work with GET /client/clientcompleteinfo; booking, buying, canceling, and profile updates must use a server-side staff/source user token.`
     );
     error.data = { action: actionName };
     throw error;
   }
 
-  return staffToken;
+  const cacheKey = createHash("sha256").update(`${config.apiKey}:${config.siteId}:${username}`).digest("hex");
+
+  if (actionTokenCache.key === cacheKey && actionTokenCache.token && actionTokenCache.expiresAt > Date.now() + 60_000) {
+    return actionTokenCache.token;
+  }
+
+  const issued = await issueMindbodyUserToken(username, password);
+  const token = extractMindbodyUserToken(issued);
+
+  if (!token) {
+    const error = httpError(502, "Mindbody did not return a usable staff/source user token.");
+    error.data = issued;
+    throw error;
+  }
+
+  actionTokenCache.key = cacheKey;
+  actionTokenCache.token = token;
+  actionTokenCache.expiresAt = extractMindbodyTokenExpiry(issued);
+
+  return token;
+}
+
+function issueMindbodyUserToken(username, password) {
+  return bookingRequest("/usertoken/issue", {
+    method: "POST",
+    body: {
+      Username: username,
+      Password: password
+    }
+  });
+}
+
+function extractMindbodyUserToken(data) {
+  return firstStringValue(data, [
+    "AccessToken",
+    "access_token",
+    "Token",
+    "token",
+    "UserToken",
+    "userToken",
+    "StaffToken",
+    "staffToken"
+  ]);
+}
+
+function extractMindbodyTokenExpiry(data) {
+  const explicitDate = firstStringValue(data, ["Expires", "ExpirationDateTime", "expires_at", "ExpiresAt"]);
+  const explicitTime = Date.parse(explicitDate || "");
+
+  if (explicitTime && explicitTime > Date.now()) {
+    return explicitTime;
+  }
+
+  const expiresIn = Number(firstStringValue(data, ["ExpiresIn", "expires_in", "TokenExpiresIn"]));
+
+  if (Number.isFinite(expiresIn) && expiresIn > 0) {
+    return Date.now() + Math.max(60, expiresIn - 60) * 1000;
+  }
+
+  return Date.now() + 25 * 60 * 1000;
+}
+
+function firstStringValue(data, keys) {
+  const queue = [data];
+
+  while (queue.length) {
+    const current = queue.shift();
+
+    if (!current || typeof current !== "object") {
+      continue;
+    }
+
+    for (const key of keys) {
+      const value = current[key];
+
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    for (const value of Object.values(current)) {
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+
+  return "";
 }
 
 async function bookClientIntoClass(session, classId) {
@@ -1365,7 +1508,7 @@ async function bookClientIntoClass(session, classId) {
     throw httpError(400, "We could not match this login to a studio client account yet.");
   }
 
-  const staffToken = requireMindbodyActionToken("Class booking");
+  const staffToken = await getMindbodyActionToken("Class booking");
 
   return bookingRequest("/class/addclienttoclass", {
     method: "POST",
@@ -1399,15 +1542,15 @@ async function purchaseStoreItem(session, item, body) {
   throw httpError(400, "Unsupported pricing item type.");
 }
 
-function purchaseContractItem(session, clientId, item, body) {
-  const staffToken = requireMindbodyActionToken("Membership purchase");
-  const paymentPayload = buildPaymentPayload(body);
+async function purchaseContractItem(session, clientId, item, body) {
+  const staffToken = await getMindbodyActionToken("Membership purchase");
+  const paymentPayload = buildContractPaymentPayload(body);
 
   if (!Object.keys(paymentPayload).length) {
-    throw httpError(402, "A saved payment method is required before this membership can be bought on-site.");
+    throw paymentRequiredError("A saved payment method is required before this membership can be bought on-site.");
   }
 
-  const { locationId } = getBookingConfig();
+  const { locationId, paymentAuthenticationCallbackUrl } = getBookingConfig();
 
   return bookingRequest("/sale/purchasecontract", {
     method: "POST",
@@ -1418,18 +1561,21 @@ function purchaseContractItem(session, clientId, item, body) {
       ContractId: Number(item.id),
       LocationId: Number(locationId),
       SendNotifications: true,
+      ...compactObject({
+        PaymentAuthenticationCallbackUrl: paymentAuthenticationCallbackUrl
+      }),
       ...paymentPayload
     }
   });
 }
 
-function checkoutServiceItem(clientId, item, body) {
-  const staffToken = requireMindbodyActionToken("Service checkout");
+async function checkoutServiceItem(clientId, item, body) {
+  const staffToken = await getMindbodyActionToken("Service checkout");
 
-  const paymentPayload = buildPaymentPayload(body);
+  const paymentPayload = buildCheckoutPaymentPayload(item, body);
 
   if (!Object.keys(paymentPayload).length) {
-    throw httpError(402, "A saved payment method is required before this package can be bought on-site.");
+    throw paymentRequiredError("A saved payment method is required before this package can be bought on-site.");
   }
 
   return bookingRequest("/sale/checkoutshoppingcart", {
@@ -1449,13 +1595,12 @@ function checkoutServiceItem(clientId, item, body) {
           Quantity: 1
         }
       ],
-      Payments: body.payments || [],
       ...paymentPayload
     }
   });
 }
 
-function buildPaymentPayload(body) {
+function buildContractPaymentPayload(body) {
   if (body.useAccountCredit) {
     return { UseAccountCredit: true };
   }
@@ -1464,15 +1609,175 @@ function buildPaymentPayload(body) {
     return { UseDirectDebit: true };
   }
 
-  if (body.storedCardId) {
+  const lastFour = normalizeStoredCardLastFour(body);
+
+  if (lastFour) {
     return {
       StoredCardInfo: {
-        Id: body.storedCardId
+        LastFour: lastFour
       }
     };
   }
 
   return {};
+}
+
+function buildCheckoutPaymentPayload(item, body) {
+  if (body.useAccountCredit) {
+    return { UseAccountCredit: true };
+  }
+
+  if (body.useDirectDebit) {
+    return { UseDirectDebit: true };
+  }
+
+  const lastFour = normalizeStoredCardLastFour(body);
+
+  if (!lastFour) {
+    return {};
+  }
+
+  return {
+    Payments: [
+      {
+        Type: "StoredCard",
+        Metadata: {
+          Amount: itemPaymentAmount(item),
+          LastFour: lastFour
+        }
+      }
+    ]
+  };
+}
+
+function normalizeStoredCardLastFour(body) {
+  const value = String(body.storedCardLastFour || body.paymentLastFour || "").replace(/\D/g, "");
+
+  if (value.length === 4) {
+    return value;
+  }
+
+  const legacyValue = String(body.storedCardId || "").trim();
+
+  if (/^\d{4}$/.test(legacyValue)) {
+    return legacyValue;
+  }
+
+  return "";
+}
+
+function itemPaymentAmount(item) {
+  const value = String(item.price || item.amount || item.onlinePrice || "").replace(/[^\d.-]/g, "");
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw httpError(400, "This pricing option is missing a valid checkout amount.");
+  }
+
+  return amount.toFixed(2);
+}
+
+function paymentRequiredError(message) {
+  const error = httpError(402, message);
+  error.data = compactObject({
+    paymentSetupUrl: getBookingConfig().paymentSetupUrl
+  });
+  return error;
+}
+
+function assertNoRawCardPayload(value, path = "") {
+  if (value === null || value === undefined) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoRawCardPayload(item, `${path}[${index}]`));
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const keyPath = path ? `${path}.${key}` : key;
+
+      if (isRawCardFieldName(key) && hasPresentValue(nestedValue)) {
+        throw httpError(400, "Raw card numbers and security codes cannot be sent to Cave. Use a saved studio card or a Mindbody-approved tokenized payment method.");
+      }
+
+      assertNoRawCardPayload(nestedValue, keyPath);
+    }
+
+    return;
+  }
+
+  if (typeof value === "string" && containsLikelyCardNumber(value)) {
+    throw httpError(400, "Raw card numbers cannot be sent to Cave. Use a saved studio card or a Mindbody-approved tokenized payment method.");
+  }
+}
+
+function isRawCardFieldName(key) {
+  const normalized = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  return [
+    "cardnumber",
+    "creditcardnumber",
+    "ccnumber",
+    "pan",
+    "cvv",
+    "cvc",
+    "cvv2",
+    "securitycode",
+    "cardsecuritycode",
+    "expiration",
+    "expirationdate",
+    "expiry",
+    "expmonth",
+    "expyear",
+    "trackdata",
+    "rawcard",
+    "magstripe"
+  ].includes(normalized);
+}
+
+function hasPresentValue(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function containsLikelyCardNumber(value) {
+  const candidates = String(value).match(/(?:\d[ -]?){13,19}/g) || [];
+
+  return candidates.some((candidate) => {
+    const digits = candidate.replace(/\D/g, "");
+    return digits.length >= 13 && digits.length <= 19 && luhnCheck(digits);
+  });
+}
+
+function luhnCheck(digits) {
+  let sum = 0;
+  let shouldDouble = false;
+
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    let digit = Number(digits[index]);
+
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) {
+        digit -= 9;
+      }
+    }
+
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+
+  return sum > 0 && sum % 10 === 0;
 }
 
 async function resolveSessionClientId(session) {
@@ -1711,7 +2016,7 @@ async function attachClientWaiver(session, waiver) {
     }
   };
 
-  const staffToken = requireMindbodyActionToken("Waiver profile sync");
+  const staffToken = await getMindbodyActionToken("Waiver profile sync");
 
   const updated = await bookingRequest("/client/updateclient", {
     method: "POST",

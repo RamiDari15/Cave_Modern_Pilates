@@ -507,7 +507,8 @@ async function apiRequest(path, { method = "GET", body, token } = {}) {
 
 function friendlyApiErrorMessage(error, fallback = "That request could not be completed.") {
   if (error?.status === 402) {
-    return `${error.message || "A saved payment method is required."} Add a saved payment method to the studio account or contact Cave to finish this purchase.`;
+    const setupUrl = error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || "";
+    return `${error.message || "A saved payment method is required."} Use a card already saved on your studio account${setupUrl ? " or open the payment setup link" : ""}.`;
   }
 
   if (error?.status === 501) {
@@ -1134,15 +1135,28 @@ function PricingCategoryPage({ category, store, memberships }) {
   const groups = pricingStoreGroups(store, memberships);
   const items = groups[category.key] || [];
   const [acceptWaiver] = useState(true);
+  const [paymentForms, setPaymentForms] = useState({});
   const [purchaseState, setPurchaseState] = useState({ itemId: "", type: "", message: "" });
+
+  const updatePaymentLastFour = (item, value) => {
+    const formKey = paymentFormKey(item);
+    const digits = value.replace(/\D/g, "").slice(0, 4);
+    setPaymentForms((current) => ({ ...current, [formKey]: digits }));
+  };
 
   const buyItem = async (item) => {
     setPurchaseState({ itemId: item.id, type: "", message: "" });
     const waiverAccepted = item.requiresWaiver ? true : acceptWaiver;
     const termsAccepted = item.requiresTerms ? true : false;
+    const storedCardLastFour = paymentForms[paymentFormKey(item)] || "";
 
     if (item.requiresWaiver && !waiverAccepted) {
       setPurchaseState({ itemId: item.id, type: "error", message: "Please accept the liability waiver first." });
+      return;
+    }
+
+    if (!/^\d{4}$/.test(storedCardLastFour)) {
+      setPurchaseState({ itemId: item.id, type: "error", message: "Enter the last 4 digits of the saved card on your studio account." });
       return;
     }
 
@@ -1156,6 +1170,7 @@ function PricingCategoryPage({ category, store, memberships }) {
           kind: item.kind,
           acceptWaiver: waiverAccepted,
           acceptTerms: termsAccepted,
+          storedCardLastFour,
           returnTo: `${category.href}?purchase=${item.kind}-${item.id}`
         }
       });
@@ -1226,6 +1241,8 @@ function PricingStoreSection({ id, title, items, category, purchaseState, onBuy 
               item={item}
               category={category}
               purchaseState={purchaseState}
+              paymentLastFour={paymentForms[paymentFormKey(item)] || ""}
+              onPaymentLastFourChange={(value) => updatePaymentLastFour(item, value)}
               onBuy={onBuy}
               key={`${item.kind}-${item.id}-${item.name}`}
             />
@@ -1238,7 +1255,7 @@ function PricingStoreSection({ id, title, items, category, purchaseState, onBuy 
   );
 }
 
-function PricingCard({ item, category, purchaseState, onBuy }) {
+function PricingCard({ item, category, purchaseState, paymentLastFour, onPaymentLastFourChange, onBuy }) {
   const isLoading = purchaseState.itemId === item.id && purchaseState.type === "loading";
   const message = purchaseState.itemId === item.id ? purchaseState.message : "";
   const titleLines = pricingTitleLines(item, category);
@@ -1254,6 +1271,21 @@ function PricingCard({ item, category, purchaseState, onBuy }) {
         </h3>
       </div>
       <div className="pricing-card-actions">
+        <label className="payment-safe-field">
+          <span>Saved card ending</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            pattern="[0-9]{4}"
+            maxLength={4}
+            placeholder="1234"
+            value={paymentLastFour}
+            onChange={(event) => onPaymentLastFourChange(event.target.value)}
+            aria-label={`Saved card ending for ${item.name}`}
+          />
+        </label>
+        <p className="payment-safe-note">No full card numbers on this site.</p>
         <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={() => onBuy(item)}>
           {isLoading ? "Starting..." : "Buy Now"}
         </button>
@@ -1261,6 +1293,10 @@ function PricingCard({ item, category, purchaseState, onBuy }) {
       </div>
     </article>
   );
+}
+
+function paymentFormKey(item) {
+  return `${item.kind || "item"}-${item.id || item.name}`;
 }
 
 function cleanPricingName(name) {
