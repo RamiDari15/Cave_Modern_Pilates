@@ -528,6 +528,18 @@ function friendlyApiErrorMessage(error, fallback = "That request could not be co
   return message || fallback;
 }
 
+function friendlyAddCardErrorMessage(error) {
+  if (error?.status === 501) {
+    return "Secure add-card setup is not connected yet. Add BOOKING_PAYMENT_SETUP_URL in Vercel to enable this button.";
+  }
+
+  if (error?.status === 401) {
+    return "Please sign in before adding a card.";
+  }
+
+  return friendlyApiErrorMessage(error, "The secure add-card page could not be opened.");
+}
+
 function isStudioConnectionMessage(value) {
   return /source credential|staff identity|server-side user token|staff\/source token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
@@ -1149,7 +1161,7 @@ function PricingCategoryPage({ category, store, memberships }) {
   const items = groups[category.key] || [];
   const [acceptWaiver] = useState(true);
   const [paymentForms, setPaymentForms] = useState({});
-  const [purchaseState, setPurchaseState] = useState({ itemId: "", type: "", message: "" });
+  const [purchaseState, setPurchaseState] = useState({ itemId: "", type: "", message: "", paymentSetupUrl: "" });
 
   const updatePaymentLastFour = (item, value) => {
     const formKey = paymentFormKey(item);
@@ -1157,23 +1169,58 @@ function PricingCategoryPage({ category, store, memberships }) {
     setPaymentForms((current) => ({ ...current, [formKey]: digits }));
   };
 
+  const purchaseReturnTo = (item) => `${category.href}?purchase=${encodeURIComponent(`${item.kind}-${item.id}`)}`;
+
+  const addCardForItem = async (item) => {
+    const returnTo = purchaseReturnTo(item);
+    setPurchaseState({ itemId: item.id, type: "loading", message: "Opening secure card setup...", paymentSetupUrl: "" });
+
+    try {
+      const data = await apiRequest(`/api/payment/setup?returnTo=${encodeURIComponent(returnTo)}`);
+      const setupUrl = data.paymentSetupUrl || data.url || "";
+
+      if (!setupUrl) {
+        throw new Error("Secure add-card setup is not configured yet.");
+      }
+
+      window.location.href = setupUrl;
+    } catch (error) {
+      if (error.loginUrl) {
+        window.location.href = error.loginUrl;
+        return;
+      }
+
+      setPurchaseState({
+        itemId: item.id,
+        type: "error",
+        message: friendlyAddCardErrorMessage(error),
+        paymentSetupUrl: error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || ""
+      });
+    }
+  };
+
   const buyItem = async (item) => {
-    setPurchaseState({ itemId: item.id, type: "", message: "" });
+    setPurchaseState({ itemId: item.id, type: "", message: "", paymentSetupUrl: "" });
     const waiverAccepted = item.requiresWaiver ? true : acceptWaiver;
     const termsAccepted = item.requiresTerms ? true : false;
     const storedCardLastFour = paymentForms[paymentFormKey(item)] || "";
 
     if (item.requiresWaiver && !waiverAccepted) {
-      setPurchaseState({ itemId: item.id, type: "error", message: "Please accept the liability waiver first." });
+      setPurchaseState({ itemId: item.id, type: "error", message: "Please accept the liability waiver first.", paymentSetupUrl: "" });
       return;
     }
 
     if (!/^\d{4}$/.test(storedCardLastFour)) {
-      setPurchaseState({ itemId: item.id, type: "error", message: "Enter the last four digits of the saved studio card you want to use." });
+      setPurchaseState({
+        itemId: item.id,
+        type: "error",
+        message: "Enter the last four digits of the saved studio card you want to use.",
+        paymentSetupUrl: ""
+      });
       return;
     }
 
-    setPurchaseState({ itemId: item.id, type: "loading", message: "Starting checkout..." });
+    setPurchaseState({ itemId: item.id, type: "loading", message: "Starting checkout...", paymentSetupUrl: "" });
 
     try {
       await apiRequest("/api/store/purchase", {
@@ -1184,18 +1231,28 @@ function PricingCategoryPage({ category, store, memberships }) {
           acceptWaiver: waiverAccepted,
           acceptTerms: termsAccepted,
           storedCardLastFour,
-          returnTo: `${category.href}?purchase=${item.kind}-${item.id}`
+          returnTo: purchaseReturnTo(item)
         }
       });
 
-      setPurchaseState({ itemId: item.id, type: "success", message: "Purchase complete. Check your account for confirmation." });
+      setPurchaseState({
+        itemId: item.id,
+        type: "success",
+        message: "Purchase complete. Check your account for confirmation.",
+        paymentSetupUrl: ""
+      });
     } catch (error) {
       if (error.loginUrl) {
         window.location.href = error.loginUrl;
         return;
       }
 
-      setPurchaseState({ itemId: item.id, type: "error", message: friendlyApiErrorMessage(error, "Checkout could not be completed.") });
+      setPurchaseState({
+        itemId: item.id,
+        type: "error",
+        message: friendlyApiErrorMessage(error, "Checkout could not be completed."),
+        paymentSetupUrl: error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || ""
+      });
     }
   };
 
@@ -1214,6 +1271,7 @@ function PricingCategoryPage({ category, store, memberships }) {
           purchaseState={purchaseState}
           paymentForms={paymentForms}
           onPaymentLastFourChange={updatePaymentLastFour}
+          onAddCard={addCardForItem}
           onBuy={buyItem}
         />
       </section>
@@ -1242,7 +1300,7 @@ function pricingStoreGroups(store, legacyMemberships) {
   return groups;
 }
 
-function PricingStoreSection({ id, title, items, category, purchaseState, paymentForms = {}, onPaymentLastFourChange, onBuy }) {
+function PricingStoreSection({ id, title, items, category, purchaseState, paymentForms = {}, onPaymentLastFourChange, onAddCard, onBuy }) {
   return (
     <div className="pricing-store-section" id={id}>
       <div className="pricing-store-heading">
@@ -1258,6 +1316,7 @@ function PricingStoreSection({ id, title, items, category, purchaseState, paymen
               purchaseState={purchaseState}
               paymentLastFour={paymentForms[paymentFormKey(item)] || ""}
               onPaymentLastFourChange={(value) => onPaymentLastFourChange?.(item, value)}
+              onAddCard={onAddCard}
               onBuy={onBuy}
               key={`${item.kind}-${item.id}-${item.name}`}
             />
@@ -1270,9 +1329,10 @@ function PricingStoreSection({ id, title, items, category, purchaseState, paymen
   );
 }
 
-function PricingCard({ item, category, purchaseState, paymentLastFour, onPaymentLastFourChange, onBuy }) {
+function PricingCard({ item, category, purchaseState, paymentLastFour, onPaymentLastFourChange, onAddCard, onBuy }) {
   const isLoading = purchaseState.itemId === item.id && purchaseState.type === "loading";
   const message = purchaseState.itemId === item.id ? purchaseState.message : "";
+  const paymentSetupUrl = purchaseState.itemId === item.id ? purchaseState.paymentSetupUrl : "";
   const titleLines = pricingTitleLines(item, category);
 
   return (
@@ -1302,11 +1362,19 @@ function PricingCard({ item, category, purchaseState, paymentLastFour, onPayment
             />
           </label>
           <p className="payment-safe-note">Use a saved studio card. Full card numbers never touch this site.</p>
+          <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => onAddCard?.(item)}>
+            Add Card
+          </button>
         </div>
         <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={() => onBuy(item)}>
           {isLoading ? "Starting..." : "Buy Now"}
         </button>
         {message ? <p className={`row-status ${purchaseState.type}`}>{message}</p> : null}
+        {paymentSetupUrl ? (
+          <a className="payment-setup-link" href={paymentSetupUrl}>
+            Open secure add-card page
+          </a>
+        ) : null}
       </div>
     </article>
   );

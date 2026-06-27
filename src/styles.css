@@ -910,6 +910,37 @@ body.interior:has(.page-policies),
   text-align: center;
 }
 
+.payment-add-card {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid rgba(5, 5, 5, 0.2);
+  border-radius: 999px;
+  color: var(--black);
+  background: rgba(255, 255, 255, 0.86);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.payment-add-card:hover,
+.payment-add-card:focus-visible {
+  border-color: rgba(5, 5, 5, 0.5);
+  background: var(--white);
+  outline: 0;
+  transform: translateY(-1px);
+}
+
+.payment-add-card:disabled {
+  cursor: wait;
+  opacity: 0.64;
+  transform: none;
+}
+
 .pricing-card-actions .book-class {
   min-width: 150px;
   min-height: 52px;
@@ -919,6 +950,14 @@ body.interior:has(.page-policies),
   background: var(--black);
   font-size: 1rem;
   box-shadow: 0 14px 28px rgba(5, 5, 5, 0.2);
+}
+
+.payment-setup-link {
+  color: var(--black);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .pricing-note {

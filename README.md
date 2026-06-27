@@ -96,6 +96,7 @@ Client sign-up and account dashboard requests go through the Vite dev server pro
 - `GET /api/auth/status`
 - `GET /api/client/required-fields`
 - `GET /api/client/dashboard`
+- `GET /api/payment/setup`
 
 The proxy and production server read `BOOKING_API_KEY`, `BOOKING_SITE_ID`, and `SESSION_SECRET` from `.env`, so API credentials and account tokens are never bundled into browser JavaScript.
 
@@ -104,6 +105,8 @@ Sessions are stored in encrypted, HttpOnly cookies. Browser JavaScript receives 
 Mindbody Public API v6 user tokens are staff/source user tokens, not client password login tokens. `/login` starts Mindbody OAuth through `/api/auth/start`; Mindbody posts the authorization code to `/api/auth/callback`; the backend exchanges that code at `https://signin.mindbodyonline.com/connect/token` and stores the returned consumer token in an encrypted HttpOnly cookie.
 
 Mindbody confirmed that OAuth consumer tokens are only functional for `GET /client/clientcompleteinfo`. Account creation, booking, buying, cancellation, checkout, and waiver profile updates run through server routes with a staff/source user token. In production, prefer `BOOKING_STAFF_USERNAME` + `BOOKING_STAFF_PASSWORD` or `BOOKING_SOURCE_NAME` + `BOOKING_SOURCE_PASSWORD`; the backend issues and caches a token with `POST /usertoken/issue`. A pasted `BOOKING_STAFF_TOKEN` or `BOOKING_USER_TOKEN` is only a fallback because those tokens can expire. Check `/api/mindbody/action-token-status` after changing Vercel env vars. See `docs/mindbody-auth-release-checklist.md`.
+
+Purchases stay PCI-safe. The pricing cards ask for the last four digits of a saved studio card, and the Add Card button opens `BOOKING_PAYMENT_SETUP_URL`. Set that Vercel env var to the approved Mindbody card-on-file page or tokenized payment setup URL. You can include `{returnTo}`, `{returnUrl}`, `{email}`, or `{clientId}` placeholders in the URL if the provider supports them.
 
 The sign-up form sends the liability waiver with the new client payload. To store waiver signatures in Mindbody, create custom client fields in Mindbody and set the field IDs:
 
@@ -132,5 +135,5 @@ The sign-up form includes the required client fields returned by the studio API:
 5. Run `npm run sync` or enable `BOOKING_CACHE_SYNC=true` so pricing and schedule refresh from Mindbody automatically.
 6. Create Mindbody custom client fields for waiver storage and set the `BOOKING_WAIVER_*` IDs.
 7. Add `BOOKING_STAFF_USERNAME` + `BOOKING_STAFF_PASSWORD`, `BOOKING_SOURCE_NAME` + `BOOKING_SOURCE_PASSWORD`, or a fallback `BOOKING_STAFF_TOKEN`/`BOOKING_USER_TOKEN` before testing booking, checkout, cancellation, or waiver sync.
-8. For direct on-site purchases, confirm clients have a Mindbody-supported saved card on their studio account or connect a Mindbody-approved tokenization provider. Cave only sends saved-card endings/token references from the browser, and the backend blocks raw card numbers/CVV.
+8. For direct on-site purchases, set `BOOKING_PAYMENT_SETUP_URL` to the approved Add Card/card-on-file setup page, then confirm clients can add a Mindbody-supported saved card. Cave only sends saved-card endings/token references from the browser, and the backend blocks raw card numbers/CVV.
 9. Test with a real approved studio test client: sign in, create account, save waiver, book a class, view account dashboard, and attempt each pricing category.

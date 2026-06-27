@@ -157,6 +157,7 @@ export function getBookingConfig() {
     sourcePassword,
     paymentSetupUrl,
     paymentAuthenticationCallbackUrl,
+    publicBaseUrl: defaultBaseUrl,
     actionTokenConfigured,
     oauthConfigured: Boolean(oauthClientId && oauthRedirectUri && oauthSubscriberId)
   };
@@ -207,7 +208,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/classes/book", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/classes/book", "/api/payment/setup", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -392,6 +393,22 @@ export async function handleApiRequest(request, response) {
 
       const booking = await bookClientIntoClass(session, classId);
       sendJson(response, 200, { booking });
+      return true;
+    }
+
+    if (path === "/api/payment/setup" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+      const returnTo = safeReturnTo(url.searchParams.get("returnTo") || "/pricing");
+
+      if (!session?.clientId && !session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, {
+          message: "Please sign in before adding a payment card.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`
+        });
+        return true;
+      }
+
+      sendJson(response, 200, buildPaymentSetupResponse(session, returnTo));
       return true;
     }
 
@@ -744,6 +761,12 @@ async function mindbodyReadinessReport() {
       ready: Boolean(config.actionTokenConfigured),
       missing: actionTokenMissing,
       note: "Checkout is PCI-safe: Cave only sends saved-card last-four references or future Mindbody-approved tokenized payment data. Raw card numbers and CVV are blocked by the backend."
+    },
+    addCardSetup: {
+      ready: Boolean(config.paymentSetupUrl),
+      missing: config.paymentSetupUrl ? [] : ["BOOKING_PAYMENT_SETUP_URL"],
+      note:
+        "Shows clients a secure Add Card path before checkout. Set this to a Mindbody-approved card-on-file page or tokenized payment setup URL."
     },
     waiverSync: {
       ready: missingWaiverFields.length === 0 && Boolean(config.actionTokenConfigured),
@@ -1844,6 +1867,48 @@ function paymentRequiredError(message) {
     paymentSetupUrl: getBookingConfig().paymentSetupUrl
   });
   return error;
+}
+
+function buildPaymentSetupResponse(session, returnTo) {
+  const { paymentSetupUrl, publicBaseUrl } = getBookingConfig();
+
+  if (!paymentSetupUrl) {
+    const error = httpError(501, "Secure add-card setup is not configured yet.");
+    error.data = {
+      missing: ["BOOKING_PAYMENT_SETUP_URL"],
+      note:
+        "Set this to a Mindbody-approved hosted payment/card-on-file URL or tokenized payment setup page. Cave does not collect raw card numbers."
+    };
+    throw error;
+  }
+
+  const safeReturn = safeReturnTo(returnTo);
+  const returnUrl = new URL(safeReturn, publicBaseUrl).toString();
+  const user = session?.user || {};
+  const replacements = {
+    returnTo: returnUrl,
+    returnUrl,
+    email: user.email || "",
+    clientId: session?.clientId || ""
+  };
+
+  return {
+    paymentSetupUrl: applyPaymentSetupPlaceholders(paymentSetupUrl, replacements),
+    returnTo: safeReturn
+  };
+}
+
+function applyPaymentSetupPlaceholders(template, replacements) {
+  let output = String(template || "").trim();
+
+  for (const [key, value] of Object.entries(replacements)) {
+    const encodedValue = encodeURIComponent(String(value || ""));
+    output = output
+      .replaceAll(`{${key}}`, encodedValue)
+      .replaceAll(`{{${key}}}`, encodedValue);
+  }
+
+  return output;
 }
 
 function assertNoRawCardPayload(value, path = "") {
