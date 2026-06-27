@@ -772,7 +772,7 @@ function setStructuredData(page) {
 }
 
 function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle, onCloseMenu }) {
-  const accountHref = clientSession?.signedIn ? ROUTES.account : ROUTES.login;
+  const accountHref = clientSession?.signedIn ? ROUTES.account : authStartHref(ROUTES.account);
   const accountLabel = clientSession?.signedIn ? "Account" : "Login";
 
   return (
@@ -1598,13 +1598,16 @@ function normalizeLocalReturnTo(value) {
   return text.startsWith("/") ? text : `/${text}`;
 }
 
+function authStartHref(returnTo = ROUTES.account) {
+  return `/api/auth/start?returnTo=${encodeURIComponent(normalizeLocalReturnTo(returnTo))}`;
+}
+
 function startOAuthRedirect(returnTo = ROUTES.account) {
-  window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(normalizeLocalReturnTo(returnTo))}`;
+  window.location.href = authStartHref(returnTo);
 }
 
 function LoginPage({ bookingUrl, clientSession, setClientSession }) {
   const [status, setStatus] = useState(oauthStatusFromQuery);
-  const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
     if (clientSession?.signedIn) {
@@ -1617,8 +1620,6 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
       if (event.origin !== window.location.origin || event.data?.type !== "cave:auth:complete") {
         return;
       }
-
-      setIsSigningIn(false);
 
       if (!event.data.ok) {
         setStatus({
@@ -1645,16 +1646,6 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
     return () => window.removeEventListener("message", onMessage);
   }, [setClientSession]);
 
-  const startSignIn = () => {
-    const returnTo = ROUTES.account;
-    setIsSigningIn(true);
-    setStatus({
-      type: "success",
-      message: "Taking you to secure sign-in."
-    });
-    startOAuthRedirect(returnTo);
-  };
-
   return (
     <>
       <section className="login-page">
@@ -1664,9 +1655,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
         </div>
 
         <div className="login-panel">
-          <button className="pill-button black" type="button" onClick={startSignIn} disabled={isSigningIn}>
-            {isSigningIn ? "Opening Sign In..." : "Sign In"}
-          </button>
+          <a className="pill-button black" href={authStartHref(ROUTES.account)}>Sign In</a>
           <a className="pill-button outline" href={ROUTES.signup}>
             Create Account
           </a>
@@ -1978,10 +1967,6 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
     });
   };
 
-  const startSignIn = () => {
-    startOAuthRedirect(ROUTES.account);
-  };
-
   if (isSessionLoading) {
     return (
       <section className="login-page">
@@ -2003,7 +1988,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           <p>Your account page shows bookings, class credits, and memberships once connected.</p>
         </div>
         <div className="login-panel">
-          <button className="pill-button black" type="button" onClick={startSignIn}>Sign In</button>
+          <a className="pill-button black" href={authStartHref(ROUTES.account)}>Sign In</a>
           <a className="pill-button outline" href={ROUTES.signup}>Create Account</a>
           <a className="pill-button outline" href={bookingUrl}>View Schedule</a>
         </div>
