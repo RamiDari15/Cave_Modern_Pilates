@@ -13,6 +13,7 @@ const OAUTH_TTL_SECONDS = 10 * 60;
 const DEFAULT_OAUTH_SCOPE =
   "email openid profile Platform.Contacts.Api.Write Platform.Contacts.Api.Read Platform.Accounts.Api.Read Mindbody.Api.Public.v6 Platform.ProductInventory.Api.Read Platform.ProductInventory.Api.Write";
 const OAUTH_PROFILE_REFRESH_MS = 10 * 60 * 1000;
+const PUBLIC_SCHEDULE_REFRESH_TTL_MS = Math.max(Number(process.env.BOOKING_SCHEDULE_REFRESH_SECONDS || 120), 30) * 1000;
 const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
 const pendingOAuthStates = new Map();
@@ -20,6 +21,12 @@ const actionTokenCache = {
   key: "",
   token: "",
   expiresAt: 0
+};
+const publicScheduleCache = {
+  key: "",
+  expiresAt: 0,
+  generatedAt: "",
+  schedule: []
 };
 
 loadLocalEnv();
@@ -235,6 +242,13 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/mindbody/readiness") {
       sendJson(response, 200, await mindbodyReadinessReport());
+      return true;
+    }
+
+    if (path === "/api/studio-cache") {
+      const freshSchedule = ["1", "true", "schedule"].includes(String(url.searchParams.get("fresh") || "").toLowerCase());
+      const cache = freshSchedule ? await readStoreCacheWithFreshSchedule() : readStoreCache();
+      sendJson(response, 200, cache);
       return true;
     }
 
@@ -1814,6 +1828,204 @@ function readStoreCache() {
   } catch (error) {
     return {};
   }
+}
+
+async function readStoreCacheWithFreshSchedule() {
+  const cache = readStoreCache();
+  const { apiKey, siteId } = getBookingConfig();
+
+  if (!apiKey) {
+    return cache;
+  }
+
+  const cacheKey = `${siteId}:public-schedule`;
+
+  if (publicScheduleCache.key === cacheKey && publicScheduleCache.expiresAt > Date.now()) {
+    return {
+      ...cache,
+      generatedAt: publicScheduleCache.generatedAt || cache.generatedAt,
+      schedule: publicScheduleCache.schedule
+    };
+  }
+
+  try {
+    const schedule = await fetchFreshPublicSchedule();
+
+    if (!schedule.length) {
+      return cache;
+    }
+
+    const generatedAt = new Date().toISOString();
+    publicScheduleCache.key = cacheKey;
+    publicScheduleCache.expiresAt = Date.now() + PUBLIC_SCHEDULE_REFRESH_TTL_MS;
+    publicScheduleCache.generatedAt = generatedAt;
+    publicScheduleCache.schedule = schedule;
+
+    return {
+      ...cache,
+      generatedAt,
+      schedule
+    };
+  } catch (error) {
+    return {
+      ...cache,
+      scheduleRefresh: {
+        ok: false,
+        message: error.message || "Schedule refresh failed."
+      }
+    };
+  }
+}
+
+async function fetchFreshPublicSchedule() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const future = new Date(today);
+  future.setDate(future.getDate() + 45);
+
+  const allClasses = [];
+  const limit = 100;
+  let offset = 0;
+
+  while (offset < 1000) {
+    const data = await bookingRequest("/class/classes", {
+      params: {
+        "request.startDateTime": formatApiDate(today),
+        "request.endDateTime": formatApiDate(future),
+        "request.limit": limit,
+        "request.offset": offset
+      }
+    });
+    const classes = firstListByKey(data, "Classes");
+
+    if (!classes.length) {
+      break;
+    }
+
+    allClasses.push(...classes);
+
+    const pagination = data?.PaginationResponse || {};
+    const totalResults = Number(pagination.TotalResults);
+    const pageSize = Number(pagination.PageSize || classes.length || limit);
+
+    offset += Number.isFinite(pageSize) && pageSize > 0 ? pageSize : classes.length;
+
+    if ((Number.isFinite(totalResults) && allClasses.length >= totalResults) || classes.length < limit) {
+      break;
+    }
+  }
+
+  return normalizePublicSchedule(allClasses);
+}
+
+function normalizePublicSchedule(classes) {
+  return classes
+    .filter((item) => item && typeof item === "object" && !item.IsCanceled)
+    .map((item) => {
+      const startsAt = parseScheduleDate(item.StartDateTime);
+
+      if (!startsAt) {
+        return null;
+      }
+
+      const capacity = firstDefined(item.WebCapacity, item.MaxCapacity, item.Capacity);
+      const booked = firstDefined(item.WebBooked, item.TotalBooked, item.Booked, 0);
+      const spotsLeft = calculateSpotsLeft(capacity, booked);
+
+      return {
+        id: item.Id,
+        classScheduleId: item.ClassScheduleId,
+        date: formatScheduleDate(startsAt),
+        time: formatScheduleTime(startsAt),
+        startDateTime: item.StartDateTime,
+        className: publicClassName(item),
+        instructor: nestedPublicName(item.Staff, "Varies"),
+        spotsLeft,
+        bookUrl: item.Id ? `/schedule?classId=${item.Id}` : "/schedule"
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a.startDateTime || "") - Date.parse(b.startDateTime || ""));
+}
+
+function firstListByKey(data, preferredKey) {
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(data[preferredKey])) {
+    return data[preferredKey];
+  }
+
+  for (const value of Object.values(data)) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
+function parseScheduleDate(value) {
+  const date = new Date(String(value || ""));
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatApiDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatScheduleDate(date) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
+function formatScheduleTime(date) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function publicClassName(item) {
+  const description = item.ClassDescription;
+
+  if (description && typeof description === "object") {
+    return String(description.Name || item.Name || "Class");
+  }
+
+  return String(item.Name || description || "Class");
+}
+
+function nestedPublicName(value, fallback = "") {
+  if (value && typeof value === "object") {
+    return String(value.Name || [value.FirstName, value.LastName].filter(Boolean).join(" ") || fallback);
+  }
+
+  return String(value || fallback);
+}
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function calculateSpotsLeft(capacity, booked) {
+  const capacityNumber = Number(capacity);
+  const bookedNumber = Number(booked || 0);
+
+  if (!Number.isFinite(capacityNumber)) {
+    return "";
+  }
+
+  return Math.max(capacityNumber - (Number.isFinite(bookedNumber) ? bookedNumber : 0), 0);
 }
 
 function publicStoreGroups(store) {

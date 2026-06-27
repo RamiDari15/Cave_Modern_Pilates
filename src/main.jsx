@@ -522,7 +522,7 @@ function friendlyApiErrorMessage(error, fallback = "That request could not be co
   return error?.message || fallback;
 }
 
-function useStudioCache() {
+function useStudioCache(activePage) {
   const [cache, setCache] = useState(() => normalizeStudioCache(FALLBACK_CACHE));
 
   useEffect(() => {
@@ -535,7 +535,13 @@ function useStudioCache() {
       }
 
       try {
-        const response = await fetch("/data/studio-cache.json", { cache: "no-store" });
+        const shouldRefreshSchedule = activePage === "schedule";
+        const primaryEndpoint = shouldRefreshSchedule ? "/api/studio-cache?fresh=schedule" : "/data/studio-cache.json";
+        let response = await fetch(primaryEndpoint, { cache: "no-store" });
+
+        if (!response.ok && shouldRefreshSchedule) {
+          response = await fetch("/data/studio-cache.json", { cache: "no-store" });
+        }
 
         if (!response.ok) {
           return;
@@ -552,13 +558,16 @@ function useStudioCache() {
     }
 
     loadCache();
-    pollTimer = window.setInterval(loadCache, STUDIO_CACHE_POLL_MS);
+    pollTimer = window.setInterval(
+      loadCache,
+      activePage === "schedule" ? Math.min(STUDIO_CACHE_POLL_MS, 2 * 60 * 1000) : STUDIO_CACHE_POLL_MS
+    );
 
     return () => {
       isMounted = false;
       window.clearInterval(pollTimer);
     };
-  }, []);
+  }, [activePage]);
 
   return { cache };
 }
@@ -623,7 +632,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [clientSession, setClientSession, isSessionLoading] = useClientSession();
-  const { cache } = useStudioCache();
+  const { cache } = useStudioCache(page);
   const isInterior = page !== "home";
 
   useEffect(() => {
@@ -1199,6 +1208,8 @@ function PricingCategoryPage({ category, store, memberships }) {
           items={items}
           category={category}
           purchaseState={purchaseState}
+          paymentForms={paymentForms}
+          onPaymentLastFourChange={updatePaymentLastFour}
           onBuy={buyItem}
         />
       </section>
@@ -1227,7 +1238,7 @@ function pricingStoreGroups(store, legacyMemberships) {
   return groups;
 }
 
-function PricingStoreSection({ id, title, items, category, purchaseState, onBuy }) {
+function PricingStoreSection({ id, title, items, category, purchaseState, paymentForms = {}, onPaymentLastFourChange, onBuy }) {
   return (
     <div className="pricing-store-section" id={id}>
       <div className="pricing-store-heading">
@@ -1242,7 +1253,7 @@ function PricingStoreSection({ id, title, items, category, purchaseState, onBuy 
               category={category}
               purchaseState={purchaseState}
               paymentLastFour={paymentForms[paymentFormKey(item)] || ""}
-              onPaymentLastFourChange={(value) => updatePaymentLastFour(item, value)}
+              onPaymentLastFourChange={(value) => onPaymentLastFourChange?.(item, value)}
               onBuy={onBuy}
               key={`${item.kind}-${item.id}-${item.name}`}
             />
