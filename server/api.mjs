@@ -2605,11 +2605,12 @@ function setOAuthCookie(response, payload) {
     exp: Math.floor(Date.now() / 1000) + OAUTH_TTL_SECONDS
   });
   const { secureCookies } = getBookingConfig();
+  const sameSite = secureCookies ? "SameSite=None" : "SameSite=Lax";
   const cookie = [
     `${OAUTH_COOKIE}=${value}`,
     "Path=/api/auth",
     "HttpOnly",
-    "SameSite=Lax",
+    sameSite,
     `Max-Age=${OAUTH_TTL_SECONDS}`,
     secureCookies ? "Secure" : ""
   ].filter(Boolean).join("; ");
@@ -2618,7 +2619,18 @@ function setOAuthCookie(response, payload) {
 }
 
 function clearOAuthCookie(response) {
-  appendSetCookie(response, `${OAUTH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const { secureCookies } = getBookingConfig();
+  const sameSite = secureCookies ? "SameSite=None" : "SameSite=Lax";
+  const cookie = [
+    `${OAUTH_COOKIE}=`,
+    "Path=/api/auth",
+    "HttpOnly",
+    sameSite,
+    "Max-Age=0",
+    secureCookies ? "Secure" : ""
+  ].filter(Boolean).join("; ");
+
+  appendSetCookie(response, cookie);
 }
 
 function appendSetCookie(response, cookie) {
