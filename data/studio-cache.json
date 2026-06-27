@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T15:22:56.802917-04:00",
+  "generatedAt": "2026-06-27T02:20:08.475757-04:00",
   "source": "cached booking API snapshot",
   "booking": {
     "scheduleUrl": "/schedule",
@@ -268,37 +268,48 @@
       "bookUrl": "/schedule?classId=1912"
     },
     {
-      "id": 1913,
-      "classScheduleId": 52,
+      "id": 2291,
+      "classScheduleId": 67,
       "date": "Mon Jun 29",
       "time": "9:00 AM",
       "startDateTime": "2026-06-29T09:00:00",
       "className": "Cave Signature",
       "instructor": "Imunique Coleman",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1913"
+      "bookUrl": "/schedule?classId=2291"
     },
     {
-      "id": 1966,
-      "classScheduleId": 53,
+      "id": 2345,
+      "classScheduleId": 68,
       "date": "Mon Jun 29",
       "time": "10:00 AM",
       "startDateTime": "2026-06-29T10:00:00",
       "className": "Cave Signature",
       "instructor": "Lila Taher",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1966"
+      "bookUrl": "/schedule?classId=2345"
     },
     {
-      "id": 2019,
-      "classScheduleId": 54,
+      "id": 2384,
+      "classScheduleId": 107,
       "date": "Mon Jun 29",
       "time": "11:00 AM",
       "startDateTime": "2026-06-29T11:00:00",
       "className": "Cave Signature",
       "instructor": "Lila Taher",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2019"
+      "bookUrl": "/schedule?classId=2384"
+    },
+    {
+      "id": 2385,
+      "classScheduleId": 108,
+      "date": "Mon Jun 29",
+      "time": "4:00 PM",
+      "startDateTime": "2026-06-29T16:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2385"
     },
     {
       "id": 2283,
@@ -318,7 +329,7 @@
       "time": "6:00 PM",
       "startDateTime": "2026-06-29T18:00:00",
       "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
+      "instructor": "Angeline Sayegh",
       "spotsLeft": "",
       "bookUrl": "/schedule?classId=2177"
     },
@@ -329,7 +340,7 @@
       "time": "7:00 PM",
       "startDateTime": "2026-06-29T19:00:00",
       "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
+      "instructor": "Angeline Sayegh",
       "spotsLeft": "",
       "bookUrl": "/schedule?classId=2284"
     },
@@ -345,48 +356,411 @@
       "bookUrl": "/schedule?classId=2285"
     },
     {
-      "id": 1914,
-      "classScheduleId": 52,
-      "date": "Mon Jul 6",
+      "id": 2286,
+      "classScheduleId": 62,
+      "date": "Tue Jun 30",
+      "time": "7:00 AM",
+      "startDateTime": "2026-06-30T07:00:00",
+      "className": "Cave Signature",
+      "instructor": "Krystal Tanzyus",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2286"
+    },
+    {
+      "id": 2287,
+      "classScheduleId": 63,
+      "date": "Tue Jun 30",
+      "time": "8:00 AM",
+      "startDateTime": "2026-06-30T08:00:00",
+      "className": "Cave Signature",
+      "instructor": "L’keesha Jackson",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2287"
+    },
+    {
+      "id": 2352,
+      "classScheduleId": 75,
+      "date": "Tue Jun 30",
       "time": "9:00 AM",
-      "startDateTime": "2026-07-06T09:00:00",
+      "startDateTime": "2026-06-30T09:00:00",
+      "className": "Cave Signature",
+      "instructor": "Samah Jaber",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2352"
+    },
+    {
+      "id": 2289,
+      "classScheduleId": 65,
+      "date": "Tue Jun 30",
+      "time": "10:00 AM",
+      "startDateTime": "2026-06-30T10:00:00",
       "className": "Cave Signature",
       "instructor": "Imunique Coleman",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1914"
+      "bookUrl": "/schedule?classId=2289"
     },
     {
-      "id": 1967,
-      "classScheduleId": 53,
-      "date": "Mon Jul 6",
-      "time": "10:00 AM",
-      "startDateTime": "2026-07-06T10:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1967"
-    },
-    {
-      "id": 2020,
-      "classScheduleId": 54,
-      "date": "Mon Jul 6",
+      "id": 2346,
+      "classScheduleId": 69,
+      "date": "Tue Jun 30",
       "time": "11:00 AM",
-      "startDateTime": "2026-07-06T11:00:00",
+      "startDateTime": "2026-06-30T11:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2346"
+    },
+    {
+      "id": 2347,
+      "classScheduleId": 70,
+      "date": "Tue Jun 30",
+      "time": "4:00 PM",
+      "startDateTime": "2026-06-30T16:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2347"
+    },
+    {
+      "id": 2348,
+      "classScheduleId": 71,
+      "date": "Tue Jun 30",
+      "time": "5:00 PM",
+      "startDateTime": "2026-06-30T17:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2348"
+    },
+    {
+      "id": 2349,
+      "classScheduleId": 72,
+      "date": "Tue Jun 30",
+      "time": "6:00 PM",
+      "startDateTime": "2026-06-30T18:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2349"
+    },
+    {
+      "id": 2350,
+      "classScheduleId": 73,
+      "date": "Tue Jun 30",
+      "time": "7:00 PM",
+      "startDateTime": "2026-06-30T19:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2350"
+    },
+    {
+      "id": 2351,
+      "classScheduleId": 74,
+      "date": "Wed Jul 1",
+      "time": "6:00 AM",
+      "startDateTime": "2026-07-01T06:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2351"
+    },
+    {
+      "id": 2353,
+      "classScheduleId": 76,
+      "date": "Wed Jul 1",
+      "time": "7:00 AM",
+      "startDateTime": "2026-07-01T07:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2353"
+    },
+    {
+      "id": 2354,
+      "classScheduleId": 77,
+      "date": "Wed Jul 1",
+      "time": "8:00 AM",
+      "startDateTime": "2026-07-01T08:00:00",
+      "className": "Cave Signature",
+      "instructor": "Samah Jaber",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2354"
+    },
+    {
+      "id": 2355,
+      "classScheduleId": 78,
+      "date": "Wed Jul 1",
+      "time": "9:00 AM",
+      "startDateTime": "2026-07-01T09:00:00",
+      "className": "Cave Signature",
+      "instructor": "Samah Jaber",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2355"
+    },
+    {
+      "id": 2356,
+      "classScheduleId": 79,
+      "date": "Wed Jul 1",
+      "time": "10:00 AM",
+      "startDateTime": "2026-07-01T10:00:00",
+      "className": "Cave Signature",
+      "instructor": "Imunique Coleman",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2356"
+    },
+    {
+      "id": 2357,
+      "classScheduleId": 80,
+      "date": "Wed Jul 1",
+      "time": "11:00 AM",
+      "startDateTime": "2026-07-01T11:00:00",
+      "className": "Cave Signature",
+      "instructor": "Imunique Coleman",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2357"
+    },
+    {
+      "id": 2358,
+      "classScheduleId": 81,
+      "date": "Wed Jul 1",
+      "time": "4:00 PM",
+      "startDateTime": "2026-07-01T16:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2358"
+    },
+    {
+      "id": 2360,
+      "classScheduleId": 83,
+      "date": "Wed Jul 1",
+      "time": "5:00 PM",
+      "startDateTime": "2026-07-01T17:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2360"
+    },
+    {
+      "id": 2361,
+      "classScheduleId": 84,
+      "date": "Wed Jul 1",
+      "time": "6:00 PM",
+      "startDateTime": "2026-07-01T18:00:00",
       "className": "Cave Signature",
       "instructor": "Lila Taher",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2020"
+      "bookUrl": "/schedule?classId=2361"
     },
     {
-      "id": 2178,
-      "classScheduleId": 57,
-      "date": "Mon Jul 6",
-      "time": "6:00 PM",
-      "startDateTime": "2026-07-06T18:00:00",
+      "id": 2363,
+      "classScheduleId": 86,
+      "date": "Wed Jul 1",
+      "time": "7:00 PM",
+      "startDateTime": "2026-07-01T19:00:00",
       "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
+      "instructor": "Lila Taher",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2178"
+      "bookUrl": "/schedule?classId=2363"
+    },
+    {
+      "id": 2364,
+      "classScheduleId": 87,
+      "date": "Thu Jul 2",
+      "time": "6:00 AM",
+      "startDateTime": "2026-07-02T06:00:00",
+      "className": "Cave Signature",
+      "instructor": "Krystal Tanzyus",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2364"
+    },
+    {
+      "id": 2365,
+      "classScheduleId": 88,
+      "date": "Thu Jul 2",
+      "time": "7:00 AM",
+      "startDateTime": "2026-07-02T07:00:00",
+      "className": "Cave Signature",
+      "instructor": "Lila Taher",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2365"
+    },
+    {
+      "id": 2366,
+      "classScheduleId": 89,
+      "date": "Thu Jul 2",
+      "time": "8:00 AM",
+      "startDateTime": "2026-07-02T08:00:00",
+      "className": "Cave Signature",
+      "instructor": "L’keesha Jackson",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2366"
+    },
+    {
+      "id": 2367,
+      "classScheduleId": 90,
+      "date": "Thu Jul 2",
+      "time": "9:00 AM",
+      "startDateTime": "2026-07-02T09:00:00",
+      "className": "Cave Signature",
+      "instructor": "L’keesha Jackson",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2367"
+    },
+    {
+      "id": 2368,
+      "classScheduleId": 91,
+      "date": "Thu Jul 2",
+      "time": "10:00 AM",
+      "startDateTime": "2026-07-02T10:00:00",
+      "className": "Cave Signature",
+      "instructor": "Imunique Coleman",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2368"
+    },
+    {
+      "id": 2369,
+      "classScheduleId": 92,
+      "date": "Thu Jul 2",
+      "time": "11:00 AM",
+      "startDateTime": "2026-07-02T11:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2369"
+    },
+    {
+      "id": 2370,
+      "classScheduleId": 93,
+      "date": "Thu Jul 2",
+      "time": "4:00 PM",
+      "startDateTime": "2026-07-02T16:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2370"
+    },
+    {
+      "id": 2371,
+      "classScheduleId": 94,
+      "date": "Thu Jul 2",
+      "time": "5:00 PM",
+      "startDateTime": "2026-07-02T17:00:00",
+      "className": "Cave Signature",
+      "instructor": "Tara Michalak",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2371"
+    },
+    {
+      "id": 2372,
+      "classScheduleId": 95,
+      "date": "Thu Jul 2",
+      "time": "6:00 PM",
+      "startDateTime": "2026-07-02T18:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2372"
+    },
+    {
+      "id": 2373,
+      "classScheduleId": 96,
+      "date": "Thu Jul 2",
+      "time": "7:00 PM",
+      "startDateTime": "2026-07-02T19:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2373"
+    },
+    {
+      "id": 2377,
+      "classScheduleId": 100,
+      "date": "Fri Jul 3",
+      "time": "7:00 AM",
+      "startDateTime": "2026-07-03T07:00:00",
+      "className": "Cave Signature",
+      "instructor": "Krystal Tanzyus",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2377"
+    },
+    {
+      "id": 2378,
+      "classScheduleId": 101,
+      "date": "Fri Jul 3",
+      "time": "8:00 AM",
+      "startDateTime": "2026-07-03T08:00:00",
+      "className": "Cave Signature",
+      "instructor": "Samah Jaber",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2378"
+    },
+    {
+      "id": 2379,
+      "classScheduleId": 102,
+      "date": "Fri Jul 3",
+      "time": "9:00 AM",
+      "startDateTime": "2026-07-03T09:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2379"
+    },
+    {
+      "id": 2380,
+      "classScheduleId": 103,
+      "date": "Fri Jul 3",
+      "time": "10:00 AM",
+      "startDateTime": "2026-07-03T10:00:00",
+      "className": "Cave Signature",
+      "instructor": "Lila Taher",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2380"
+    },
+    {
+      "id": 2381,
+      "classScheduleId": 104,
+      "date": "Fri Jul 3",
+      "time": "11:00 AM",
+      "startDateTime": "2026-07-03T11:00:00",
+      "className": "Cave Signature",
+      "instructor": "L’keesha Jackson",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2381"
+    },
+    {
+      "id": 2382,
+      "classScheduleId": 105,
+      "date": "Fri Jul 3",
+      "time": "4:00 PM",
+      "startDateTime": "2026-07-03T16:00:00",
+      "className": "Cave Signature",
+      "instructor": "Imunique Coleman",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2382"
+    },
+    {
+      "id": 2383,
+      "classScheduleId": 106,
+      "date": "Fri Jul 3",
+      "time": "5:00 PM",
+      "startDateTime": "2026-07-03T17:00:00",
+      "className": "Cave Signature",
+      "instructor": "Imunique Coleman",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2383"
+    },
+    {
+      "id": 2376,
+      "classScheduleId": 99,
+      "date": "Fri Jul 3",
+      "time": "6:00 PM",
+      "startDateTime": "2026-07-03T18:00:00",
+      "className": "Cave Signature",
+      "instructor": "Angeline Sayegh",
+      "spotsLeft": "",
+      "bookUrl": "/schedule?classId=2376"
     },
     {
       "id": 477,
@@ -400,50 +774,6 @@
       "bookUrl": "/schedule?classId=477"
     },
     {
-      "id": 1915,
-      "classScheduleId": 52,
-      "date": "Mon Jul 13",
-      "time": "9:00 AM",
-      "startDateTime": "2026-07-13T09:00:00",
-      "className": "Cave Signature",
-      "instructor": "Imunique Coleman",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1915"
-    },
-    {
-      "id": 1968,
-      "classScheduleId": 53,
-      "date": "Mon Jul 13",
-      "time": "10:00 AM",
-      "startDateTime": "2026-07-13T10:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1968"
-    },
-    {
-      "id": 2021,
-      "classScheduleId": 54,
-      "date": "Mon Jul 13",
-      "time": "11:00 AM",
-      "startDateTime": "2026-07-13T11:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2021"
-    },
-    {
-      "id": 2179,
-      "classScheduleId": 57,
-      "date": "Mon Jul 13",
-      "time": "6:00 PM",
-      "startDateTime": "2026-07-13T18:00:00",
-      "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2179"
-    },
-    {
       "id": 478,
       "classScheduleId": 10,
       "date": "Tue Jul 14",
@@ -453,50 +783,6 @@
       "instructor": "Hala Abusham",
       "spotsLeft": "",
       "bookUrl": "/schedule?classId=478"
-    },
-    {
-      "id": 1916,
-      "classScheduleId": 52,
-      "date": "Mon Jul 20",
-      "time": "9:00 AM",
-      "startDateTime": "2026-07-20T09:00:00",
-      "className": "Cave Signature",
-      "instructor": "Imunique Coleman",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1916"
-    },
-    {
-      "id": 1969,
-      "classScheduleId": 53,
-      "date": "Mon Jul 20",
-      "time": "10:00 AM",
-      "startDateTime": "2026-07-20T10:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1969"
-    },
-    {
-      "id": 2022,
-      "classScheduleId": 54,
-      "date": "Mon Jul 20",
-      "time": "11:00 AM",
-      "startDateTime": "2026-07-20T11:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2022"
-    },
-    {
-      "id": 2180,
-      "classScheduleId": 57,
-      "date": "Mon Jul 20",
-      "time": "6:00 PM",
-      "startDateTime": "2026-07-20T18:00:00",
-      "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2180"
     },
     {
       "id": 479,
@@ -510,50 +796,6 @@
       "bookUrl": "/schedule?classId=479"
     },
     {
-      "id": 1917,
-      "classScheduleId": 52,
-      "date": "Mon Jul 27",
-      "time": "9:00 AM",
-      "startDateTime": "2026-07-27T09:00:00",
-      "className": "Cave Signature",
-      "instructor": "Imunique Coleman",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1917"
-    },
-    {
-      "id": 1970,
-      "classScheduleId": 53,
-      "date": "Mon Jul 27",
-      "time": "10:00 AM",
-      "startDateTime": "2026-07-27T10:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1970"
-    },
-    {
-      "id": 2023,
-      "classScheduleId": 54,
-      "date": "Mon Jul 27",
-      "time": "11:00 AM",
-      "startDateTime": "2026-07-27T11:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2023"
-    },
-    {
-      "id": 2181,
-      "classScheduleId": 57,
-      "date": "Mon Jul 27",
-      "time": "6:00 PM",
-      "startDateTime": "2026-07-27T18:00:00",
-      "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2181"
-    },
-    {
       "id": 480,
       "classScheduleId": 10,
       "date": "Tue Jul 28",
@@ -563,50 +805,6 @@
       "instructor": "Hala Abusham",
       "spotsLeft": "",
       "bookUrl": "/schedule?classId=480"
-    },
-    {
-      "id": 1918,
-      "classScheduleId": 52,
-      "date": "Mon Aug 3",
-      "time": "9:00 AM",
-      "startDateTime": "2026-08-03T09:00:00",
-      "className": "Cave Signature",
-      "instructor": "Imunique Coleman",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1918"
-    },
-    {
-      "id": 1971,
-      "classScheduleId": 53,
-      "date": "Mon Aug 3",
-      "time": "10:00 AM",
-      "startDateTime": "2026-08-03T10:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1971"
-    },
-    {
-      "id": 2024,
-      "classScheduleId": 54,
-      "date": "Mon Aug 3",
-      "time": "11:00 AM",
-      "startDateTime": "2026-08-03T11:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2024"
-    },
-    {
-      "id": 2182,
-      "classScheduleId": 57,
-      "date": "Mon Aug 3",
-      "time": "6:00 PM",
-      "startDateTime": "2026-08-03T18:00:00",
-      "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2182"
     },
     {
       "id": 481,
@@ -620,48 +818,15 @@
       "bookUrl": "/schedule?classId=481"
     },
     {
-      "id": 1919,
-      "classScheduleId": 52,
-      "date": "Mon Aug 10",
-      "time": "9:00 AM",
-      "startDateTime": "2026-08-10T09:00:00",
-      "className": "Cave Signature",
-      "instructor": "Imunique Coleman",
+      "id": 482,
+      "classScheduleId": 10,
+      "date": "Tue Aug 11",
+      "time": "7:00 AM",
+      "startDateTime": "2026-08-11T07:00:00",
+      "className": "Cave burnout",
+      "instructor": "Hala Abusham",
       "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1919"
-    },
-    {
-      "id": 1972,
-      "classScheduleId": 53,
-      "date": "Mon Aug 10",
-      "time": "10:00 AM",
-      "startDateTime": "2026-08-10T10:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=1972"
-    },
-    {
-      "id": 2025,
-      "classScheduleId": 54,
-      "date": "Mon Aug 10",
-      "time": "11:00 AM",
-      "startDateTime": "2026-08-10T11:00:00",
-      "className": "Cave Signature",
-      "instructor": "Lila Taher",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2025"
-    },
-    {
-      "id": 2183,
-      "classScheduleId": 57,
-      "date": "Mon Aug 10",
-      "time": "6:00 PM",
-      "startDateTime": "2026-08-10T18:00:00",
-      "className": "Cave Signature",
-      "instructor": "Angelin Sayegh",
-      "spotsLeft": "",
-      "bookUrl": "/schedule?classId=2183"
+      "bookUrl": "/schedule?classId=482"
     }
   ],
   "location": {
