@@ -509,28 +509,28 @@ function friendlyApiErrorMessage(error, fallback = "That request could not be co
   const message = error?.message || "";
 
   if (isStudioConnectionMessage(message)) {
-    return "The secure studio connection needs one final Mindbody credential update before online booking, buying, or account creation can finish.";
+    return "Online booking is almost ready. Please contact Cave to finish this for now.";
   }
 
   if (error?.status === 402) {
-    const setupUrl = error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || "";
-    return `${error.message || "A saved payment method is required."} Use a card already saved on your studio account${setupUrl ? " or open the payment setup link" : ""}.`;
+    const setupUrl = paymentSetupUrlFromError(error);
+    return `${genericRequestFailed(message) ? "A saved payment method is required." : message || "A saved payment method is required."} Use a saved studio card${setupUrl ? " or open Add Card first" : ""}.`;
   }
 
   if (error?.status === 501) {
-    return "Online booking and checkout are waiting on the final Mindbody staff/source token. Please contact Cave to finish this for now.";
+    return "This secure step is almost ready. Please contact Cave to finish this for now.";
   }
 
   if (error?.status === 401) {
     return message || "Please sign in first.";
   }
 
-  return message || fallback;
+  return genericRequestFailed(message) ? fallback : message || fallback;
 }
 
 function friendlyAddCardErrorMessage(error) {
   if (error?.status === 501) {
-    return "Secure add-card setup is not connected yet. Add BOOKING_PAYMENT_SETUP_URL in Vercel to enable this button.";
+    return "Add Card is almost ready. Please contact Cave to save a card for now.";
   }
 
   if (error?.status === 401) {
@@ -540,8 +540,16 @@ function friendlyAddCardErrorMessage(error) {
   return friendlyApiErrorMessage(error, "The secure add-card page could not be opened.");
 }
 
+function paymentSetupUrlFromError(error) {
+  return error?.details?.paymentSetupUrl || error?.data?.details?.paymentSetupUrl || error?.data?.paymentSetupUrl || "";
+}
+
+function genericRequestFailed(value) {
+  return /^request failed\.?$/i.test(String(value || "").trim());
+}
+
 function isStudioConnectionMessage(value) {
-  return /source credential|staff identity|server-side user token|staff\/source token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
+  return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
 
 function useStudioCache(activePage) {
@@ -794,7 +802,7 @@ function setStructuredData(page) {
 }
 
 function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle, onCloseMenu }) {
-  const accountHref = clientSession?.signedIn ? ROUTES.account : authStartHref(ROUTES.account);
+  const accountHref = clientSession?.signedIn ? ROUTES.account : authStartHref(ROUTES.account, { force: true });
   const accountLabel = clientSession?.signedIn ? "Account" : "Login";
 
   return (
@@ -1194,7 +1202,7 @@ function PricingCategoryPage({ category, store, memberships }) {
         itemId: item.id,
         type: "error",
         message: friendlyAddCardErrorMessage(error),
-        paymentSetupUrl: error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || ""
+        paymentSetupUrl: paymentSetupUrlFromError(error)
       });
     }
   };
@@ -1251,7 +1259,7 @@ function PricingCategoryPage({ category, store, memberships }) {
         itemId: item.id,
         type: "error",
         message: friendlyApiErrorMessage(error, "Checkout could not be completed."),
-        paymentSetupUrl: error.details?.paymentSetupUrl || error.data?.details?.paymentSetupUrl || ""
+        paymentSetupUrl: paymentSetupUrlFromError(error)
       });
     }
   };
@@ -1709,7 +1717,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
         const data = await apiRequest("/api/auth/session");
         setClientSession(data.session || null);
       } catch (error) {
-        setStatus({ type: "error", message: error.message });
+        setStatus({ type: "error", message: friendlyApiErrorMessage(error, "We could not refresh your account session.") });
         return;
       }
 
@@ -1746,7 +1754,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
             </>
           ) : (
             <>
-              <a className="pill-button black" href={authStartHref(ROUTES.account)}>Sign In</a>
+              <a className="pill-button black" href={authStartHref(ROUTES.account, { force: true })}>Sign In</a>
               <a className="pill-button outline" href={ROUTES.signup}>
                 Create Account
               </a>
@@ -1853,7 +1861,7 @@ function SignupPage({ setClientSession }) {
 
       setStatus({ type: "success", message: "Account created. You are signed in on this site." });
     } catch (error) {
-      setStatus({ type: "error", message: error.message });
+      setStatus({ type: "error", message: friendlyApiErrorMessage(error, "Account could not be created right now.") });
     } finally {
       setIsSubmitting(false);
     }
@@ -1984,7 +1992,7 @@ function StandaloneWaiverForm() {
         return;
       }
 
-      setStatus({ type: "error", message: error.message });
+      setStatus({ type: "error", message: friendlyApiErrorMessage(error, "Waiver could not be saved right now.") });
     } finally {
       setIsSubmitting(false);
     }
@@ -2084,7 +2092,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           <p>Your account page shows bookings, class credits, and memberships once connected.</p>
         </div>
         <div className="login-panel">
-          <a className="pill-button black" href={authStartHref(ROUTES.account)}>Sign In</a>
+          <a className="pill-button black" href={authStartHref(ROUTES.account, { force: true })}>Sign In</a>
           <a className="pill-button outline" href={ROUTES.signup}>Create Account</a>
           <a className="pill-button outline" href={bookingUrl}>View Schedule</a>
         </div>

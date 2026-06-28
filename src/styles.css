@@ -855,6 +855,19 @@ body.interior:has(.page-policies),
   width: 100%;
 }
 
+.pricing-card-actions .row-status {
+  width: min(100%, 320px);
+  max-width: none;
+  margin: 2px auto 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(5, 5, 5, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .payment-safe-box {
   display: grid;
   width: min(100%, 278px);
@@ -1681,6 +1694,7 @@ body.interior:has(.page-policies),
   font-size: 0.78rem;
   line-height: 1.25;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .row-status.success {
@@ -3465,14 +3479,24 @@ body.interior:has(.page-policies),
   }
 
   .schedule-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 
   .schedule-booking {
-    justify-items: start;
+    width: 100%;
+    justify-items: stretch;
   }
 
   .row-status {
+    width: 100%;
+    max-width: none;
+    padding: 12px 14px;
+    border: 1px solid rgba(5, 5, 5, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.62);
+    font-size: 0.82rem;
+    line-height: 1.35;
     text-align: left;
   }
 }

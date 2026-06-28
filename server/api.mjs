@@ -68,8 +68,9 @@ export function getBookingConfig() {
     "BOOKING_CLIENT_AUTH_CLIENT_SECRET",
     "MINDBODY_CLIENT_AUTH_CLIENT_SECRET"
   );
+  const configuredPublicBaseUrl = configuredEnvValue("PUBLIC_BASE_URL", "SITE_URL", "VITE_SITE_URL");
   const defaultBaseUrl =
-    process.env.PUBLIC_BASE_URL ||
+    configuredPublicBaseUrl ||
     (process.env.NODE_ENV === "production"
       ? OFFICIAL_SITE_URL
       : `http://${process.env.HOST || "127.0.0.1"}:${process.env.PORT || 8765}`);
@@ -179,9 +180,21 @@ function isPlaceholderEnvValue(value) {
   const lower = String(value || "").trim().toLowerCase();
 
   return (
+    /^booking_[a-z0-9_]+$/.test(lower) ||
+    /^mindbody_[a-z0-9_]+$/.test(lower) ||
+    (lower.includes("cave-modern-pilates") && lower.includes(".vercel.app")) ||
+    lower.includes("api.mindbodyonline.com/public/v6") ||
+    lower.includes("actual_unhidden") ||
+    lower.includes("actual-hidden") ||
+    lower.includes("secure-payment-link") ||
+    lower.includes("source_password") ||
+    lower.includes("source password") ||
     lower.includes("your_") ||
+    lower.includes("your-") ||
+    lower.includes("your ") ||
     lower.includes("replace_with") ||
     lower.includes("_here") ||
+    lower.includes("client_auth") ||
     lower.includes("staff_level_user_token") ||
     lower.includes("source_derived") ||
     lower === "https://..." ||
@@ -486,7 +499,7 @@ export async function handleApiRequest(request, response) {
             ...errors.map(publicApiErrorMessage),
             config.actionTokenConfigured
               ? "We could not match this login to a studio client account yet."
-              : "Full bookings, credits, memberships, and cancellation actions require BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, or staff/source credentials for /usertoken/issue."
+              : "Full bookings, credits, memberships, and cancellation actions require BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD from Mindbody Public API Source Credentials."
           ]
         });
         return true;
@@ -711,9 +724,10 @@ async function mindbodyReadinessReport() {
   const missingWaiverFields = waiverFieldIds.filter((key) => !configuredEnvValue(key, key.replace("BOOKING_", "MINDBODY_")));
   const scopeTokens = String(config.oauthScope || "").split(/\s+/).filter(Boolean);
   const hasPublicApiScope = scopeTokens.includes("Mindbody.Api.Public.v6");
-  const actionTokenMissing = config.actionTokenConfigured
+  const actionTokenHealth = await checkActionTokenHealth(actionTokenMode);
+  const actionTokenMissing = actionTokenHealth.ready
     ? []
-    : ["BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, BOOKING_STAFF_USERNAME/PASSWORD, or BOOKING_SOURCE_NAME/PASSWORD"];
+    : [actionTokenHealth.message];
 
   const checks = {
     publicCache: {
@@ -732,33 +746,33 @@ async function mindbodyReadinessReport() {
     clientApiAccess: {
       ready: Boolean(config.oauthConfigured && hasPublicApiScope),
       missing: hasPublicApiScope ? [] : ["BOOKING_OAUTH_SCOPE should include Mindbody.Api.Public.v6 if the OAuth client is approved for Public API calls"],
-      note: "OAuth consumer tokens are used only for GET /client/clientcompleteinfo. Booking, buying, cancellation, and profile updates need the server-side staff/source user token."
+      note: "OAuth consumer tokens are used only for GET /client/clientcompleteinfo. Booking, buying, cancellation, and profile updates need a server-side user token issued from Source Credentials."
     },
     createClient: {
-      ready: Boolean(config.apiKey && config.actionTokenConfigured),
+      ready: Boolean(config.apiKey && actionTokenHealth.ready),
       missing: [config.apiKey ? "" : "BOOKING_API_KEY", ...actionTokenMissing].filter(Boolean),
-      note: "Creates a Mindbody client profile from the Cave sign-up form using the server-side staff/source user token."
+      note: "Creates a Mindbody client profile from the Cave sign-up form using the server-side Source Credentials user token."
     },
     bookClasses: {
-      ready: Boolean(config.oauthConfigured && config.actionTokenConfigured),
+      ready: Boolean(config.oauthConfigured && actionTokenHealth.ready),
       missing: [
         config.oauthConfigured ? "" : "BOOKING_OAUTH_*",
         ...actionTokenMissing
       ].filter(Boolean),
-      note: "Books through /class/addclienttoclass from the Cave schedule page using a server-side staff/source user token. The backend can use a pasted token or issue one from staff/source credentials."
+      note: "Books through /class/addclienttoclass from the Cave schedule page using a server-side user token issued from Source Credentials."
     },
     buyServices: {
-      ready: Boolean(config.actionTokenConfigured),
+      ready: Boolean(actionTokenHealth.ready),
       missing: actionTokenMissing,
-      note: "Drop-ins and class packs use /sale/checkoutshoppingcart, which requires a server-side staff/source user token plus a saved/tokenized payment method."
+      note: "Drop-ins and class packs use /sale/checkoutshoppingcart, which requires a server-side Source Credentials user token plus a saved/tokenized payment method."
     },
     buyMemberships: {
-      ready: Boolean(config.actionTokenConfigured),
+      ready: Boolean(actionTokenHealth.ready),
       missing: actionTokenMissing,
-      note: "Membership contracts use /sale/purchasecontract with a server-side staff/source user token and a saved/tokenized payment method."
+      note: "Membership contracts use /sale/purchasecontract with a server-side Source Credentials user token and a saved/tokenized payment method."
     },
     paymentFlow: {
-      ready: Boolean(config.actionTokenConfigured),
+      ready: Boolean(actionTokenHealth.ready),
       missing: actionTokenMissing,
       note: "Checkout is PCI-safe: Cave only sends saved-card last-four references or future Mindbody-approved tokenized payment data. Raw card numbers and CVV are blocked by the backend."
     },
@@ -769,7 +783,7 @@ async function mindbodyReadinessReport() {
         "Shows clients a secure Add Card path before checkout. Set this to a Mindbody-approved card-on-file page or tokenized payment setup URL."
     },
     waiverSync: {
-      ready: missingWaiverFields.length === 0 && Boolean(config.actionTokenConfigured),
+      ready: missingWaiverFields.length === 0 && Boolean(actionTokenHealth.ready),
       missing: [...missingWaiverFields, ...actionTokenMissing].filter(Boolean),
       note: "Stores the signed Cave liability waiver into Mindbody custom client fields through /client/updateclient."
     },
@@ -786,6 +800,7 @@ async function mindbodyReadinessReport() {
     ready: Object.values(checks).every((check) => check.ready),
     siteId: config.siteId,
     actionTokenMode,
+    actionToken: actionTokenHealth,
     oauth: {
       configured: config.oauthConfigured,
       redirectUri: config.oauthRedirectUri,
@@ -803,12 +818,16 @@ async function mindbodyActionTokenStatus() {
   const config = getBookingConfig();
   const mode = getMindbodyActionTokenMode(config);
 
+  return checkActionTokenHealth(mode);
+}
+
+async function checkActionTokenHealth(mode = getMindbodyActionTokenMode()) {
   if (mode === "none") {
     return {
       ready: false,
       mode,
       message:
-        "Add BOOKING_STAFF_USERNAME and BOOKING_STAFF_PASSWORD, BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD, or a fallback BOOKING_STAFF_TOKEN."
+        "Add BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD from Mindbody Public API Source Credentials."
     };
   }
 
@@ -939,8 +958,11 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
   authorizeUrl.searchParams.set("nonce", nonce);
   authorizeUrl.searchParams.set("state", state);
 
-  if (forceLogin) {
+  // Mindbody's authorize endpoint can reject unsupported OIDC extras with a
+  // generic Oops page. Keep the default URL exactly on their recommended shape.
+  if (forceLogin && configuredEnvBoolean("BOOKING_OAUTH_FORCE_PROMPT", "MINDBODY_OAUTH_FORCE_PROMPT")) {
     authorizeUrl.searchParams.set("prompt", "login");
+    authorizeUrl.searchParams.set("max_age", "0");
   }
 
   if (oauthIncludeSubscriberId && oauthSubscriberId) {
@@ -1489,7 +1511,7 @@ async function getMindbodyActionToken(actionName) {
   if (mode === "none") {
     const error = httpError(
       501,
-      `${actionName} requires BOOKING_STAFF_TOKEN, BOOKING_USER_TOKEN, or staff/source credentials for /usertoken/issue. Mindbody OAuth consumer tokens only work with GET /client/clientcompleteinfo; booking, buying, canceling, and profile updates must use a server-side staff/source user token.`
+      `${actionName} requires BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD from Mindbody Public API Source Credentials. Mindbody OAuth consumer tokens only work with GET /client/clientcompleteinfo; booking, buying, canceling, and profile updates must use a server-side Source Credentials user token.`
     );
     error.data = { action: actionName };
     throw error;
@@ -1513,7 +1535,7 @@ async function getMindbodyActionToken(actionName) {
   const token = extractMindbodyUserToken(issued);
 
   if (!token) {
-    const error = httpError(502, "Mindbody did not return a usable staff/source user token.");
+    const error = httpError(502, "Mindbody did not return a usable server-side user token.");
     error.data = issued;
     throw error;
   }
@@ -1526,12 +1548,12 @@ async function getMindbodyActionToken(actionName) {
 }
 
 function getMindbodyActionTokenMode(config = getBookingConfig()) {
-  if (config.staffUsername && config.staffPassword) {
-    return "staff-credentials";
-  }
-
   if (config.sourceName && config.sourcePassword) {
     return "source-credentials";
+  }
+
+  if (config.staffUsername && config.staffPassword) {
+    return "staff-credentials";
   }
 
   if (config.staffToken) {
@@ -1617,7 +1639,7 @@ function sanitizeActionTokenError(error) {
   const message = String(error?.message || "");
 
   if (/staff identity authentication failed/i.test(message)) {
-    return "Mindbody rejected the server-side user token. Remove any stale BOOKING_STAFF_TOKEN from Vercel, or confirm the staff/source credentials are correct.";
+    return "Mindbody rejected the server-side user token. Confirm BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD match the Public API Source Credentials exactly.";
   }
 
   if (/source/i.test(message) || /credential/i.test(message)) {
@@ -2402,10 +2424,10 @@ function waiverCustomClientFields(waiver) {
   }
 
   const fieldMap = [
-    [process.env.BOOKING_WAIVER_CUSTOM_FIELD_ID || process.env.MINDBODY_WAIVER_CUSTOM_FIELD_ID, waiverSummary(waiver)],
-    [process.env.BOOKING_WAIVER_SIGNATURE_FIELD_ID || process.env.MINDBODY_WAIVER_SIGNATURE_FIELD_ID, waiver.signature],
-    [process.env.BOOKING_WAIVER_DATE_FIELD_ID || process.env.MINDBODY_WAIVER_DATE_FIELD_ID, waiver.signedDate],
-    [process.env.BOOKING_WAIVER_VERSION_FIELD_ID || process.env.MINDBODY_WAIVER_VERSION_FIELD_ID, waiver.version]
+    [configuredEnvValue("BOOKING_WAIVER_CUSTOM_FIELD_ID", "MINDBODY_WAIVER_CUSTOM_FIELD_ID"), waiverSummary(waiver)],
+    [configuredEnvValue("BOOKING_WAIVER_SIGNATURE_FIELD_ID", "MINDBODY_WAIVER_SIGNATURE_FIELD_ID"), waiver.signature],
+    [configuredEnvValue("BOOKING_WAIVER_DATE_FIELD_ID", "MINDBODY_WAIVER_DATE_FIELD_ID"), waiver.signedDate],
+    [configuredEnvValue("BOOKING_WAIVER_VERSION_FIELD_ID", "MINDBODY_WAIVER_VERSION_FIELD_ID"), waiver.version]
   ];
 
   return fieldMap
@@ -2905,18 +2927,18 @@ function publicApiErrorMessage(error) {
   const message = String(error?.message || "");
 
   if (isMindbodySetupErrorMessage(message)) {
-    return "The secure studio connection needs one final Mindbody credential update before online booking, buying, or account creation can finish.";
+    return "Online booking is almost ready. Please contact Cave to finish this for now.";
   }
 
   if (/staff identity authentication failed/i.test(message)) {
-    return sanitizeActionTokenError(error);
+    return "Online booking is almost ready. Please contact Cave to finish this for now.";
   }
 
   return message || "Request failed.";
 }
 
 function isMindbodySetupErrorMessage(message) {
-  return /source credential|staff identity|server-side user token|staff\/source token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(message || ""));
+  return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(message || ""));
 }
 
 function httpError(status, message) {
