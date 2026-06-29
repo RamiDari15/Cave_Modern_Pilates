@@ -31,6 +31,12 @@ const publicScheduleCache = {
   generatedAt: "",
   schedule: []
 };
+const addCardUrlCache = {
+  configuredUrl: "",
+  ok: false,
+  checkedAt: 0,
+  TTL_MS: 5 * 60 * 1000
+};
 
 loadLocalEnv();
 
@@ -222,7 +228,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -423,6 +429,38 @@ export async function handleApiRequest(request, response) {
       }
 
       sendJson(response, 200, buildPaymentSetupResponse(session, returnTo));
+      return true;
+    }
+
+    if (path === "/api/mindbody/add-card-url" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.clientId && !session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, {
+          ok: false,
+          message: "Please sign in before adding a payment card.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}`
+        });
+        return true;
+      }
+
+      const { paymentSetupUrl } = getBookingConfig();
+
+      if (!paymentSetupUrl) {
+        console.warn("[add-card-url] No MINDBODY_ADD_CARD_URL / BOOKING_PAYMENT_SETUP_URL configured");
+        sendJson(response, 200, { ok: false, message: "Online card setup is being configured. Please contact the studio or try again later." });
+        return true;
+      }
+
+      const valid = await validateAddCardUrl(paymentSetupUrl);
+
+      if (!valid) {
+        sendJson(response, 200, { ok: false, message: "Online card setup is being configured. Please contact the studio or try again later." });
+        return true;
+      }
+
+      console.log(`[add-card-url] Returning valid add-card URL`);
+      sendJson(response, 200, { ok: true, url: paymentSetupUrl });
       return true;
     }
 
@@ -1919,21 +1957,47 @@ function itemPaymentAmount(item) {
 }
 
 function paymentRequiredError(message) {
-  const { paymentSetupUrl, siteId } = getBookingConfig();
-  const effectiveSetupUrl = paymentSetupUrl ||
-    (siteId ? `https://clients.mindbodyonline.com/asp/addfunds.asp?studioid=${encodeURIComponent(siteId)}` : "");
+  const { paymentSetupUrl } = getBookingConfig();
   const error = httpError(402, message);
-  error.data = compactObject({ paymentSetupUrl: effectiveSetupUrl });
+  error.data = compactObject({ paymentSetupUrl: paymentSetupUrl || null });
   return error;
 }
 
+async function validateAddCardUrl(url) {
+  const now = Date.now();
+
+  if (addCardUrlCache.configuredUrl === url && now - addCardUrlCache.checkedAt < addCardUrlCache.TTL_MS) {
+    return addCardUrlCache.ok;
+  }
+
+  let ok = false;
+
+  try {
+    const resp = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: AbortSignal.timeout(6000)
+    });
+    ok = resp.ok;
+
+    if (!ok) {
+      console.warn(`[add-card-url] Configured URL returned HTTP ${resp.status}: ${url}`);
+    }
+  } catch (err) {
+    console.error(`[add-card-url] URL validation request failed: ${err.message}`);
+    ok = false;
+  }
+
+  addCardUrlCache.configuredUrl = url;
+  addCardUrlCache.ok = ok;
+  addCardUrlCache.checkedAt = now;
+  return ok;
+}
+
 function buildPaymentSetupResponse(session, returnTo) {
-  const { paymentSetupUrl, publicBaseUrl, siteId } = getBookingConfig();
+  const { paymentSetupUrl, publicBaseUrl } = getBookingConfig();
 
-  const effectiveSetupUrl = paymentSetupUrl ||
-    (siteId ? `https://clients.mindbodyonline.com/asp/addfunds.asp?studioid=${encodeURIComponent(siteId)}` : "");
-
-  if (!effectiveSetupUrl) {
+  if (!paymentSetupUrl) {
     const error = httpError(501, "Secure add-card setup is not configured yet.");
     error.data = {
       missing: ["BOOKING_PAYMENT_SETUP_URL"],
@@ -1954,7 +2018,7 @@ function buildPaymentSetupResponse(session, returnTo) {
   };
 
   return {
-    paymentSetupUrl: applyPaymentSetupPlaceholders(effectiveSetupUrl, replacements),
+    paymentSetupUrl: applyPaymentSetupPlaceholders(paymentSetupUrl, replacements),
     returnTo: safeReturn
   };
 }

@@ -1213,42 +1213,34 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
   const purchaseReturnTo = (item) => `${category.href}?purchase=${encodeURIComponent(`${item.kind}-${item.id}`)}`;
 
   const addCardForItem = async (item) => {
-    const returnTo = purchaseReturnTo(item);
-    setPurchaseState({ itemId: item.id, type: "loading", message: "Opening secure card setup...", paymentSetupUrl: "" });
-
-    const accountUrl = FALLBACK_CACHE?.booking?.accountUrl || "";
-    const siteIdMatch = accountUrl.match(/studioid=(\d+)/i);
-    const fallbackSetupUrl = siteIdMatch
-      ? `https://clients.mindbodyonline.com/asp/addfunds.asp?studioid=${siteIdMatch[1]}`
-      : "";
+    setPurchaseState({ itemId: item.id, type: "loading", message: "Checking secure card setup...", paymentSetupUrl: "" });
 
     try {
-      const data = await apiRequest(`/api/payment/setup?returnTo=${encodeURIComponent(returnTo)}`);
-      const setupUrl = data.paymentSetupUrl || data.url || fallbackSetupUrl;
+      const data = await apiRequest("/api/mindbody/add-card-url");
 
-      if (!setupUrl) {
-        throw new Error("Secure add-card setup is not configured yet.");
+      if (!data.ok || !data.url) {
+        setPurchaseState({
+          itemId: item.id,
+          type: "error",
+          message: data.message || "Online card setup is being configured. Please contact the studio or try again later.",
+          paymentSetupUrl: ""
+        });
+        return;
       }
 
-      window.open(setupUrl, "_blank", "noopener");
-      setPurchaseState({ itemId: item.id, type: "info", message: "Add your card in the tab that just opened, then come back and refresh.", paymentSetupUrl: setupUrl });
+      window.open(data.url, "_blank", "noopener");
+      setPurchaseState({ itemId: item.id, type: "info", message: "Add your card in the tab that just opened, then come back and refresh.", paymentSetupUrl: data.url });
     } catch (error) {
       if (error.loginUrl) {
         window.location.href = error.loginUrl;
         return;
       }
 
-      if (fallbackSetupUrl && error.status !== 403) {
-        window.open(fallbackSetupUrl, "_blank", "noopener");
-        setPurchaseState({ itemId: item.id, type: "info", message: "Add your card in the tab that just opened, then come back and refresh.", paymentSetupUrl: fallbackSetupUrl });
-        return;
-      }
-
       setPurchaseState({
         itemId: item.id,
         type: "error",
-        message: friendlyAddCardErrorMessage(error),
-        paymentSetupUrl: paymentSetupUrlFromError(error)
+        message: "Online card setup is being configured. Please contact the studio or try again later.",
+        paymentSetupUrl: ""
       });
     }
   };
