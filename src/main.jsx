@@ -1949,6 +1949,7 @@ function buildWaiverPayload(form) {
 }
 
 function SignupPage({ setClientSession }) {
+  const formRef = React.useRef(null);
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -1976,27 +1977,48 @@ function SignupPage({ setClientSession }) {
 
   const updateField = (event) => {
     const { name, type, checked, value } = event.target;
-    setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+    setForm((current) => {
+      const next = { ...current, [name]: type === "checkbox" ? checked : value };
+      if ((name === "firstName" || name === "lastName") && !current.waiverParticipantName) {
+        next.waiverParticipantName = `${name === "firstName" ? value : current.firstName} ${name === "lastName" ? value : current.lastName}`.trim();
+      }
+      return next;
+    });
+  };
+
+  const showError = (message) => {
+    setStatus({ type: "error", message });
+    setTimeout(() => {
+      formRef.current?.querySelector(".form-status")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
   };
 
   const submit = async (event) => {
     event.preventDefault();
     setStatus({ type: "", message: "" });
 
+    if (form.password.length < 8) {
+      showError("Password must be at least 8 characters.");
+      return;
+    }
+
     if (form.password !== form.confirmPassword) {
-      setStatus({ type: "error", message: "Passwords do not match." });
+      showError("Passwords do not match.");
       return;
     }
 
     const waiver = buildWaiverPayload(form);
 
     if (!waiver.participantName || !waiver.signature || !waiver.accepted) {
-      setStatus({ type: "error", message: "Please complete and sign the liability waiver." });
+      showError("Please complete and sign the liability waiver.");
+      setTimeout(() => {
+        document.getElementById("liability-waiver")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
       return;
     }
 
     if (!form.acceptPolicies) {
-      setStatus({ type: "error", message: "Please accept the studio terms and policies." });
+      showError("Please accept the studio terms and policies.");
       return;
     }
 
@@ -2016,7 +2038,7 @@ function SignupPage({ setClientSession }) {
 
       setStatus({ type: "success", message: "Account created. You are signed in on this site." });
     } catch (error) {
-      setStatus({ type: "error", message: friendlyApiErrorMessage(error, "Account could not be created right now.") });
+      showError(friendlyApiErrorMessage(error, "Account could not be created right now."));
     } finally {
       setIsSubmitting(false);
     }
@@ -2029,7 +2051,8 @@ function SignupPage({ setClientSession }) {
         <p>Create your studio profile, complete the first-class waiver, and use the same account for booking.</p>
       </div>
 
-      <form className="login-panel signup-panel" onSubmit={submit}>
+      <form ref={formRef} className="login-panel signup-panel" onSubmit={submit}>
+        {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
         <div className="form-grid two">
           <FormField label="First Name" name="firstName" value={form.firstName} onChange={updateField} autoComplete="given-name" required />
           <FormField label="Last Name" name="lastName" value={form.lastName} onChange={updateField} autoComplete="family-name" required />
@@ -2037,7 +2060,7 @@ function SignupPage({ setClientSession }) {
         <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" required />
         <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
         <div className="form-grid two">
-          <FormField label="Password" name="password" type="password" value={form.password} onChange={updateField} autoComplete="new-password" required />
+          <FormField label="Password (8+ characters)" name="password" type="password" value={form.password} onChange={updateField} autoComplete="new-password" required />
           <FormField label="Confirm Password" name="confirmPassword" type="password" value={form.confirmPassword} onChange={updateField} autoComplete="new-password" required />
         </div>
         <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
@@ -2061,7 +2084,6 @@ function SignupPage({ setClientSession }) {
         <a className="pill-button outline" href={ROUTES.login}>
           Already Have an Account
         </a>
-        {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
       </form>
     </section>
   );
@@ -2269,7 +2291,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
       </div>
 
-      {!dashboardLoading && dashboard && !dashboard.schedule && !dashboard.services && !dashboard.contracts && (
+      {!dashboardLoading && dashboard?.clientLinked === false && (
         <p className="account-link-note">Your studio account is not linked yet. Book your first class or <a href={ROUTES.contact}>contact Cave</a> to connect your Mindbody profile.</p>
       )}
 

@@ -824,6 +824,7 @@ export async function handleApiRequest(request, response) {
       if (!config.actionTokenConfigured || !clientId) {
         const cpClient = consumerProfile?.Client || {};
         sendJson(response, 200, {
+          clientLinked: Boolean(clientId),
           profile: consumerProfile || { Client: session.user || {} },
           schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
           services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
@@ -842,6 +843,7 @@ export async function handleApiRequest(request, response) {
       if (!staffToken) {
         const cpClient = consumerProfile?.Client || {};
         sendJson(response, 200, {
+          clientLinked: Boolean(clientId),
           profile: consumerProfile || { Client: session.user || {} },
           schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
           services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
@@ -861,6 +863,7 @@ export async function handleApiRequest(request, response) {
       ]);
 
       sendJson(response, 200, {
+        clientLinked: true,
         profile: fulfilledValue(profile) || consumerProfile,
         schedule: fulfilledValue(schedule),
         services: fulfilledValue(services),
@@ -2970,6 +2973,7 @@ function sessionFromCreatedClient(created, payload) {
   const clientId = client?.Id || client?.ClientId || client?.UniqueId || "";
 
   return {
+    signedIn: true,
     authMode: "created-client",
     clientId,
     user: {
