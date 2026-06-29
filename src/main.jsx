@@ -12,6 +12,7 @@ const ROUTES = {
   newbie: "/newbie",
   memberships: "/memberships",
   classPacks: "/class-packs",
+  dropIn: "/drop-in",
   schedule: "/schedule",
   about: "/about",
   contact: "/contact",
@@ -46,6 +47,7 @@ const PAGE_TITLES = {
   newbie: "Newbie Promo | Cave Modern Pilates",
   memberships: "Memberships | Cave Modern Pilates",
   "class-packs": "Class Packs | Cave Modern Pilates",
+  "drop-in": "Drop In | Cave Modern Pilates",
   schedule: "Schedule | Cave Modern Pilates",
   about: "About Us | Cave Modern Pilates",
   contact: "Contact | Cave Modern Pilates",
@@ -62,7 +64,8 @@ const PAGE_DESCRIPTIONS = {
   pricing: "View Cave Modern Pilates pricing, newbie intro offers, monthly memberships, and class packs loaded from the studio booking system.",
   newbie: "Newbie intro offers for first-time Cave Modern Pilates clients.",
   memberships: "Monthly Cave Modern Pilates memberships with current options from the studio booking system.",
-  "class-packs": "Cave Modern Pilates drop-ins and class packs with current pricing from the studio booking system.",
+  "class-packs": "Cave Modern Pilates class packs with current pricing from the studio booking system.",
+  "drop-in": "Drop in to Cave Modern Pilates for a single reformer Pilates class. No commitment required.",
   schedule: "View the Cave Modern Pilates class schedule and book reformer Pilates classes online.",
   about: "Learn about Cave Modern Pilates, its mission, and founder Hala.",
   contact: "Contact Cave Modern Pilates in Orland Park for class, private session, and membership questions.",
@@ -99,6 +102,13 @@ const PRICING_CATEGORIES = [
     eyebrow: "Flexible credits"
   },
   {
+    key: "dropIn",
+    page: "drop-in",
+    href: ROUTES.dropIn,
+    title: "Drop In",
+    eyebrow: "No commitment"
+  },
+  {
     key: "newbie",
     page: "newbie",
     href: ROUTES.newbie,
@@ -133,7 +143,7 @@ const FAQ_ITEMS = [
     category: "Studio Policy",
     question: "Are grip socks required?",
     answer: [
-      "Yes. Grip socks are required for safety and studio hygiene."
+      "Yes. Grip socks are required for the safety and hygiene of everyone in the studio. Barefoot participation is not permitted."
     ]
   },
   {
@@ -141,8 +151,8 @@ const FAQ_ITEMS = [
     category: "Booking",
     question: "What is the class cancellation window?",
     answer: [
-      "Classes must be canceled at least twelve hours before the scheduled class start time.",
-      "Reservations canceled within twelve hours of class start time are considered late cancellations."
+      "Classes must be canceled at least 12 hours before the scheduled class start time.",
+      "Reservations canceled within 12 hours of class start time are considered late cancellations."
     ]
   },
   {
@@ -150,8 +160,9 @@ const FAQ_ITEMS = [
     category: "Booking",
     question: "What happens if I late cancel?",
     answer: [
-      "Package holders forfeit the class credit used to reserve the class.",
-      "Unlimited members are charged the applicable late cancellation fee."
+      "Drop-in guests, package holders, and members will be charged a $20 late cancellation fee if the cancellation is made within 12 hours of your scheduled class.",
+      "Unlimited members with a 6-month contract receive 1 late cancellation exemption per term. Unlimited members with a 12-month contract receive 2 late cancellation exemptions per term.",
+      "Once all exemptions have been used, each additional late cancellation will result in a $20 late cancellation fee."
     ]
   },
   {
@@ -159,8 +170,11 @@ const FAQ_ITEMS = [
     category: "Booking",
     question: "What happens if I no-show a class?",
     answer: [
-      "Clients who reserve a class and do not attend without canceling are considered a no-show.",
-      "Package holders forfeit the class credit used to reserve the class. Unlimited members are charged a $28 no-show fee.",
+      "If you do not attend your scheduled class and do not cancel before class begins, you will be considered a no-show.",
+      "Drop-In Guests: You will forfeit the full cost of the class you booked. No refunds will be issued.",
+      "Class Package Members: One class credit will be forfeited.",
+      "Unlimited Members (6-Month): You receive one (1) no-show exemption during your membership term. After your exemption has been used, each additional no-show will incur a $30 no-show fee.",
+      "Unlimited Members (12-Month): You receive two (2) no-show exemptions during your membership term. After both exemptions have been used, each additional no-show will incur a $30 no-show fee.",
       "Repeated no-shows may result in temporary booking restrictions at management's discretion."
     ]
   },
@@ -170,7 +184,8 @@ const FAQ_ITEMS = [
     question: "How do 4-class and 8-class memberships work?",
     answer: [
       "A 4-Class Membership includes four classes per month. An 8-Class Membership includes eight classes per month.",
-      "Unused classes expire at the end of each billing cycle and do not roll over into future months."
+      "Unused classes expire at the end of each billing cycle and do not roll over into future months.",
+      "Memberships are set to auto-renew each month for the duration of your commitment term."
     ]
   },
   {
@@ -179,7 +194,17 @@ const FAQ_ITEMS = [
     question: "How does unlimited membership work?",
     answer: [
       "Unlimited Membership holders may attend one class per day.",
-      "Multiple classes in the same calendar day are not permitted unless approved by management."
+      "Multiple classes in the same calendar day are not permitted unless approved by management.",
+      "Unlimited memberships are set to auto-renew monthly for the duration of the commitment term."
+    ]
+  },
+  {
+    id: "auto-renewal",
+    category: "Memberships",
+    question: "Do memberships auto-renew?",
+    answer: [
+      "Yes. All memberships are set to auto-renew. Membership fees are automatically billed each month for the duration of your agreement.",
+      "To stop renewal after your commitment term ends, you must provide written notice at least 30 days before your next billing date."
     ]
   },
   {
@@ -187,7 +212,7 @@ const FAQ_ITEMS = [
     category: "Memberships",
     question: "How do I cancel my membership?",
     answer: [
-      "After completing the selected commitment term, members must provide written notice at least fourteen days before the next billing date.",
+      "After completing the selected commitment term, members must provide written notice at least 30 days before the next billing date.",
       "Members who cancel before completing their commitment term remain responsible for the remaining payments due under the agreement."
     ]
   },
@@ -196,7 +221,7 @@ const FAQ_ITEMS = [
     category: "Memberships",
     question: "What if I do not want to renew?",
     answer: [
-      "Please send written notice at least fourteen days before your next billing date if you do not plan to renew a membership or package.",
+      "Please send written notice at least 30 days before your next billing date if you do not plan to renew a membership or package.",
       "If notice is not received in time, the next scheduled renewal may still process."
     ]
   },
@@ -381,7 +406,7 @@ function getPageFromPath() {
     return "newbie";
   }
 
-  return ["pricing", "newbie", "memberships", "class-packs", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"].includes(name) ? name : "home";
+  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -436,12 +461,18 @@ function normalizeStudioCache(rawCache) {
 }
 
 function normalizeStoreGroups(store) {
+  const allClassPacks = filterPublicPricingItems(store.classPacks || []);
   return {
     ...store,
     newbie: filterPublicPricingItems(store.newbie || store.starter || []),
     memberships: filterPublicPricingItems(store.memberships || []),
-    classPacks: filterPublicPricingItems(store.classPacks || [])
+    classPacks: allClassPacks.filter((item) => !isDropInItem(item)),
+    dropIn: allClassPacks.filter((item) => isDropInItem(item))
   };
+}
+
+function isDropInItem(item) {
+  return /\bdrop[- ]?in\b/.test(String(item?.name || item?.sourceName || "").toLowerCase());
 }
 
 function filterPublicPricingItems(items) {
@@ -1360,20 +1391,39 @@ function pricingStoreGroups(store, legacyMemberships) {
   const groups = {
     newbie: Array.isArray(store?.newbie) && store.newbie.length ? store.newbie : Array.isArray(store?.starter) && store.starter.length ? store.starter : fallback.newbie || fallback.starter || [],
     memberships: Array.isArray(store?.memberships) && store.memberships.length ? store.memberships : fallback.memberships || [],
-    classPacks: Array.isArray(store?.classPacks) && store.classPacks.length ? store.classPacks : fallback.classPacks || []
+    classPacks: Array.isArray(store?.classPacks) && store.classPacks.length ? store.classPacks : fallback.classPacks || [],
+    dropIn: Array.isArray(store?.dropIn) && store.dropIn.length ? store.dropIn : fallback.dropIn || []
   };
 
   if (!groups.classPacks.length && legacyMemberships?.length) {
-    groups.classPacks = legacyMemberships.map((item) => ({
+    const allLegacy = legacyMemberships.map((item) => ({
       ...item,
       kind: "service",
       category: "classPacks",
       requiresWaiver: true,
       requiresTerms: false
     }));
+    groups.dropIn = allLegacy.filter((item) => isDropInItem(item));
+    groups.classPacks = allLegacy.filter((item) => !isDropInItem(item));
   }
 
+  groups.memberships = sortMembershipItems(groups.memberships);
+  groups.classPacks = sortBySessionsAsc(groups.classPacks);
+
   return groups;
+}
+
+function sortMembershipItems(items) {
+  return [...items].sort((a, b) => {
+    const sessA = Number(a.sessions) || 9999;
+    const sessB = Number(b.sessions) || 9999;
+    if (sessA !== sessB) return sessA - sessB;
+    return (Number(a.commitmentMonths) || 0) - (Number(b.commitmentMonths) || 0);
+  });
+}
+
+function sortBySessionsAsc(items) {
+  return [...items].sort((a, b) => (Number(a.sessions) || 0) - (Number(b.sessions) || 0));
 }
 
 function PricingStoreSection({ id, title, items, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onAddCard, onBuy }) {
@@ -1558,13 +1608,13 @@ function pricingTitleLines(item, category) {
     return [cleanName];
   }
 
-  const [packName, contractName] = cleanName.split(/\s+-\s+/);
+  const match = cleanName.match(/^(.+?)\s*-\s*(.+)$/);
 
-  if (!contractName) {
+  if (!match) {
     return [cleanName];
   }
 
-  return [packName, contractName];
+  return [match[1].trim(), match[2].trim()];
 }
 
 function SchedulePage({ schedule, bookingUrl, clientSession, spotsLoading }) {

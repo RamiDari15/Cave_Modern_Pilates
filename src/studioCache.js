@@ -101,21 +101,89 @@ export const FALLBACK_CACHE = {
         sellOnline: true,
         requiresWaiver: true,
         requiresTerms: true
+      },
+      {
+        id: "102",
+        kind: "contract",
+        category: "memberships",
+        name: "4 class pack-6 months contract",
+        price: "$140.00",
+        sessions: 4,
+        commitmentMonths: 6,
+        description: "4 classes/month",
+        sellOnline: true,
+        requiresWaiver: true,
+        requiresTerms: true
+      },
+      {
+        id: "105",
+        kind: "contract",
+        category: "memberships",
+        name: "8 class pack-6 months contract",
+        price: "$260.00",
+        sessions: 8,
+        commitmentMonths: 6,
+        description: "8 classes/month",
+        sellOnline: true,
+        requiresWaiver: true,
+        requiresTerms: true
+      },
+      {
+        id: "103",
+        kind: "contract",
+        category: "memberships",
+        name: "4 class pack-12 months contract",
+        price: "$128.00",
+        sessions: 4,
+        commitmentMonths: 12,
+        description: "4 classes/month",
+        sellOnline: true,
+        requiresWaiver: true,
+        requiresTerms: true
+      },
+      {
+        id: "106",
+        kind: "contract",
+        category: "memberships",
+        name: "8 class pack-12 months contract",
+        price: "$220.00",
+        sessions: 8,
+        commitmentMonths: 12,
+        description: "8 classes/month",
+        sellOnline: true,
+        requiresWaiver: true,
+        requiresTerms: true
+      },
+      {
+        id: "107",
+        kind: "contract",
+        category: "memberships",
+        name: "Unlimited-6 months contract",
+        price: "Ask studio",
+        sessions: null,
+        commitmentMonths: 6,
+        description: "Unlimited classes/month",
+        sellOnline: false,
+        requiresWaiver: true,
+        requiresTerms: true,
+        agreementTerms: "CAVE MODERN PILATES MEMBERSHIP AGREEMENT By purchasing a membership with Cave Modern Pilates (\"CAVE\"), you agree to the following terms and conditions. Unlimited Membership \u2013 6 Month Commitment This membership includes unlimited class attendance (one class per day) for a minimum commitment period of six (6) months. Membership fees will be automatically billed each month for the duration of the agreement. Multiple classes per day are not permitted unless approved by management. Memberships are non-transferable, non-refundable, and may not be shared between individuals. Cancellation, Late Cancellation, and No-Show Policy Members who wish to cancel their membership after fulfilling their commitment term must provide written notice at least thirty (30) days prior to their next billing date. Members who cancel before the completion of their commitment term remain responsible for the remaining payments due under the agreement. Reservations canceled less than twelve (12) hours before the scheduled class time will be considered a late cancellation. Unlimited members receive one (1) late cancellation exemption per membership term. After the exemption is used, each additional late cancellation will result in a $20 late cancellation fee. Members who reserve a class and fail to attend without canceling will be considered a no-show. Unlimited members receive one (1) no-show exemption per membership term. After the exemption is used, each additional no-show will result in a $30 no-show fee. Cave Modern Pilates reserves the right to modify schedules, instructors, class offerings, and studio policies at any time. By completing the purchase of a membership, the member acknowledges that they have read, understood, and agreed to the terms of this Membership Agreement."
+      },
+      {
+        id: "108",
+        kind: "contract",
+        category: "memberships",
+        name: "Unlimited-12 months contract",
+        price: "Ask studio",
+        sessions: null,
+        commitmentMonths: 12,
+        description: "Unlimited classes/month",
+        sellOnline: false,
+        requiresWaiver: true,
+        requiresTerms: true,
+        agreementTerms: "CAVE MODERN PILATES MEMBERSHIP AGREEMENT By purchasing a membership with Cave Modern Pilates (\"CAVE\"), you agree to the following terms and conditions. Unlimited Membership \u2013 12 Month Commitment This membership includes unlimited class attendance (one class per day) for a minimum commitment period of twelve (12) months. Membership fees will be automatically billed each month for the duration of the agreement. Multiple classes per day are not permitted unless approved by management. Memberships are non-transferable, non-refundable, and may not be shared between individuals. Cancellation, Late Cancellation, and No-Show Policy Members who wish to cancel their membership after fulfilling their commitment term must provide written notice at least thirty (30) days prior to their next billing date. Members who cancel before the completion of their commitment term remain responsible for the remaining payments due under the agreement. Reservations canceled less than twelve (12) hours before the scheduled class time will be considered a late cancellation. Unlimited members receive two (2) late cancellation exemptions per membership term. After all exemptions are used, each additional late cancellation will result in a $20 late cancellation fee. Members who reserve a class and fail to attend without canceling will be considered a no-show. Unlimited members receive two (2) no-show exemptions per membership term. After all exemptions are used, each additional no-show will result in a $30 no-show fee. Cave Modern Pilates reserves the right to modify schedules, instructors, class offerings, and studio policies at any time. By completing the purchase of a membership, the member acknowledges that they have read, understood, and agreed to the terms of this Membership Agreement."
       }
     ],
     classPacks: [
-      {
-        id: "100004",
-        kind: "service",
-        category: "classPacks",
-        name: "Drop in",
-        price: "$45.00",
-        sessions: 1,
-        description: "Expires in 1 months",
-        sellOnline: true,
-        requiresWaiver: true,
-        requiresTerms: false
-      },
       {
         id: "100008",
         kind: "service",
@@ -136,6 +204,20 @@ export const FALLBACK_CACHE = {
         price: "$350.00",
         sessions: 10,
         description: "Expires in 1 months",
+        sellOnline: true,
+        requiresWaiver: true,
+        requiresTerms: false
+      }
+    ],
+    dropIn: [
+      {
+        id: "100004",
+        kind: "service",
+        category: "dropIn",
+        name: "Drop in",
+        price: "$45.00",
+        sessions: 1,
+        description: "Single class. No commitment.",
         sellOnline: true,
         requiresWaiver: true,
         requiresTerms: false

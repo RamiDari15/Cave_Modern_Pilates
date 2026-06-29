@@ -498,8 +498,15 @@ body.interior:has(.page-policies),
 
 .pricing-choice-card.classPacks .pricing-choice-image {
   background-image: url("../assets/cave-pricing-class-packs.jpeg");
-  background-size: 118%;
-  background-position: 50% 52%;
+  background-size: cover;
+  background-position: center center;
+}
+
+.pricing-choice-card.dropIn .pricing-choice-image {
+  background-image: url("../public/assets/IMG_2025.JPG.jpeg");
+  background-size: cover;
+  background-position: center center;
+  filter: grayscale(1) contrast(1.08);
 }
 
 .pricing-choice-copy {
