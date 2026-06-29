@@ -1371,9 +1371,7 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
   authorizeUrl.searchParams.set("nonce", nonce);
   authorizeUrl.searchParams.set("state", state);
 
-  // Mindbody's authorize endpoint can reject unsupported OIDC extras with a
-  // generic Oops page. Keep the default URL exactly on their recommended shape.
-  if (forceLogin && configuredEnvBoolean("BOOKING_OAUTH_FORCE_PROMPT", "MINDBODY_OAUTH_FORCE_PROMPT")) {
+  if (forceLogin) {
     authorizeUrl.searchParams.set("prompt", "login");
     authorizeUrl.searchParams.set("max_age", "0");
   }
