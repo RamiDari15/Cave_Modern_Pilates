@@ -1955,8 +1955,6 @@ function SignupPage({ setClientSession }) {
     lastName: "",
     email: "",
     phone: "",
-    password: "",
-    confirmPassword: "",
     addressLine1: "",
     addressLine2: "",
     city: "",
@@ -1996,16 +1994,6 @@ function SignupPage({ setClientSession }) {
   const submit = async (event) => {
     event.preventDefault();
     setStatus({ type: "", message: "" });
-
-    if (form.password.length < 8) {
-      showError("Password must be at least 8 characters.");
-      return;
-    }
-
-    if (form.password !== form.confirmPassword) {
-      showError("Passwords do not match.");
-      return;
-    }
 
     const waiver = buildWaiverPayload(form);
 
@@ -2076,10 +2064,6 @@ function SignupPage({ setClientSession }) {
         </div>
         <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" required />
         <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
-        <div className="form-grid two">
-          <FormField label="Password (8+ characters)" name="password" type="password" value={form.password} onChange={updateField} autoComplete="new-password" required />
-          <FormField label="Confirm Password" name="confirmPassword" type="password" value={form.confirmPassword} onChange={updateField} autoComplete="new-password" required />
-        </div>
         <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
         <FormField label="Apt, Suite, Optional" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
         <div className="form-grid three">

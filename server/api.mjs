@@ -1904,6 +1904,21 @@ function firstNonEmpty(...values) {
 }
 
 async function addClient(payload) {
+  // Try consumer mode first — no staff token required per Mindbody docs.
+  // "Omitting the token will create a client and respect Consumer Mode required fields."
+  try {
+    return await bookingRequest("/client/addclient", {
+      method: "POST",
+      body: payload
+    });
+  } catch (consumerError) {
+    // Consumer mode failed; if staff credentials are configured, fall back to business mode.
+    const config = getBookingConfig();
+    if (!config.actionTokenConfigured || !(consumerError.status >= 400 && consumerError.status < 500)) {
+      throw consumerError;
+    }
+  }
+
   const staffToken = await getMindbodyActionToken("Client account creation");
 
   return bookingRequest("/client/addclient", {
@@ -3043,7 +3058,7 @@ function sessionFromCreatedClient(created, payload) {
 }
 
 function requiredSignupFields(body) {
-  return ["firstName", "lastName", "email", "password", "phone", "addressLine1", "city", "state", "postalCode"].filter(
+  return ["firstName", "lastName", "email", "phone", "addressLine1", "city", "state", "postalCode"].filter(
     (key) => !String(body[key] || "").trim()
   );
 }
@@ -3054,8 +3069,6 @@ function clientPayload(body, waiver) {
     LastName: body.lastName,
     Email: String(body.email || "").trim().toLowerCase(),
     MobilePhone: body.phone,
-    Username: String(body.email || "").trim().toLowerCase(),
-    Password: body.password,
     AddressLine1: body.addressLine1,
     AddressLine2: body.addressLine2,
     City: body.city,
