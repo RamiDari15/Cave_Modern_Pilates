@@ -81,6 +81,7 @@ function studioServerPlugin() {
 }
 
 export default defineConfig({
+  envDir: ".",
   plugins: [react(), studioServerPlugin()],
   build: {
     rollupOptions: {
