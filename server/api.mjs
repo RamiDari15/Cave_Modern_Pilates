@@ -2063,38 +2063,30 @@ function firstNonEmpty(...values) {
 }
 
 async function addClient(payload) {
-  // Use AddOrUpdateClient so that if a Mindbody record with this email already exists
-  // (e.g., a consumer account or a staff-added client), it merges/updates rather than
-  // creating a duplicate. SendEmail:true triggers Mindbody's welcome email so the
-  // client can activate their consumer identity and link it to this studio record.
-  const wrappedPayload = { Client: payload };
-
+  // Try consumer mode with addclient first (original working path).
+  // "Omitting the token will create a client and respect Consumer Mode required fields."
   try {
-    return await bookingRequest("/client/addorupdateclient", {
+    return await bookingRequest("/client/addclient", {
       method: "POST",
-      body: wrappedPayload
+      body: { ...payload, SendEmail: true }
     });
   } catch (consumerError) {
-    // Consumer mode failed; fall back to staff token if configured.
     const config = getBookingConfig();
     if (!config.actionTokenConfigured || !(consumerError.status >= 400 && consumerError.status < 500)) {
-      // Last resort: try legacy addclient endpoint.
-      return bookingRequest("/client/addclient", {
-        method: "POST",
-        body: payload
-      });
+      throw consumerError;
     }
   }
 
+  // Staff token is available — use AddOrUpdateClient so an existing record with this
+  // email gets merged rather than a duplicate created.
   const staffToken = await getMindbodyActionToken("Client account creation");
 
   return bookingRequest("/client/addorupdateclient", {
     method: "POST",
     token: staffToken,
-    body: wrappedPayload
+    body: { Client: { ...payload, SendEmail: true } }
   }).catch(async (error) => {
     if (error.status && error.status >= 400 && error.status < 500) {
-      // Fall back to legacy addclient with staff token.
       return bookingRequest("/client/addclient", {
         method: "POST",
         token: staffToken,
@@ -2102,10 +2094,9 @@ async function addClient(payload) {
       }).catch(() => bookingRequest("/client/addclient", {
         method: "POST",
         token: staffToken,
-        body: wrappedPayload
+        body: { Client: payload }
       }));
     }
-
     throw error;
   });
 }
@@ -3228,8 +3219,7 @@ function clientPayload(body, waiver) {
     EmergencyContactInfoName: body.emergencyContactName,
     EmergencyContactInfoPhone: body.emergencyContactPhone,
     EmergencyContactInfoRelationship: body.emergencyContactRelationship,
-    ReferredBy: body.referredBy,
-    SendEmail: true
+    ReferredBy: body.referredBy
   });
 
   if (isSignedWaiver(waiver)) {
