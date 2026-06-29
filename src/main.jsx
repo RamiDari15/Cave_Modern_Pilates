@@ -2505,7 +2505,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   useEffect(() => {
     if (!clientSession?.signedIn) { setClientInfo(null); return; }
     let cancelled = false;
-    fetch("/api/mindbody/client-info", { cache: "no-store" })
+    fetch("/api/mindbody/client-info", { cache: "no-store", credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => { if (!cancelled && data?.ok) setClientInfo(data.data); })
       .catch(() => {});
