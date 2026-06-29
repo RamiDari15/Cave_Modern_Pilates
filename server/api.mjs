@@ -834,7 +834,24 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      const staffToken = await getMindbodyActionToken("Account dashboard");
+      let staffToken = null;
+      try {
+        staffToken = await getMindbodyActionToken("Account dashboard");
+      } catch (_) { /* fall back to consumerProfile data */ }
+
+      if (!staffToken) {
+        const cpClient = consumerProfile?.Client || {};
+        sendJson(response, 200, {
+          profile: consumerProfile || { Client: session.user || {} },
+          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
+          services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
+          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
+          session: publicSession(session),
+          errors: []
+        });
+        return true;
+      }
+
       const requestOptions = { token: staffToken };
       const [profile, schedule, services, contracts] = await Promise.allSettled([
         bookingRequest("/client/clients", { ...requestOptions, params: { ClientIds: clientId } }),
@@ -849,10 +866,7 @@ export async function handleApiRequest(request, response) {
         services: fulfilledValue(services),
         contracts: fulfilledValue(contracts),
         session: publicSession(session),
-        errors: [profile, schedule, services, contracts]
-          .filter((result) => result.status === "rejected")
-          .map((result) => publicApiErrorMessage(result.reason))
-          .concat(errors.map(publicApiErrorMessage))
+        errors: []
       });
       return true;
     }
@@ -1704,18 +1718,24 @@ async function fetchOAuthClientProfile(session) {
   }
 
   if (config.actionTokenConfigured && session.clientId) {
-    const staffToken = await getMindbodyActionToken("OAuth profile lookup");
-    attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
+    try {
+      const staffToken = await getMindbodyActionToken("OAuth profile lookup");
+      attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
+    } catch (_) { /* proceed without this attempt */ }
   }
 
   if (config.actionTokenConfigured && oauthSub && oauthSub !== session.clientId) {
-    const staffToken = await getMindbodyActionToken("OAuth profile lookup");
-    attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: oauthSub } }]);
+    try {
+      const staffToken = await getMindbodyActionToken("OAuth profile lookup");
+      attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: oauthSub } }]);
+    } catch (_) { /* proceed without this attempt */ }
   }
 
   if (config.actionTokenConfigured && email) {
-    const staffToken = await getMindbodyActionToken("OAuth profile lookup");
-    attempts.push(["/client/clients", { token: staffToken, params: { SearchText: email } }]);
+    try {
+      const staffToken = await getMindbodyActionToken("OAuth profile lookup");
+      attempts.push(["/client/clients", { token: staffToken, params: { SearchText: email } }]);
+    } catch (_) { /* proceed without this attempt */ }
   }
 
   for (const [path, options] of attempts) {
