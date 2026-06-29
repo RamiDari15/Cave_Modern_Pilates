@@ -3104,6 +3104,10 @@ function clientPayload(body, waiver) {
     ReferredBy: body.referredBy
   });
 
+  if (isSignedWaiver(waiver)) {
+    payload.Liability = { LiabilityRelease: true };
+  }
+
   const customFields = waiverCustomClientFields(waiver);
 
   if (customFields.length) {
@@ -3185,41 +3189,85 @@ function waiverCustomClientFields(waiver) {
 }
 
 async function attachClientWaiver(session, waiver) {
+  const clientId = await resolveSessionClientId(session).catch(() => "");
+  const consumerToken = session?.consumerIdentityToken || session?.accessToken || "";
   const customFields = waiverCustomClientFields(waiver);
+  const errors = [];
 
-  if (!customFields.length) {
+  if (!clientId && !consumerToken) {
     return {
       accepted: true,
       storedInMindbody: false,
-      message: "Waiver captured by the site. Add Mindbody waiver custom field IDs to sync it into the client profile."
+      message: "Waiver captured by the site."
     };
   }
 
-  const clientId = await resolveSessionClientId(session);
-
-  if (!clientId) {
-    throw httpError(400, "We could not match this waiver to a studio client account yet.");
-  }
-
-  const body = {
-    Client: {
-      Id: clientId,
-      CustomClientFields: customFields
-    }
+  // Always set the built-in Liability.LiabilityRelease field — works with consumer
+  // identity token (no staff credentials required, ReleasedBy = null = client-initiated).
+  const liabilityBody = {
+    Client: compactObject({
+      Id: clientId || undefined,
+      Liability: { LiabilityRelease: true }
+    })
   };
 
-  const staffToken = await getMindbodyActionToken("Waiver profile sync");
+  let liabilityStored = false;
 
-  const updated = await bookingRequest("/client/updateclient", {
-    method: "POST",
-    token: staffToken,
-    body
-  });
+  if (consumerToken) {
+    try {
+      await bookingRequest("/client/updateclient", {
+        method: "POST",
+        consumerIdentityToken: consumerToken,
+        body: liabilityBody
+      });
+      liabilityStored = true;
+    } catch (consumerError) {
+      errors.push(`Consumer liability update: ${consumerError.message}`);
+    }
+  }
+
+  // If consumer update failed or no consumer token, try with staff token
+  if (!liabilityStored && clientId) {
+    try {
+      const staffToken = await getMindbodyActionToken("Waiver liability sync");
+      await bookingRequest("/client/updateclient", {
+        method: "POST",
+        token: staffToken,
+        body: liabilityBody
+      });
+      liabilityStored = true;
+    } catch (staffError) {
+      errors.push(`Staff liability update: ${staffError.message}`);
+    }
+  }
+
+  // Sync waiver text into custom fields when IDs are configured and a staff token is available
+  let customFieldsStored = false;
+
+  if (customFields.length && clientId) {
+    try {
+      const staffToken = await getMindbodyActionToken("Waiver custom fields sync");
+      await bookingRequest("/client/updateclient", {
+        method: "POST",
+        token: staffToken,
+        body: {
+          Client: {
+            Id: clientId,
+            CustomClientFields: customFields
+          }
+        }
+      });
+      customFieldsStored = true;
+    } catch (fieldsError) {
+      errors.push(`Custom fields sync: ${fieldsError.message}`);
+    }
+  }
 
   return {
     accepted: true,
-    storedInMindbody: true,
-    updated
+    storedInMindbody: liabilityStored,
+    customFieldsStored,
+    errors: errors.length ? errors : undefined
   };
 }
 
