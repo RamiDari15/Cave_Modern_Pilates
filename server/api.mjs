@@ -3599,10 +3599,21 @@ function enforceSameOrigin(request) {
     return;
   }
 
-  const host = request.headers.host;
-  const expected = new URL(origin).host;
+  let originHost;
+  try {
+    originHost = new URL(origin).hostname.toLowerCase().replace(/^www\./, "");
+  } catch (_) {
+    throw httpError(403, "Cross-origin request blocked.");
+  }
 
-  if (host !== expected) {
+  const rawHost = String(request.headers.host || "").toLowerCase().split(":")[0].replace(/^www\./, "");
+  const config = getBookingConfig();
+  let allowedHost = "";
+  try {
+    allowedHost = new URL(config.publicBaseUrl).hostname.toLowerCase().replace(/^www\./, "");
+  } catch (_) {}
+
+  if (rawHost !== originHost && allowedHost !== originHost) {
     throw httpError(403, "Cross-origin request blocked.");
   }
 }
