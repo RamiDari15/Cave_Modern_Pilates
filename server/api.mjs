@@ -2795,7 +2795,7 @@ function isStudioConnectionApiMessage(value) {
 }
 
 function isFreeClassName(name) {
-  return /\b(free|intro|introductory|newbie|new\s+client|trial|first\s+class|starter)\b/i.test(String(name || ""));
+  return /\b(free|complimentary)\b/i.test(String(name || ""));
 }
 
 function normalizeClassFull(item) {
