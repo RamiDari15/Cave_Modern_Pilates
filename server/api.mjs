@@ -1820,14 +1820,77 @@ async function hydrateOAuthSession(session) {
   const profile = await fetchOAuthClientProfile(session).catch(() => null);
   const hydratedAt = new Date().toISOString();
 
-  if (!profile) {
-    return { ...session, hydratedAt };
+  // If we have a profile with a clientId we're done.
+  if (profile?.clientId) {
+    return { ...mergeSessionClientProfile(session, profile), hydratedAt };
+  }
+
+  // Read-based lookups found no clientId. Try to auto-link via AddOrUpdateClient using the
+  // OAuth email so the consumer identity gets associated with a studio client record.
+  const autoLinkedClientId = await autoLinkOAuthClient(session).catch(() => "");
+
+  if (autoLinkedClientId) {
+    return {
+      ...session,
+      clientId: autoLinkedClientId,
+      user: {
+        ...(session.user || {}),
+        ...(profile ? {
+          firstName: profile.firstName || session.user?.firstName || "",
+          lastName: profile.lastName || session.user?.lastName || "",
+          email: profile.email || session.user?.email || "",
+          username: profile.username || profile.email || session.user?.username || ""
+        } : {}),
+        id: autoLinkedClientId
+      },
+      hydratedAt
+    };
   }
 
   return {
-    ...mergeSessionClientProfile(session, profile),
+    ...(profile ? mergeSessionClientProfile(session, profile) : session),
     hydratedAt
   };
+}
+
+async function autoLinkOAuthClient(session) {
+  const consumerToken = session.consumerIdentityToken || session.accessToken || "";
+  const email = session.user?.email || session.user?.username || "";
+  const firstName = session.user?.firstName || "";
+  const lastName = session.user?.lastName || "";
+
+  if (!email) return "";
+
+  const payload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
+  const config = getBookingConfig();
+
+  // Try staff token first (most reliable), then consumer token.
+  if (config.actionTokenConfigured) {
+    try {
+      const staffToken = await getMindbodyActionToken("OAuth auto-link");
+      const result = await bookingRequest("/client/addorupdateclient", {
+        method: "POST",
+        token: staffToken,
+        body: { Client: payload }
+      });
+      const profile = extractClientProfile(result, email);
+      if (profile?.clientId) return profile.clientId;
+    } catch (_) { /* fall through to consumer token */ }
+  }
+
+  if (consumerToken) {
+    try {
+      const result = await bookingRequest("/client/addorupdateclient", {
+        method: "POST",
+        consumerIdentityToken: consumerToken,
+        body: { Client: payload }
+      });
+      const profile = extractClientProfile(result, email);
+      if (profile?.clientId) return profile.clientId;
+    } catch (_) { /* give up */ }
+  }
+
+  return "";
 }
 
 function shouldHydrateOAuthSession(session) {
