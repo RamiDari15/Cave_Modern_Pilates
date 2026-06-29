@@ -1061,13 +1061,14 @@ export async function handleApiRequest(request, response) {
       const hasConsumerData = Boolean(consumerProfile?.Client || consumerProfile?.ClientCompleteInfo?.Client || (consumerProfile?.Clients?.length));
 
       if (!config.actionTokenConfigured || !clientId) {
-        const cpClient = consumerProfile?.Client || {};
+        const ccInfo = consumerProfile?.ClientCompleteInfo || {};
+        const cpClient = consumerProfile?.Client || ccInfo?.Client || {};
         sendJson(response, 200, {
           clientLinked: Boolean(clientId) || hasConsumerData,
           profile: consumerProfile || { Client: session.user || {} },
-          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
-          services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
-          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
+          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || ccInfo?.ClientSchedule || ccInfo?.Schedule || cpClient?.ClientSchedule || null,
+          services: consumerProfile?.ClientServices || consumerProfile?.Services || ccInfo?.ClientServices || ccInfo?.Services || cpClient?.ClientServices || null,
+          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || ccInfo?.ClientContracts || ccInfo?.ClientMemberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
           session: publicSession(session),
           errors: []
         });
@@ -1080,13 +1081,14 @@ export async function handleApiRequest(request, response) {
       } catch (_) { /* fall back to consumerProfile data */ }
 
       if (!staffToken) {
-        const cpClient = consumerProfile?.Client || {};
+        const ccInfo = consumerProfile?.ClientCompleteInfo || {};
+        const cpClient = consumerProfile?.Client || ccInfo?.Client || {};
         sendJson(response, 200, {
           clientLinked: Boolean(clientId) || hasConsumerData,
           profile: consumerProfile || { Client: session.user || {} },
-          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
-          services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
-          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
+          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || ccInfo?.ClientSchedule || ccInfo?.Schedule || cpClient?.ClientSchedule || null,
+          services: consumerProfile?.ClientServices || consumerProfile?.Services || ccInfo?.ClientServices || ccInfo?.Services || cpClient?.ClientServices || null,
+          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || ccInfo?.ClientContracts || ccInfo?.ClientMemberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
           session: publicSession(session),
           errors: []
         });
