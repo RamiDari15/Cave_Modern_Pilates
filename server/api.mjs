@@ -2348,43 +2348,12 @@ function paymentRequiredError(message) {
 }
 
 async function validateAddCardUrl(url) {
-  const now = Date.now();
-
-  if (addCardUrlCache.configuredUrl === url && now - addCardUrlCache.checkedAt < addCardUrlCache.TTL_MS) {
-    return addCardUrlCache.ok;
-  }
-
-  let ok = false;
-
   try {
-    const resp = await fetch(url, {
-      method: "GET",
-      redirect: "follow",
-      signal: AbortSignal.timeout(8000),
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-
-    if (!resp.ok) {
-      console.warn(`[add-card-url] Configured URL returned HTTP ${resp.status}: ${url}`);
-    } else {
-      // Mindbody error pages return HTTP 200 but redirect to /Error — detect via final URL
-      const finalUrl = resp.url || url;
-      const isErrorPage = finalUrl.includes("/Error") || finalUrl.includes("aspxerrorpath");
-      ok = !isErrorPage;
-
-      if (!ok) {
-        console.warn(`[add-card-url] URL resolved to an error page: ${finalUrl}`);
-      }
-    }
-  } catch (err) {
-    console.error(`[add-card-url] URL validation request failed: ${err.message}`);
-    ok = false;
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname.length > 0;
+  } catch {
+    return false;
   }
-
-  addCardUrlCache.configuredUrl = url;
-  addCardUrlCache.ok = ok;
-  addCardUrlCache.checkedAt = now;
-  return ok;
 }
 
 function buildPaymentSetupResponse(session, returnTo) {
