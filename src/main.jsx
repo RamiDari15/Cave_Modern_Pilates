@@ -2269,6 +2269,10 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
       </div>
 
+      {!dashboardLoading && dashboard && !dashboard.schedule && !dashboard.services && !dashboard.contracts && (
+        <p className="account-link-note">Your studio account is not linked yet. Book your first class or <a href={ROUTES.contact}>contact Cave</a> to connect your Mindbody profile.</p>
+      )}
+
       <a className="pill-button black" href={bookingUrl}>View Schedule</a>
     </section>
   );

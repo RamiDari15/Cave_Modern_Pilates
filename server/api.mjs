@@ -1688,6 +1688,7 @@ async function fetchOAuthClientProfile(session) {
   const consumerToken = session.consumerIdentityToken || session.accessToken || "";
   const config = getBookingConfig();
   const email = session.user?.email || session.user?.username || "";
+  const oauthSub = session.oauthSubject || "";
   const attempts = [];
 
   if (consumerToken && session.clientId) {
@@ -1698,9 +1699,18 @@ async function fetchOAuthClientProfile(session) {
     attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: {} }]);
   }
 
+  if (consumerToken && oauthSub && oauthSub !== session.clientId) {
+    attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { ClientId: oauthSub } }]);
+  }
+
   if (config.actionTokenConfigured && session.clientId) {
     const staffToken = await getMindbodyActionToken("OAuth profile lookup");
     attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
+  }
+
+  if (config.actionTokenConfigured && oauthSub && oauthSub !== session.clientId) {
+    const staffToken = await getMindbodyActionToken("OAuth profile lookup");
+    attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: oauthSub } }]);
   }
 
   if (config.actionTokenConfigured && email) {
@@ -1757,7 +1767,8 @@ function extractOAuthClientIdFromClaims(claims = {}) {
     claims.contactId,
     claims.ContactId,
     claims.consumer_client_id,
-    claims.consumerClientId
+    claims.consumerClientId,
+    /^\d+$/.test(String(claims.sub || "")) ? claims.sub : ""
   );
 }
 
