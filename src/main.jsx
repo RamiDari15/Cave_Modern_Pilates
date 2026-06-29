@@ -554,6 +554,7 @@ function isStudioConnectionMessage(value) {
 
 function useStudioCache(activePage) {
   const [cache, setCache] = useState(() => normalizeStudioCache(FALLBACK_CACHE));
+  const [cacheLoading, setCacheLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -561,6 +562,7 @@ function useStudioCache(activePage) {
 
     async function loadCache() {
       if (window.location.protocol === "file:") {
+        if (isMounted) setCacheLoading(false);
         return;
       }
 
@@ -574,6 +576,7 @@ function useStudioCache(activePage) {
         }
 
         if (!response.ok) {
+          if (isMounted) setCacheLoading(false);
           return;
         }
 
@@ -581,9 +584,11 @@ function useStudioCache(activePage) {
 
         if (isMounted) {
           setCache(normalizeStudioCache(freshCache));
+          setCacheLoading(false);
         }
       } catch (error) {
         console.info("Using embedded studio cache snapshot.", error);
+        if (isMounted) setCacheLoading(false);
       }
     }
 
@@ -599,7 +604,7 @@ function useStudioCache(activePage) {
     };
   }, [activePage]);
 
-  return { cache };
+  return { cache, cacheLoading };
 }
 
 function useClientSession() {
@@ -662,7 +667,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [clientSession, setClientSession, isSessionLoading] = useClientSession();
-  const { cache } = useStudioCache(page);
+  const { cache, cacheLoading } = useStudioCache(page);
   const isInterior = page !== "home";
 
   useEffect(() => {
@@ -868,7 +873,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   }
 
   if (page === "schedule") {
-    return <SchedulePage schedule={cache.schedule || []} bookingUrl={bookingUrl} clientSession={clientSession} />;
+    return <SchedulePage schedule={cache.schedule || []} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={cacheLoading} />;
   }
 
   if (page === "about") {
@@ -1544,10 +1549,10 @@ function pricingTitleLines(item, category) {
   return [packName, contractName];
 }
 
-function SchedulePage({ schedule, bookingUrl, clientSession }) {
+function SchedulePage({ schedule, bookingUrl, clientSession, spotsLoading }) {
   return (
     <section className="schedule section page-section">
-      <ScheduleList schedule={schedule} bookingUrl={bookingUrl} clientSession={clientSession} />
+      <ScheduleList schedule={schedule} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={spotsLoading} />
     </section>
   );
 }
@@ -2454,9 +2459,10 @@ function MembershipGrid({ memberships }) {
   );
 }
 
-function ScheduleList({ schedule, bookingUrl, clientSession }) {
+function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   const rows = schedule.length ? schedule : FALLBACK_CACHE.schedule;
   const [bookingState, setBookingState] = useState({ classId: null, type: "", message: "" });
+  const autoBookTriggered = React.useRef(false);
   const visibleDayCount = useScheduleDayCount();
   const requestedClassId = new URLSearchParams(window.location.search).get("classId");
   const groupedDays = rows.reduce((days, classItem) => {
@@ -2522,6 +2528,22 @@ function ScheduleList({ schedule, bookingUrl, clientSession }) {
       currentMonthKey < firstMonthKey || currentMonthKey > lastMonthKey ? activeMonthKey : currentMonthKey
     );
   }, [activeDay?.key, firstMonthKey, lastMonthKey]);
+
+  useEffect(() => {
+    if (!requestedClassId || !clientSession?.signedIn || autoBookTriggered.current) {
+      return;
+    }
+
+    const classItem = rows.find((c) => String(c.id) === requestedClassId);
+
+    if (!classItem) {
+      return;
+    }
+
+    autoBookTriggered.current = true;
+    bookClass(classItem);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [clientSession?.signedIn, rows.length]);
 
   if (!sortedDays.length) {
     return <p className="empty-schedule">No upcoming classes are available right now.</p>;
@@ -2700,10 +2722,25 @@ function ScheduleList({ schedule, bookingUrl, clientSession }) {
 
       <div className="schedule-list">
         {activeDay.classes.map((classItem, index) => {
-        const spotsText =
-          classItem.spotsLeft === "" || classItem.spotsLeft === null || classItem.spotsLeft === undefined
-            ? "Check availability"
-            : `${classItem.spotsLeft} left`;
+        const spotsNum = classItem.spotsLeft === "" || classItem.spotsLeft === null || classItem.spotsLeft === undefined
+          ? null
+          : Number(classItem.spotsLeft);
+        const isFull = spotsNum === 0;
+        const isLow = typeof spotsNum === "number" && spotsNum > 0 && spotsNum <= 3;
+        const spotsClass = spotsLoading
+          ? "spots-badge spots-loading"
+          : isFull
+          ? "spots-badge spots-full"
+          : isLow
+          ? "spots-badge spots-low"
+          : "spots-badge spots-open";
+        const spotsText = spotsLoading
+          ? "Checking\u2026"
+          : isFull
+          ? "Full"
+          : typeof spotsNum === "number"
+          ? `${spotsNum} left`
+          : "Open";
 
         return (
           <article className="schedule-row" key={`${classItem.id || classItem.classScheduleId || index}-${classItem.startDateTime || classItem.time}`}>
@@ -2725,7 +2762,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession }) {
             </div>
             <div>
               <span>Spots</span>
-              <strong>{spotsText}</strong>
+              <strong><span className={spotsClass}>{spotsText}</span></strong>
             </div>
             <div className="schedule-booking">
               <button
