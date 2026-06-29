@@ -2252,7 +2252,7 @@ async function checkoutServiceItem(clientId, item, body) {
           Item: {
             Type: "Service",
             Metadata: {
-              Id: String(item.id)
+              Id: Number(item.id)
             }
           },
           Quantity: 1
