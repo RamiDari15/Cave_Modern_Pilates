@@ -2794,8 +2794,19 @@ function isStudioConnectionApiMessage(value) {
   return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
 
+// All classes are free during the launch week (through end of day July 6, 2026).
+const LAUNCH_FREE_WEEK_END = new Date("2026-07-07T00:00:00.000Z");
+
+function isLaunchFreeWeek() {
+  return Date.now() < LAUNCH_FREE_WEEK_END.getTime();
+}
+
 function isFreeClassName(name) {
   return /\b(free|complimentary)\b/i.test(String(name || ""));
+}
+
+function isClassFree(name) {
+  return isLaunchFreeWeek() || isFreeClassName(name);
 }
 
 function normalizeClassFull(item) {
@@ -2848,7 +2859,7 @@ function normalizeClassFull(item) {
     classDescriptionId: classDesc.Id || item.ClassDescriptionId,
     classScheduleId: item.ClassScheduleId,
     name: className,
-    isFree: isFreeClassName(className),
+    isFree: isClassFree(className),
     description: classDesc.Description || "",
     instructor,
     staffId: staff?.Id,
@@ -3014,7 +3025,7 @@ async function bookClassWithValidation(session, classId, clientServiceId) {
     throw err;
   }
 
-  const classIsFree = isFreeClassName(
+  const classIsFree = isClassFree(
     classItem.ClassDescription?.Name || classItem.Name || ""
   );
 
