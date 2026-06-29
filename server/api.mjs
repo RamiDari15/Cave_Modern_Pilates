@@ -940,6 +940,87 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
+    if (path === "/api/client/add-card" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, {
+          ok: false,
+          message: "Please sign in before adding a card.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}`
+        });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => "");
+
+      if (!clientId) {
+        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
+        return true;
+      }
+
+      // Intentionally do NOT call assertNoRawCardPayload here — this endpoint's
+      // sole purpose is to accept card data and proxy it securely to MindBody.
+      const body = await readJsonBody(request);
+
+      const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
+      const expMonth = String(body.expMonth || "").replace(/\D/g, "").padStart(2, "0").slice(-2);
+      const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
+      const expYear = expYearRaw.length === 2 ? `20${expYearRaw}` : expYearRaw;
+      const billingName = String(body.billingName || "").trim();
+      const billingPostalCode = String(body.billingPostalCode || "").replace(/\D/g, "").slice(0, 10);
+
+      if (cardNumber.length < 13 || cardNumber.length > 19) {
+        sendJson(response, 400, { ok: false, message: "Please enter a valid card number." });
+        return true;
+      }
+
+      const monthNum = Number(expMonth);
+      if (!expMonth || monthNum < 1 || monthNum > 12) {
+        sendJson(response, 400, { ok: false, message: "Please enter a valid expiry month (01–12)." });
+        return true;
+      }
+
+      if (!expYear || expYear.length !== 4) {
+        sendJson(response, 400, { ok: false, message: "Please enter a valid expiry year." });
+        return true;
+      }
+
+      if (!billingName) {
+        sendJson(response, 400, { ok: false, message: "Please enter the name on the card." });
+        return true;
+      }
+
+      try {
+        const staffToken = await getMindbodyActionToken("Add card");
+
+        await bookingRequest("/client/addorupdateclient", {
+          method: "POST",
+          token: staffToken,
+          body: {
+            Client: compactObject({
+              Id: clientId,
+              CreditCard: compactObject({
+                CardNumber: cardNumber,
+                ExpMonth: expMonth,
+                ExpYear: expYear,
+                BillingName: billingName,
+                BillingPostalCode: billingPostalCode || undefined,
+                SaveInfo: true
+              })
+            })
+          }
+        });
+
+        sendJson(response, 200, { ok: true, message: "Card saved successfully." });
+      } catch (error) {
+        const status = error.status >= 400 && error.status < 600 ? error.status : 503;
+        sendJson(response, status, { ok: false, message: error.message || "Could not save card. Please try again." });
+      }
+
+      return true;
+    }
+
     if (path === "/api/client/dashboard") {
       const session = await readHydratedSession(request, response);
 

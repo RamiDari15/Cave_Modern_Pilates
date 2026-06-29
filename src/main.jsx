@@ -1222,6 +1222,7 @@ function PricingLandingPage({ store, memberships }) {
 function useSavedCards(clientSession) {
   const [cards, setCards] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!clientSession?.signedIn) {
@@ -1248,15 +1249,150 @@ function useSavedCards(clientSession) {
     return () => {
       isMounted = false;
     };
-  }, [clientSession]);
+  }, [clientSession, refreshTick]);
 
-  return { cards, loaded };
+  return { cards, loaded, refresh: () => setRefreshTick((n) => n + 1) };
+}
+
+function AddCardForm({ clientSession, onSuccess, onCancel }) {
+  const [form, setForm] = useState({ number: "", expiry: "", name: "", zip: "" });
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const formatCardNumber = (raw) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 16);
+    return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+  };
+
+  const formatExpiry = (raw) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 4);
+    return digits.length >= 3 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+  };
+
+  const handleChange = (field, transform) => (e) => {
+    const val = transform ? transform(e.target.value) : e.target.value;
+    setForm((f) => ({ ...f, [field]: val }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setStatus({ type: "", message: "" });
+
+    const digits = form.number.replace(/\D/g, "");
+    if (digits.length < 13) {
+      setStatus({ type: "error", message: "Please enter a valid card number." });
+      return;
+    }
+
+    const expiryMatch = form.expiry.match(/^(\d{2})\/(\d{2,4})$/);
+    if (!expiryMatch) {
+      setStatus({ type: "error", message: "Please enter expiry as MM/YY." });
+      return;
+    }
+    const [, expMonth, expYearShort] = expiryMatch;
+    const expYear = expYearShort.length === 2 ? `20${expYearShort}` : expYearShort;
+
+    if (!form.name.trim()) {
+      setStatus({ type: "error", message: "Please enter the name on the card." });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiRequest("/api/client/add-card", {
+        method: "POST",
+        body: {
+          cardNumber: digits,
+          expMonth,
+          expYear,
+          billingName: form.name.trim(),
+          billingPostalCode: form.zip.trim()
+        }
+      });
+      setStatus({ type: "success", message: "Card saved. You can now select it below." });
+      onSuccess?.();
+    } catch (error) {
+      if (error.loginUrl) { window.location.href = error.loginUrl; return; }
+      setStatus({ type: "error", message: error.message || "Could not save card. Please try again." });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="add-card-form" onSubmit={handleSubmit} autoComplete="on">
+      <p className="add-card-form-title">Add a payment card</p>
+      <label className="payment-safe-field">
+        <span>Card number</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          autoComplete="cc-number"
+          placeholder="1234 5678 9012 3456"
+          value={form.number}
+          onChange={handleChange("number", formatCardNumber)}
+          maxLength={19}
+          required
+        />
+      </label>
+      <div className="add-card-two-col">
+        <label className="payment-safe-field">
+          <span>Expiry</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="cc-exp"
+            placeholder="MM/YY"
+            value={form.expiry}
+            onChange={handleChange("expiry", formatExpiry)}
+            maxLength={5}
+            required
+          />
+        </label>
+        <label className="payment-safe-field">
+          <span>ZIP</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="postal-code"
+            placeholder="60601"
+            value={form.zip}
+            onChange={handleChange("zip", (v) => v.replace(/\D/g, "").slice(0, 10))}
+            maxLength={10}
+          />
+        </label>
+      </div>
+      <label className="payment-safe-field">
+        <span>Name on card</span>
+        <input
+          type="text"
+          autoComplete="cc-name"
+          placeholder="Full name"
+          value={form.name}
+          onChange={handleChange("name")}
+          required
+        />
+      </label>
+      <p className="payment-safe-note">Card info is sent securely to the studio — Cave never stores card numbers.</p>
+      <div className="add-card-actions">
+        <button type="submit" className="pill-button black" disabled={isSubmitting}>
+          {isSubmitting ? "Saving..." : "Save Card"}
+        </button>
+        {onCancel ? (
+          <button type="button" className="text-button" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
+      {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
+    </form>
+  );
 }
 
 function PricingCategoryPage({ category, store, memberships, clientSession }) {
   const groups = pricingStoreGroups(store, memberships);
   const items = groups[category.key] || [];
-  const { cards: savedCards, loaded: cardsLoaded } = useSavedCards(clientSession);
+  const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState({});
@@ -1379,7 +1515,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
           onManualLastFourChange={setManualLastFour}
           onToggleTerms={(itemId) => setExpandedTerms((current) => ({ ...current, [itemId]: !current[itemId] }))}
           onAcceptTerms={(itemId, value) => setAcceptedTerms((current) => ({ ...current, [itemId]: value }))}
-          onAddCard={addCardForItem}
+          onCardAdded={refreshCards}
           onBuy={buyItem}
         />
       </section>
@@ -1427,7 +1563,7 @@ function sortBySessionsAsc(items) {
   return [...items].sort((a, b) => (Number(a.sessions) || 0) - (Number(b.sessions) || 0));
 }
 
-function PricingStoreSection({ id, title, items, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onAddCard, onBuy }) {
+function PricingStoreSection({ id, title, items, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onCardAdded, onBuy }) {
   return (
     <div className="pricing-store-section" id={id}>
       <div className="pricing-store-heading">
@@ -1452,7 +1588,7 @@ function PricingStoreSection({ id, title, items, category, purchaseState, savedC
               onManualLastFourChange={onManualLastFourChange}
               onToggleTerms={onToggleTerms}
               onAcceptTerms={onAcceptTerms}
-              onAddCard={onAddCard}
+              onCardAdded={onCardAdded}
               onBuy={onBuy}
               key={`${item.kind}-${item.id}-${item.name}`}
             />
@@ -1465,7 +1601,7 @@ function PricingStoreSection({ id, title, items, category, purchaseState, savedC
   );
 }
 
-function PricingCard({ item, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onAddCard, onBuy }) {
+function PricingCard({ item, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onCardAdded, onBuy }) {
   const isLoading = purchaseState.itemId === item.id && purchaseState.type === "loading";
   const message = purchaseState.itemId === item.id ? purchaseState.message : "";
   const messageType = purchaseState.itemId === item.id ? purchaseState.type : "";
@@ -1473,6 +1609,7 @@ function PricingCard({ item, category, purchaseState, savedCards, cardsLoaded, s
   const titleLines = pricingTitleLines(item, category);
   const isTermsExpanded = Boolean(expandedTerms?.[item.id]);
   const hasAcceptedTerms = Boolean(acceptedTerms?.[item.id]);
+  const [showCardForm, setShowCardForm] = useState(false);
 
   return (
     <article className={`pricing-card ${category.key}`}>
@@ -1547,9 +1684,17 @@ function PricingCard({ item, category, purchaseState, savedCards, cardsLoaded, s
                 </label>
               )}
               <p className="payment-safe-note">Full card numbers never touch this site.</p>
-              <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => onAddCard?.(item)}>
-                {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
-              </button>
+              {showCardForm ? (
+                <AddCardForm
+                  clientSession={clientSession}
+                  onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }}
+                  onCancel={() => setShowCardForm(false)}
+                />
+              ) : (
+                <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
+                  {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
+                </button>
+              )}
             </div>
 
             {item.requiresTerms && item.agreementTerms ? (

@@ -968,6 +968,57 @@ body.interior:has(.page-policies),
   transform: none;
 }
 
+.add-card-form {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding-top: 2px;
+}
+
+.add-card-form-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(5, 5, 5, 0.5);
+}
+
+.add-card-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.add-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.add-card-actions .pill-button {
+  flex: 1;
+  min-height: 44px;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
+.add-card-actions .text-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.88rem;
+  color: rgba(5, 5, 5, 0.5);
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.add-card-actions .text-button:hover {
+  color: rgba(5, 5, 5, 0.8);
+}
+
 .pricing-card-actions .book-class {
   min-width: 150px;
   min-height: 52px;
