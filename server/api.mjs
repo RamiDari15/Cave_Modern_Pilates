@@ -2358,14 +2358,23 @@ async function validateAddCardUrl(url) {
 
   try {
     const resp = await fetch(url, {
-      method: "HEAD",
+      method: "GET",
       redirect: "follow",
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "Mozilla/5.0" }
     });
-    ok = resp.ok;
 
-    if (!ok) {
+    if (!resp.ok) {
       console.warn(`[add-card-url] Configured URL returned HTTP ${resp.status}: ${url}`);
+    } else {
+      // Mindbody error pages return HTTP 200 but redirect to /Error — detect via final URL
+      const finalUrl = resp.url || url;
+      const isErrorPage = finalUrl.includes("/Error") || finalUrl.includes("aspxerrorpath");
+      ok = !isErrorPage;
+
+      if (!ok) {
+        console.warn(`[add-card-url] URL resolved to an error page: ${finalUrl}`);
+      }
     }
   } catch (err) {
     console.error(`[add-card-url] URL validation request failed: ${err.message}`);
