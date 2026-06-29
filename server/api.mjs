@@ -52,19 +52,29 @@ loadLocalEnv();
 // ---------------------------------------------------------------------------
 
 function getSupabaseConfig() {
-  return {
-    url: process.env.SUPABASE_URL || "",
-    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-  };
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    "";
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    "";
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    "";
+  // Prefer service role for writes; anon key works for reads because we added a SELECT policy.
+  return { url, serviceKey, anonKey, readKey: serviceKey || anonKey };
 }
 
 async function supabaseFindClientLink(email) {
-  const { url, serviceKey } = getSupabaseConfig();
-  if (!url || !serviceKey || !email) return "";
+  const { url, readKey } = getSupabaseConfig();
+  if (!url || !readKey || !email) return "";
   try {
     const res = await fetch(
       `${url}/rest/v1/mindbody_links?email=eq.${encodeURIComponent(email.toLowerCase())}&select=mindbody_client_id&limit=1`,
-      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Accept: "application/json" } }
+      { headers: { apikey: readKey, Authorization: `Bearer ${readKey}`, Accept: "application/json" } }
     );
     if (!res.ok) return "";
     const rows = await res.json();
