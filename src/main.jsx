@@ -966,7 +966,7 @@ function HomePage({ memberships, store, bookingUrl }) {
   return (
     <>
       <section className="hero" id="home" aria-label="Cave Modern Pilates home">
-        <video className="hero-video" autoPlay muted playsInline poster={homeHeroPoster} aria-hidden="true">
+        <video className="hero-video" autoPlay muted loop playsInline poster={homeHeroPoster} aria-hidden="true">
           <source src={homeHeroVideo} type="video/mp4" />
         </video>
         <a className="hero-book" href={bookingUrl}>
