@@ -2794,6 +2794,10 @@ function isStudioConnectionApiMessage(value) {
   return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
 
+function isFreeClassName(name) {
+  return /\b(free|intro|introductory|newbie|new\s+client|trial|first\s+class|starter)\b/i.test(String(name || ""));
+}
+
 function normalizeClassFull(item) {
   const startsAt = parseScheduleDate(item.StartDateTime);
   const endsAt = parseScheduleDate(item.EndDateTime);
@@ -2836,13 +2840,15 @@ function normalizeClassFull(item) {
   const instructor = staff
     ? `${staff.FirstName || ""} ${staff.LastName || ""}`.trim() || "Varies"
     : "Varies";
+  const className = classDesc.Name || item.Name || "Class";
 
   return {
     id: item.Id,
     classId: item.ClassId || item.Id,
     classDescriptionId: classDesc.Id || item.ClassDescriptionId,
     classScheduleId: item.ClassScheduleId,
-    name: classDesc.Name || item.Name || "Class",
+    name: className,
+    isFree: isFreeClassName(className),
     description: classDesc.Description || "",
     instructor,
     staffId: staff?.Id,
@@ -3008,12 +3014,16 @@ async function bookClassWithValidation(session, classId, clientServiceId) {
     throw err;
   }
 
+  const classIsFree = isFreeClassName(
+    classItem.ClassDescription?.Name || classItem.Name || ""
+  );
+
   let resolvedServiceId = clientServiceId || null;
 
   try {
     const clientInfo = await fetchClientCompleteInfo(clientId, session);
 
-    if (!clientInfo.hasUsablePricingOption) {
+    if (!classIsFree && !clientInfo.hasUsablePricingOption) {
       const err = httpError(402, "You need an active class pack or membership before booking. Visit the Pricing page to get started.");
       err.bookingCode = "NO_VALID_SERVICE";
       throw err;
@@ -3031,7 +3041,7 @@ async function bookClassWithValidation(session, classId, clientServiceId) {
   const bookingBody = {
     ClientId: clientId,
     ClassId: classId,
-    RequirePayment: true,
+    RequirePayment: !classIsFree,
     SendEmail: true,
     Waitlist: false,
     Test: process.env.BOOKING_TEST_MODE === "true"

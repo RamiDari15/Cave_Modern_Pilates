@@ -597,7 +597,8 @@ function normalizeLiveClassForDisplay(item) {
     canBook: Boolean(item.canBook),
     canWaitlist: Boolean(item.canWaitlist),
     duration: item.duration,
-    location: item.location || ""
+    location: item.location || "",
+    isFree: Boolean(item.isFree)
   };
 }
 
@@ -2917,7 +2918,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       return;
     }
 
-    if (clientInfo && !clientInfo.hasUsablePricingOption) {
+    if (clientInfo && !clientInfo.hasUsablePricingOption && !classItem.isFree) {
       setBookingState({ classId, type: "error", message: "You need an active class pack or membership before booking. Visit the Pricing page to get started.", canWaitlist: false });
       return;
     }
