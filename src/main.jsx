@@ -721,6 +721,7 @@ function App() {
           clientSession={clientSession}
           setClientSession={setClientSession}
           isSessionLoading={isSessionLoading}
+          cacheLoading={cacheLoading}
         />
       </main>
       <Footer location={cache.location} />
@@ -861,7 +862,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
   );
 }
 
-function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading }) {
+function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading }) {
   if (page === "pricing") {
     return <PricingLandingPage store={cache.store || {}} memberships={cache.memberships || []} />;
   }
@@ -873,8 +874,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   }
 
   if (page === "schedule") {
-    return <SchedulePage schedule={cache.schedule || []} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={cacheLoading} />;
-  }
+    return <SchedulePage schedule={cache.schedule || []} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={cacheLoading} />;  }
 
   if (page === "about") {
     return <AboutPage />;
