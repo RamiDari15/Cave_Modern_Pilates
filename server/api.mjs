@@ -234,7 +234,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -396,6 +396,62 @@ export async function handleApiRequest(request, response) {
       session.waiver = publicWaiver(waiver);
       setSessionCookie(response, session);
       sendJson(response, 200, { waiver: waiverSync, session: publicSession(session) });
+      return true;
+    }
+
+    if (path === "/api/client/complete-profile" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, { message: "Please sign in first." });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
+      const clientId = await resolveSessionClientId(session).catch(() => "");
+      const waiver = body.waiver ? normalizeWaiverPayload(body.waiver) : null;
+
+      const profileUpdate = compactObject({
+        Id: clientId || undefined,
+        MobilePhone: body.phone,
+        AddressLine1: body.addressLine1,
+        AddressLine2: body.addressLine2,
+        City: body.city,
+        State: body.state,
+        PostalCode: body.postalCode,
+        BirthDate: body.birthDate
+      });
+
+      let updated = null;
+      let updateError = null;
+
+      if (Object.keys(profileUpdate).length > 1) {
+        try {
+          updated = await bookingRequest("/client/updateclient", {
+            method: "PUT",
+            consumerIdentityToken: consumerToken,
+            body: { Client: profileUpdate }
+          });
+        } catch (err) {
+          updateError = err.message || "Profile update failed.";
+        }
+      }
+
+      if (waiver && isSignedWaiver(waiver)) {
+        const waiverSync = await attachClientWaiver(session, waiver).catch(() => null);
+        session.waiver = publicWaiver(waiver);
+        if (waiverSync) {
+          session.waiverSync = { storedInMindbody: waiverSync.storedInMindbody };
+        }
+      }
+
+      setSessionCookie(response, session);
+      sendJson(response, 200, {
+        updated,
+        updateError,
+        session: publicSession(session)
+      });
       return true;
     }
 

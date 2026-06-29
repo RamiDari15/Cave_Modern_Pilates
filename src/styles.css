@@ -2923,6 +2923,40 @@ body.interior:has(.page-policies),
   text-decoration: underline;
 }
 
+.complete-profile-banner {
+  background: #fff;
+  border-radius: 24px;
+  padding: 32px;
+  display: grid;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+
+.complete-profile-banner form {
+  display: grid;
+  gap: 16px;
+}
+
+.complete-profile-header strong {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--black);
+  margin-bottom: 4px;
+}
+
+.complete-profile-header p {
+  font-size: 0.9rem;
+  color: rgba(5,5,5,0.6);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.complete-profile-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .account-list {
   display: grid;
   gap: 12px;

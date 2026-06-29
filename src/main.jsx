@@ -2038,6 +2038,23 @@ function SignupPage({ setClientSession }) {
 
       setStatus({ type: "success", message: "Account created. You are signed in on this site." });
     } catch (error) {
+      const isCredentialError = isStudioConnectionMessage(error?.message || "") || error?.status === 501;
+      if (isCredentialError) {
+        try {
+          sessionStorage.setItem("cave_pending_profile", JSON.stringify({
+            phone: form.phone,
+            addressLine1: form.addressLine1,
+            addressLine2: form.addressLine2,
+            city: form.city,
+            state: form.state,
+            postalCode: form.postalCode,
+            birthDate: form.birthDate,
+            waiver
+          }));
+        } catch (_) {}
+        window.location.href = authStartHref(ROUTES.account);
+        return;
+      }
       showError(friendlyApiErrorMessage(error, "Account could not be created right now."));
     } finally {
       setIsSubmitting(false);
@@ -2198,6 +2215,18 @@ function StandaloneWaiverForm() {
 function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoading }) {
   const [dashboard, setDashboard] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [pendingProfile, setPendingProfile] = useState(null);
+
+  useEffect(() => {
+    if (!clientSession?.signedIn) return;
+    try {
+      const raw = sessionStorage.getItem("cave_pending_profile");
+      if (raw) {
+        setPendingProfile(JSON.parse(raw));
+        sessionStorage.removeItem("cave_pending_profile");
+      }
+    } catch (_) {}
+  }, [clientSession?.signedIn]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2285,6 +2314,15 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         </div>
       </div>
 
+      {pendingProfile && (
+        <CompleteProfileBanner
+          pendingProfile={pendingProfile}
+          clientSession={clientSession}
+          setClientSession={setClientSession}
+          onDone={() => setPendingProfile(null)}
+        />
+      )}
+
       <div className="account-grid">
         <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings. Head to the schedule to reserve a spot." />
         <AccountCard title="Class Credits" type="services" data={dashboard?.services} loading={dashboardLoading} empty="No class credits on file. Visit Pricing to get started." />
@@ -2297,6 +2335,95 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 
       <a className="pill-button black" href={bookingUrl}>View Schedule</a>
     </section>
+  );
+}
+
+function CompleteProfileBanner({ pendingProfile, clientSession, setClientSession, onDone }) {
+  const [form, setForm] = useState({
+    phone: pendingProfile.phone || "",
+    addressLine1: pendingProfile.addressLine1 || "",
+    addressLine2: pendingProfile.addressLine2 || "",
+    city: pendingProfile.city || "",
+    state: pendingProfile.state || "",
+    postalCode: pendingProfile.postalCode || "",
+    birthDate: pendingProfile.birthDate || "",
+    waiverParticipantName: pendingProfile.waiver?.participantName || `${clientSession?.user?.firstName || ""} ${clientSession?.user?.lastName || ""}`.trim(),
+    waiverSignature: pendingProfile.waiver?.signature || "",
+    waiverDate: pendingProfile.waiver?.signedDate || defaultWaiverDate(),
+    guardianName: pendingProfile.waiver?.parentGuardianName || "",
+    guardianSignature: pendingProfile.waiver?.parentGuardianSignature || "",
+    mediaOptOut: Boolean(pendingProfile.waiver?.mediaOptOut),
+    acceptWaiver: Boolean(pendingProfile.waiver?.accepted)
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  const updateField = (event) => {
+    const { name, type, checked, value } = event.target;
+    setForm((c) => ({ ...c, [name]: type === "checkbox" ? checked : value }));
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setStatus({ type: "", message: "" });
+
+    const waiver = buildWaiverPayload({ ...form, firstName: clientSession?.user?.firstName || "", lastName: clientSession?.user?.lastName || "", email: clientSession?.user?.email || "" });
+
+    try {
+      const data = await apiRequest("/api/client/complete-profile", {
+        method: "POST",
+        body: {
+          phone: form.phone,
+          addressLine1: form.addressLine1,
+          addressLine2: form.addressLine2,
+          city: form.city,
+          state: form.state,
+          postalCode: form.postalCode,
+          birthDate: form.birthDate,
+          waiver
+        }
+      });
+
+      if (data.session?.signedIn) {
+        setClientSession(data.session);
+      }
+
+      onDone();
+    } catch (error) {
+      setStatus({ type: "error", message: friendlyApiErrorMessage(error, "Profile could not be saved right now. You can update it later.") });
+      setTimeout(() => onDone(), 4000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="complete-profile-banner">
+      <div className="complete-profile-header">
+        <strong>Complete your Cave profile</strong>
+        <p>Add your address and sign the studio waiver to finish setting up your account.</p>
+      </div>
+      <form onSubmit={submit}>
+        <div className="form-grid two">
+          <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
+          <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
+        </div>
+        <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
+        <FormField label="Apt, Suite, Optional" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
+        <div className="form-grid three">
+          <FormField label="City" name="city" value={form.city} onChange={updateField} autoComplete="address-level2" required />
+          <FormField label="State" name="state" value={form.state} onChange={updateField} autoComplete="address-level1" required />
+          <FormField label="Zip" name="postalCode" value={form.postalCode} onChange={updateField} autoComplete="postal-code" required />
+        </div>
+        <LiabilityWaiverForm form={form} onChange={updateField} />
+        {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
+        <div className="complete-profile-actions">
+          <button className="pill-button black" type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save Profile"}</button>
+          <button className="pill-button outline" type="button" onClick={onDone}>Skip for now</button>
+        </div>
+      </form>
+    </div>
   );
 }
 
