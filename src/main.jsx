@@ -2331,12 +2331,16 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
     } catch (_) {}
   }, [clientSession?.signedIn]);
 
-  const attemptAutoLink = async () => {
+  const attemptAutoLink = async (manual = false) => {
+    if (manual) {
+      try { sessionStorage.removeItem("cave_link_tried"); } catch (_) {}
+    }
     setLinkStatus("linking");
     try {
       const result = await apiRequest("/api/auth/link", { method: "POST" });
       if (result?.ok) {
         setLinkStatus("linked");
+        try { sessionStorage.removeItem("cave_link_tried"); } catch (_) {}
         // Refresh session and dashboard now that we have a clientId
         const [sessionData, dashData] = await Promise.all([
           apiRequest("/api/auth/session").catch(() => null),
@@ -2346,9 +2350,11 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         if (dashData) setDashboard(dashData);
       } else {
         setLinkStatus("failed");
+        try { sessionStorage.setItem("cave_link_tried", "1"); } catch (_) {}
       }
     } catch (_) {
       setLinkStatus("failed");
+      try { sessionStorage.setItem("cave_link_tried", "1"); } catch (_) {}
     }
   };
 
@@ -2374,7 +2380,12 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 
           // Auto-attempt to link if the studio account wasn't found
           if (isMounted && data?.clientLinked === false) {
-            attemptAutoLink();
+            const alreadyTried = (() => { try { return sessionStorage.getItem("cave_link_tried"); } catch (_) { return null; } })();
+            if (alreadyTried) {
+              setLinkStatus("failed");
+            } else {
+              attemptAutoLink();
+            }
           }
         }
       } catch (_error) {
@@ -2464,7 +2475,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           {linkStatus === "failed" && (
             <>
               Could not automatically link your studio account.{" "}
-              <button className="text-button" type="button" onClick={attemptAutoLink}>Try again</button> or <a href={ROUTES.contact}>contact Cave</a>.
+              <button className="text-button" type="button" onClick={() => attemptAutoLink(true)}>Try again</button> or <a href={ROUTES.contact}>contact Cave</a>.
             </>
           )}
           {!linkStatus && "Connecting your studio account..."}

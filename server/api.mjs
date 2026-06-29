@@ -355,37 +355,23 @@ export async function handleApiRequest(request, response) {
       let linkedClientId = session.clientId || "";
       let linkError = null;
 
-      if (!linkedClientId) {
+      // readHydratedSession above already tried clientcompleteinfo with the consumer token.
+      // If clientId is still empty, only source/staff credentials can search by email.
+      if (!linkedClientId && config.actionTokenConfigured) {
         const clientPayload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
-
-        // Staff token: search by email first (read-only, no duplicate risk), then upsert.
-        const staffLinkAttempts = [];
         try {
           const staffToken = await getMindbodyActionToken("Account link");
-          staffLinkAttempts.push(
-            () => bookingRequest("/client/clients", { token: staffToken, params: { SearchText: email } }),
-            () => bookingRequest("/client/addorupdateclient", { method: "POST", token: staffToken, body: { Client: clientPayload } })
-          );
-        } catch (_) { /* no action token */ }
+          const searchResult = await bookingRequest("/client/clients", { token: staffToken, params: { SearchText: email } });
+          const searchProfile = extractClientProfile(searchResult, email);
+          if (searchProfile?.clientId) linkedClientId = searchProfile.clientId;
 
-        const consumerLinkAttempts = [
-          () => bookingRequest("/client/addorupdateclient", { method: "POST", consumerIdentityToken: consumerToken, body: { Client: clientPayload } }),
-          () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: email } }),
-          () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: email, CrossRegionalLookup: true } }),
-          () => bookingRequest("/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { CrossRegionalLookup: true } })
-        ];
-
-        for (const attempt of [...staffLinkAttempts, ...consumerLinkAttempts]) {
-          try {
-            const result = await attempt();
-            const profile = extractClientProfile(result, email);
-            if (profile?.clientId) {
-              linkedClientId = profile.clientId;
-              break;
-            }
-          } catch (err) {
-            linkError = err.message || "Link attempt failed.";
+          if (!linkedClientId) {
+            const upsertResult = await bookingRequest("/client/addorupdateclient", { method: "POST", token: staffToken, body: { Client: clientPayload } });
+            const upsertProfile = extractClientProfile(upsertResult, email);
+            if (upsertProfile?.clientId) linkedClientId = upsertProfile.clientId;
           }
+        } catch (err) {
+          linkError = err.message || "Link attempt failed.";
         }
       }
 
@@ -1917,22 +1903,12 @@ async function autoLinkOAuthClient(session) {
       if (upsertProfile?.clientId) {
         return upsertProfile.clientId;
       }
-    } catch (_) { /* fall through to consumer token */ }
+    } catch (_) { /* staff token unavailable */ }
   }
 
-  if (consumerToken) {
-    try {
-      const result = await bookingRequest("/client/addorupdateclient", {
-        method: "POST",
-        consumerIdentityToken: consumerToken,
-        body: { Client: payload }
-      });
-      const profile = extractClientProfile(result, email);
-      if (profile?.clientId) {
-        return profile.clientId;
-      }
-    } catch (_) { /* give up */ }
-  }
+  // Consumer tokens cannot call addorupdateclient or client search — only clientcompleteinfo.
+  // If clientcompleteinfo (tried in fetchOAuthClientProfile) didn't return a studio client ID,
+  // there is nothing more to try without source/staff credentials.
 
   return "";
 }
@@ -1943,75 +1919,45 @@ function shouldHydrateOAuthSession(session) {
   }
 
   const hydratedAt = Date.parse(session.hydratedAt || "");
-  const isFresh = hydratedAt && Date.now() - hydratedAt < OAUTH_PROFILE_REFRESH_MS;
+  const msSince = hydratedAt ? Date.now() - hydratedAt : Infinity;
 
-  return !isFresh || !session.clientId || !session.user?.email;
+  if (!session.user?.email) return true;
+  if (session.clientId) return msSince >= OAUTH_PROFILE_REFRESH_MS;
+  // No clientId: retry after 90s to avoid hammering the API on every page load.
+  return msSince >= 90_000;
 }
 
 async function fetchOAuthClientProfile(session) {
   const consumerToken = session.consumerIdentityToken || session.accessToken || "";
   const config = getBookingConfig();
   const email = session.user?.email || session.user?.username || "";
-  const oauthSub = session.oauthSubject || "";
   const attempts = [];
 
-  if (consumerToken && session.clientId) {
-    attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { ClientId: session.clientId } }]);
-  }
-
+  // Per MindBody API: consumer OAuth tokens ONLY work with GET ClientCompleteInfo.
   if (consumerToken) {
+    if (session.clientId) {
+      attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { ClientId: session.clientId } }]);
+    }
     attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: {} }]);
   }
 
-  if (consumerToken && oauthSub && oauthSub !== session.clientId) {
-    attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { ClientId: oauthSub } }]);
-  }
-
-  if (consumerToken && email) {
-    // With Mindbody.Api.Public.v6 scope, the access token can be used as a Public API bearer
-    // to search for the client by email — covers the case where the consumer identity and studio
-    // client record haven't been linked by Mindbody (e.g., staff-added client who later logs in via OAuth)
-    attempts.push(["/client/clients", { token: consumerToken, params: { SearchText: email } }]);
-    attempts.push(["/client/clients", { token: consumerToken, params: { SearchText: email, CrossRegionalLookup: true } }]);
-  }
-
-  if (consumerToken) {
-    attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { CrossRegionalLookup: true } }]);
-  }
-
-  if (config.actionTokenConfigured && session.clientId) {
-    try {
-      const staffToken = await getMindbodyActionToken("OAuth profile lookup");
-      attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
-    } catch (_) { /* proceed without this attempt */ }
-  }
-
-  if (config.actionTokenConfigured && oauthSub && oauthSub !== session.clientId) {
-    try {
-      const staffToken = await getMindbodyActionToken("OAuth profile lookup");
-      attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: oauthSub } }]);
-    } catch (_) { /* proceed without this attempt */ }
-  }
-
+  // Staff/source credentials: can search clients by email.
   if (config.actionTokenConfigured && email) {
     try {
       const staffToken = await getMindbodyActionToken("OAuth profile lookup");
+      if (session.clientId) {
+        attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
+      }
       attempts.push(["/client/clients", { token: staffToken, params: { SearchText: email } }]);
-    } catch (_) { /* proceed without this attempt */ }
+    } catch (_) { /* no staff token available */ }
   }
 
   for (const [path, options] of attempts) {
     try {
-      const data = await bookingRequest(path, {
-        ...options,
-        params: compactObject(options.params || {})
-      });
+      const data = await bookingRequest(path, { ...options, params: compactObject(options.params || {}) });
       const profile = extractClientProfile(data, email);
-
-      if (profile?.clientId) {
-        return profile;
-      }
-    } catch (error) {
+      if (profile?.clientId) return profile;
+    } catch (_) {
       continue;
     }
   }
@@ -2082,7 +2028,9 @@ function extractClientProfile(data, preferredEmail = "") {
 }
 
 function normalizeClientProfile(client) {
-  const clientId = firstNonEmpty(client.Id, client.ClientId, client.UniqueId, client.UniqueClientId, client.ContactId);
+  const rawId = firstNonEmpty(client.Id, client.ClientId, client.UniqueId, client.UniqueClientId, client.ContactId);
+  // MindBody consumer identity IDs are UUID-format; studio client IDs never are.
+  const clientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId) ? "" : rawId;
   const email = firstNonEmpty(client.Email, client.email, client.UserName, client.Username, client.username);
 
   return {
