@@ -1815,15 +1815,17 @@ body.interior:has(.page-policies),
   flex-shrink: 0;
 }
 
-.spots-open::before  { background: #22a05a; }
-.spots-low::before   { background: #d97706; }
-.spots-full::before  { background: #c0392b; }
+.spots-open::before    { background: #22a05a; }
+.spots-low::before     { background: #d97706; }
+.spots-full::before    { background: #c0392b; }
 .spots-loading::before { background: #b0b0b0; }
+.spots-booked::before  { background: #2563eb; }
 
-.spots-open  { color: #1a7a44; }
-.spots-low   { color: #a05c00; }
-.spots-full  { color: #a02020; }
+.spots-open    { color: #1a7a44; }
+.spots-low     { color: #a05c00; }
+.spots-full    { color: #a02020; }
 .spots-loading { color: var(--stone); }
+.spots-booked  { color: #1d4ed8; }
 
 .about-layout,
 .contact-faq,

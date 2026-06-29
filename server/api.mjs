@@ -37,6 +37,12 @@ const addCardUrlCache = {
   checkedAt: 0,
   TTL_MS: 5 * 60 * 1000
 };
+const liveClassesCache = {
+  key: "",
+  data: [],
+  expiresAt: 0,
+  TTL_MS: 2 * 60 * 1000
+};
 
 loadLocalEnv();
 
@@ -228,7 +234,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -461,6 +467,260 @@ export async function handleApiRequest(request, response) {
 
       console.log(`[add-card-url] Returning valid add-card URL`);
       sendJson(response, 200, { ok: true, url: paymentSetupUrl });
+      return true;
+    }
+
+    if (path === "/api/mindbody/classes" && request.method === "GET") {
+      const { apiKey, locationId } = getBookingConfig();
+
+      if (!apiKey) {
+        sendJson(response, 503, { ok: false, code: "MINDBODY_AUTH_MISSING", message: "Studio booking is not yet configured." });
+        return true;
+      }
+
+      try {
+        const classes = await fetchLiveClasses(locationId);
+        sendJson(response, 200, { ok: true, data: { classes } });
+      } catch (error) {
+        const msg = isStudioConnectionApiMessage(error.message)
+          ? "Schedule is loading. Please try again in a moment."
+          : error.message || "Could not load schedule.";
+        sendJson(response, 503, { ok: false, code: "MINDBODY_API_ERROR", message: msg });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/class-descriptions" && request.method === "GET") {
+      const { apiKey, locationId } = getBookingConfig();
+
+      if (!apiKey) {
+        sendJson(response, 200, { ok: true, data: { classDescriptions: [] } });
+        return true;
+      }
+
+      try {
+        const params = { "request.includeInactive": "false" };
+        if (locationId) params["request.locationId"] = locationId;
+        const data = await bookingRequest("/class/classdescriptions", { params });
+        const descriptions = firstListByKey(data, "ClassDescriptions");
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            classDescriptions: descriptions.map((d) => ({
+              id: d.Id,
+              name: d.Name || "",
+              description: d.Description || "",
+              imageUrl: d.ImageURL || d.ImageUrl || ""
+            }))
+          }
+        });
+      } catch (error) {
+        sendJson(response, 503, { ok: false, code: "MINDBODY_API_ERROR", message: error.message || "Could not load class descriptions." });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/client-info" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, { ok: false, code: "NO_CLIENT_ID", message: "Please sign in first.", loginUrl: "/api/auth/start?returnTo=/account" });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => null);
+
+      if (!clientId) {
+        sendJson(response, 400, { ok: false, code: "NO_CLIENT_ID", message: "Could not resolve your studio client ID. Please sign out and sign back in." });
+        return true;
+      }
+
+      try {
+        const info = await fetchClientCompleteInfo(clientId, session);
+        sendJson(response, 200, { ok: true, data: info });
+      } catch (error) {
+        sendJson(response, error.status || 503, { ok: false, code: "MINDBODY_API_ERROR", message: error.message || "Could not load client info." });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/client-memberships" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, { ok: false, code: "NO_CLIENT_ID", message: "Please sign in first." });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => null);
+
+      if (!clientId) {
+        sendJson(response, 400, { ok: false, code: "NO_CLIENT_ID", message: "Could not resolve your studio client ID." });
+        return true;
+      }
+
+      try {
+        const data = await bookingRequest("/client/activeclientmemberships", {
+          consumerIdentityToken: session?.consumerIdentityToken || session?.accessToken,
+          params: { clientId }
+        });
+        const memberships = firstListByKey(data, "ClientMemberships");
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            memberships: memberships.map((m) => ({
+              id: m.Id,
+              name: m.Name || "",
+              status: m.MembershipStatus || m.Status || "",
+              remainingVisits: m.RemainingVisits,
+              expirationDate: m.ExpirationDate
+            }))
+          }
+        });
+      } catch (error) {
+        sendJson(response, 503, { ok: false, code: "MINDBODY_API_ERROR", message: error.message || "Could not load memberships." });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/book-class" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, {
+          ok: false,
+          code: "NO_CLIENT_ID",
+          message: "Please sign in before booking.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/schedule")}`
+        });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      assertNoRawCardPayload(body);
+      const classId = Number(body.classId);
+
+      if (!Number.isInteger(classId) || classId <= 0) {
+        sendJson(response, 400, { ok: false, code: "NO_CLASS_ID", message: "A valid class ID is required." });
+        return true;
+      }
+
+      try {
+        const result = await bookClassWithValidation(session, classId, body.clientServiceId ? Number(body.clientServiceId) : null);
+        sendJson(response, 200, { ok: true, data: result });
+      } catch (error) {
+        const code = error.bookingCode || "MINDBODY_API_ERROR";
+        sendJson(response, error.status || 503, {
+          ok: false,
+          code,
+          message: error.message || "Booking could not be completed.",
+          canWaitlist: error.canWaitlist || false
+        });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/join-waitlist" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, {
+          ok: false,
+          code: "NO_CLIENT_ID",
+          message: "Please sign in first.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/schedule")}`
+        });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const classId = Number(body.classId);
+
+      if (!Number.isInteger(classId) || classId <= 0) {
+        sendJson(response, 400, { ok: false, code: "NO_CLASS_ID", message: "A valid class ID is required." });
+        return true;
+      }
+
+      try {
+        const clientId = await resolveSessionClientId(session);
+
+        if (!clientId) {
+          sendJson(response, 400, { ok: false, code: "NO_CLIENT_ID", message: "Could not resolve your studio account." });
+          return true;
+        }
+
+        const classData = await bookingRequest("/class/classes", {
+          params: { "request.classIds": classId, "request.schedulingWindow": "true" }
+        });
+        const classes = firstListByKey(classData, "Classes");
+        const classItem = classes.find((c) => c.Id === classId) || classes[0];
+
+        if (!classItem) {
+          sendJson(response, 404, { ok: false, code: "NO_CLASS_ID", message: "Class not found." });
+          return true;
+        }
+
+        const maxWaitlist = Number(classItem.MaxWaitListSize || 0);
+        if (maxWaitlist <= 0) {
+          sendJson(response, 400, { ok: false, code: "WAITLIST_NOT_AVAILABLE", message: "This class does not have a waitlist." });
+          return true;
+        }
+
+        const waitlistCount = Number(classItem.TotalWaitlistedClients || 0);
+        if (waitlistCount >= maxWaitlist) {
+          sendJson(response, 409, { ok: false, code: "WAITLIST_NOT_AVAILABLE", message: "The waitlist for this class is also full." });
+          return true;
+        }
+
+        const staffToken = await getMindbodyActionToken("Waitlist booking");
+        const result = await bookingRequest("/class/addclienttoclass", {
+          method: "POST",
+          token: staffToken,
+          body: {
+            ClientId: clientId,
+            ClassId: classId,
+            Waitlist: true,
+            SendEmail: true,
+            Test: process.env.BOOKING_TEST_MODE === "true"
+          }
+        });
+
+        liveClassesCache.expiresAt = 0;
+        sendJson(response, 200, { ok: true, data: result });
+      } catch (error) {
+        const code = error.bookingCode || "MINDBODY_API_ERROR";
+        sendJson(response, error.status || 503, { ok: false, code, message: error.message || "Could not join waitlist." });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/payment-types" && request.method === "GET") {
+      const { apiKey } = getBookingConfig();
+
+      if (!apiKey) {
+        sendJson(response, 200, { ok: true, data: { paymentTypes: [] } });
+        return true;
+      }
+
+      try {
+        const data = await bookingRequest("/site/paymenttypes");
+        const types = firstListByKey(data, "PaymentTypes");
+        sendJson(response, 200, {
+          ok: true,
+          data: {
+            paymentTypes: types.map((t) => ({ id: t.Id, name: t.Name || "", isSystem: Boolean(t.IsSystem) }))
+          }
+        });
+      } catch (error) {
+        sendJson(response, 503, { ok: false, code: "MINDBODY_API_ERROR", message: error.message || "Could not load payment types." });
+      }
+
       return true;
     }
 
@@ -2253,6 +2513,266 @@ async function fetchFreshPublicSchedule() {
   }
 
   return normalizePublicSchedule(allClasses);
+}
+
+function isStudioConnectionApiMessage(value) {
+  return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
+}
+
+function normalizeClassFull(item) {
+  const startsAt = parseScheduleDate(item.StartDateTime);
+  const endsAt = parseScheduleDate(item.EndDateTime);
+
+  if (!startsAt) return null;
+
+  const maxCapacity = Number(firstDefined(item.MaxCapacity, item.WebCapacity) || 0);
+  const totalBooked = Number(firstDefined(item.TotalBooked, item.WebBooked) || 0);
+  const maxWaitlist = Number(item.MaxWaitListSize || 0);
+  const waitlistCount = Number(item.TotalWaitlistedClients || 0);
+  const spotsRemaining = maxCapacity > 0 ? Math.max(maxCapacity - totalBooked, 0) : null;
+  const waitlistAvailable = maxWaitlist > 0 && waitlistCount < maxWaitlist;
+  const isCanceled = Boolean(item.IsCanceled);
+  const isAvailable = item.IsAvailable !== false;
+
+  let status = "Available";
+  let canBook = true;
+  let canWaitlist = false;
+
+  if (isCanceled) {
+    status = "Canceled";
+    canBook = false;
+  } else if (!isAvailable) {
+    status = "Unavailable";
+    canBook = false;
+  } else if (spotsRemaining !== null && spotsRemaining <= 0) {
+    canBook = false;
+    if (waitlistAvailable) {
+      status = "Join Waitlist";
+      canWaitlist = true;
+    } else {
+      status = "Full";
+    }
+  } else if (spotsRemaining !== null && spotsRemaining <= 5) {
+    status = `Only ${spotsRemaining} ${spotsRemaining === 1 ? "spot" : "spots"} left`;
+  }
+
+  const classDesc = item.ClassDescription || {};
+  const staff = item.Staff;
+  const instructor = staff
+    ? `${staff.FirstName || ""} ${staff.LastName || ""}`.trim() || "Varies"
+    : "Varies";
+
+  return {
+    id: item.Id,
+    classId: item.ClassId || item.Id,
+    classDescriptionId: classDesc.Id || item.ClassDescriptionId,
+    classScheduleId: item.ClassScheduleId,
+    name: classDesc.Name || item.Name || "Class",
+    description: classDesc.Description || "",
+    instructor,
+    staffId: staff?.Id,
+    startTime: item.StartDateTime,
+    endTime: item.EndDateTime,
+    duration: startsAt && endsAt ? Math.round((endsAt - startsAt) / 60000) : null,
+    location: item.Location?.Name || "",
+    locationId: item.Location?.Id,
+    maxCapacity,
+    totalBooked,
+    waitlistSize: waitlistCount,
+    maxWaitlistSize: maxWaitlist,
+    spotsRemaining: spotsRemaining ?? "",
+    isAvailable,
+    isCanceled,
+    status,
+    canBook,
+    canWaitlist,
+    date: formatScheduleDate(startsAt),
+    time: formatScheduleTime(startsAt)
+  };
+}
+
+async function fetchLiveClasses(locationId) {
+  const { siteId } = getBookingConfig();
+  const cacheKey = `${siteId}:live-classes`;
+  const now = Date.now();
+
+  if (liveClassesCache.key === cacheKey && liveClassesCache.expiresAt > now) {
+    return liveClassesCache.data;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const future = new Date(today);
+  future.setDate(future.getDate() + 30);
+
+  const params = {
+    "request.startDateTime": formatApiDate(today),
+    "request.endDateTime": formatApiDate(future),
+    "request.hideCanceledClasses": "false",
+    "request.schedulingWindow": "true",
+    "request.limit": "200"
+  };
+
+  if (locationId) {
+    params["request.locationIds"] = locationId;
+  }
+
+  const data = await bookingRequest("/class/classes", { params });
+  const classes = firstListByKey(data, "Classes");
+
+  const normalized = classes
+    .filter((item) => item && typeof item === "object")
+    .map(normalizeClassFull)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
+
+  liveClassesCache.key = cacheKey;
+  liveClassesCache.data = normalized;
+  liveClassesCache.expiresAt = now + liveClassesCache.TTL_MS;
+
+  return normalized;
+}
+
+async function fetchClientCompleteInfo(clientId, session) {
+  const data = await bookingRequest("/client/clientcompleteinfo", {
+    consumerIdentityToken: session?.consumerIdentityToken || session?.accessToken,
+    params: { clientId, showActiveOnly: "true" }
+  });
+
+  const client = data?.Client || {};
+  const rawServices = Array.isArray(client.ClientServices)
+    ? client.ClientServices
+    : Array.isArray(data?.ClientServices)
+    ? data.ClientServices
+    : [];
+  const rawMemberships = Array.isArray(client.ClientMemberships)
+    ? client.ClientMemberships
+    : Array.isArray(data?.ClientMemberships)
+    ? data.ClientMemberships
+    : [];
+
+  const usableServices = rawServices.filter((s) => {
+    if (!s) return false;
+    const remaining = s.Remaining;
+    if (remaining !== undefined && remaining !== null && Number(remaining) <= 0) return false;
+    return true;
+  });
+
+  const hasUsablePricingOption = usableServices.length > 0 || rawMemberships.length > 0;
+  const defaultClientServiceId = usableServices.length > 0 ? usableServices[0].Id : null;
+
+  return {
+    clientId,
+    activeServices: usableServices.map((s) => ({
+      id: s.Id,
+      name: s.Name || s.ProductName || "",
+      remaining: s.Remaining,
+      expirationDate: s.ExpirationDate
+    })),
+    activeMemberships: rawMemberships.map((m) => ({
+      id: m.Id,
+      name: m.Name || "",
+      status: m.MembershipStatus || m.Status || ""
+    })),
+    hasUsablePricingOption,
+    defaultClientServiceId
+  };
+}
+
+async function bookClassWithValidation(session, classId, clientServiceId) {
+  const clientId = await resolveSessionClientId(session);
+
+  if (!clientId) {
+    const err = httpError(400, "We could not match your login to a studio account. Please sign out and try again.");
+    err.bookingCode = "NO_CLIENT_ID";
+    throw err;
+  }
+
+  const { apiKey } = getBookingConfig();
+
+  if (!apiKey) {
+    const err = httpError(503, "Online booking is not yet configured.");
+    err.bookingCode = "MINDBODY_AUTH_MISSING";
+    throw err;
+  }
+
+  const classData = await bookingRequest("/class/classes", {
+    params: { "request.classIds": classId, "request.schedulingWindow": "true" }
+  });
+  const classes = firstListByKey(classData, "Classes");
+  const classItem = classes.find((c) => c.Id === classId) || classes[0];
+
+  if (!classItem) {
+    const err = httpError(404, "This class could not be found.");
+    err.bookingCode = "NO_CLASS_ID";
+    throw err;
+  }
+
+  if (classItem.IsCanceled) {
+    const err = httpError(400, "This class has been canceled.");
+    err.bookingCode = "BOOKING_UNAVAILABLE";
+    throw err;
+  }
+
+  if (classItem.IsAvailable === false) {
+    const err = httpError(400, "This class is not available for booking at this time.");
+    err.bookingCode = "BOOKING_UNAVAILABLE";
+    throw err;
+  }
+
+  const maxCapacity = Number(firstDefined(classItem.MaxCapacity, classItem.WebCapacity) || 0);
+  const totalBooked = Number(firstDefined(classItem.TotalBooked, classItem.WebBooked) || 0);
+
+  if (maxCapacity > 0 && maxCapacity - totalBooked <= 0) {
+    const maxWaitlist = Number(classItem.MaxWaitListSize || 0);
+    const waitlistCount = Number(classItem.TotalWaitlistedClients || 0);
+    const canWaitlist = maxWaitlist > 0 && waitlistCount < maxWaitlist;
+    const err = httpError(409, "This class is full.");
+    err.bookingCode = "CLASS_FULL";
+    err.canWaitlist = canWaitlist;
+    throw err;
+  }
+
+  let resolvedServiceId = clientServiceId || null;
+
+  try {
+    const clientInfo = await fetchClientCompleteInfo(clientId, session);
+
+    if (!clientInfo.hasUsablePricingOption) {
+      const err = httpError(402, "You need an active class pack or membership before booking. Visit the Pricing page to get started.");
+      err.bookingCode = "NO_VALID_SERVICE";
+      throw err;
+    }
+
+    if (!resolvedServiceId) {
+      resolvedServiceId = clientInfo.defaultClientServiceId;
+    }
+  } catch (serviceErr) {
+    if (serviceErr.bookingCode === "NO_VALID_SERVICE") throw serviceErr;
+    console.warn("[book-class] Could not verify client services, proceeding:", serviceErr.message);
+  }
+
+  const staffToken = await getMindbodyActionToken("Class booking");
+  const bookingBody = {
+    ClientId: clientId,
+    ClassId: classId,
+    RequirePayment: true,
+    SendEmail: true,
+    Waitlist: false,
+    Test: process.env.BOOKING_TEST_MODE === "true"
+  };
+
+  if (resolvedServiceId) {
+    bookingBody.ClientServiceId = resolvedServiceId;
+  }
+
+  liveClassesCache.expiresAt = 0;
+
+  return bookingRequest("/class/addclienttoclass", {
+    method: "POST",
+    token: staffToken,
+    body: bookingBody
+  });
 }
 
 function normalizePublicSchedule(classes) {

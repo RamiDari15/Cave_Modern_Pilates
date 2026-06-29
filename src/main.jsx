@@ -552,6 +552,24 @@ function isStudioConnectionMessage(value) {
   return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
 
+function normalizeLiveClassForDisplay(item) {
+  return {
+    id: item.id,
+    classScheduleId: item.classScheduleId,
+    date: item.date,
+    time: item.time,
+    startDateTime: item.startTime,
+    className: item.name || "Class",
+    instructor: item.instructor || "Varies",
+    spotsLeft: typeof item.spotsRemaining === "number" ? item.spotsRemaining : "",
+    status: item.status || "",
+    canBook: Boolean(item.canBook),
+    canWaitlist: Boolean(item.canWaitlist),
+    duration: item.duration,
+    location: item.location || ""
+  };
+}
+
 function useStudioCache(activePage) {
   const [cache, setCache] = useState(() => normalizeStudioCache(FALLBACK_CACHE));
   const [cacheLoading, setCacheLoading] = useState(true);
@@ -2460,11 +2478,41 @@ function MembershipGrid({ memberships }) {
 }
 
 function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
-  const rows = schedule.length ? schedule : FALLBACK_CACHE.schedule;
-  const [bookingState, setBookingState] = useState({ classId: null, type: "", message: "" });
+  const cachedRows = schedule.length ? schedule : FALLBACK_CACHE.schedule;
+  const [liveClasses, setLiveClasses] = useState(null);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [clientInfo, setClientInfo] = useState(null);
+  const [bookingState, setBookingState] = useState({ classId: null, type: "", message: "", canWaitlist: false });
   const autoBookTriggered = React.useRef(false);
   const visibleDayCount = useScheduleDayCount();
   const requestedClassId = new URLSearchParams(window.location.search).get("classId");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLiveLoading(true);
+    fetch("/api/mindbody/classes", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.ok && Array.isArray(data.data?.classes)) {
+          setLiveClasses(data.data.classes.map(normalizeLiveClassForDisplay));
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLiveLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!clientSession?.signedIn) { setClientInfo(null); return; }
+    let cancelled = false;
+    fetch("/api/mindbody/client-info", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!cancelled && data?.ok) setClientInfo(data.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [clientSession?.signedIn]);
+
+  const rows = liveClasses ?? cachedRows;
   const groupedDays = rows.reduce((days, classItem) => {
     const key = getScheduleDateKey(classItem);
 
@@ -2530,16 +2578,9 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   }, [activeDay?.key, firstMonthKey, lastMonthKey]);
 
   useEffect(() => {
-    if (!requestedClassId || !clientSession?.signedIn || autoBookTriggered.current) {
-      return;
-    }
-
+    if (!requestedClassId || !clientSession?.signedIn || autoBookTriggered.current) return;
     const classItem = rows.find((c) => String(c.id) === requestedClassId);
-
-    if (!classItem) {
-      return;
-    }
-
+    if (!classItem) return;
     autoBookTriggered.current = true;
     bookClass(classItem);
     window.history.replaceState(null, "", window.location.pathname);
@@ -2552,39 +2593,39 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   const goToDay = (nextIndex) => {
     const boundedIndex = Math.min(Math.max(nextIndex, 0), sortedDays.length - 1);
     const nextDay = sortedDays[boundedIndex];
-
-    setBookingState({ classId: null, type: "", message: "" });
+    setBookingState({ classId: null, type: "", message: "", canWaitlist: false });
     setActiveDayIndex(boundedIndex);
-
-    if (nextDay?.key) {
-      setCalendarMonthKey(nextDay.key.slice(0, 7));
-    }
+    if (nextDay?.key) setCalendarMonthKey(nextDay.key.slice(0, 7));
   };
 
   const goToCalendarMonth = (offset) => {
     const nextMonthKey = addMonthsToKey(calendarMonthKey, offset);
-
-    if ((firstMonthKey && nextMonthKey < firstMonthKey) || (lastMonthKey && nextMonthKey > lastMonthKey)) {
-      return;
-    }
-
+    if ((firstMonthKey && nextMonthKey < firstMonthKey) || (lastMonthKey && nextMonthKey > lastMonthKey)) return;
     setCalendarMonthKey(nextMonthKey);
   };
 
   const selectCalendarDay = (day) => {
-    if (day.scheduleIndex === null) {
-      return;
-    }
-
+    if (day.scheduleIndex === null) return;
     goToDay(day.scheduleIndex);
     setCalendarOpen(false);
+  };
+
+  const refreshLiveClasses = () => {
+    fetch("/api/mindbody/classes", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.ok && Array.isArray(data.data?.classes)) {
+          setLiveClasses(data.data.classes.map(normalizeLiveClassForDisplay));
+        }
+      })
+      .catch(() => {});
   };
 
   const bookClass = async (classItem) => {
     const classId = classItem.id;
 
     if (!classId) {
-      setBookingState({ classId: null, type: "error", message: "This class is missing a booking ID." });
+      setBookingState({ classId: null, type: "error", message: "This class is missing a booking ID.", canWaitlist: false });
       return;
     }
 
@@ -2593,23 +2634,48 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       return;
     }
 
-    setBookingState({ classId, type: "loading", message: "Booking..." });
+    if (clientInfo && !clientInfo.hasUsablePricingOption) {
+      setBookingState({ classId, type: "error", message: "You need an active class pack or membership before booking. Visit the Pricing page to get started.", canWaitlist: false });
+      return;
+    }
+
+    setBookingState({ classId, type: "loading", message: "Booking...", canWaitlist: false });
 
     try {
-      await apiRequest("/api/classes/book", {
+      await apiRequest("/api/mindbody/book-class", {
         method: "POST",
-        body: { classId }
+        body: { classId, clientServiceId: clientInfo?.defaultClientServiceId || undefined }
       });
-      setBookingState({ classId, type: "success", message: "Booked. Check your account for confirmation." });
+      setBookingState({ classId, type: "success", message: "Booked! Check your account for confirmation.", canWaitlist: false });
+      refreshLiveClasses();
     } catch (error) {
-      if (error.loginUrl) {
-        window.location.href = error.loginUrl;
-        return;
-      }
-
-      setBookingState({ classId, type: "error", message: friendlyApiErrorMessage(error, "Booking could not be completed.") });
+      if (error.loginUrl) { window.location.href = error.loginUrl; return; }
+      const canWaitlist = Boolean(error.data?.canWaitlist);
+      setBookingState({ classId, type: "error", message: error.data?.message || error.message || "Booking could not be completed.", canWaitlist });
     }
   };
+
+  const joinWaitlist = async (classItem) => {
+    const classId = classItem.id;
+
+    if (!clientSession?.signedIn) {
+      window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(`${ROUTES.schedule}?classId=${classId}`)}`;
+      return;
+    }
+
+    setBookingState({ classId, type: "loading", message: "Joining waitlist...", canWaitlist: false });
+
+    try {
+      await apiRequest("/api/mindbody/join-waitlist", { method: "POST", body: { classId } });
+      setBookingState({ classId, type: "success", message: "You're on the waitlist! We'll notify you if a spot opens.", canWaitlist: false });
+      refreshLiveClasses();
+    } catch (error) {
+      if (error.loginUrl) { window.location.href = error.loginUrl; return; }
+      setBookingState({ classId, type: "error", message: error.data?.message || error.message || "Could not join waitlist.", canWaitlist: false });
+    }
+  };
+
+  const isLiveDataLoading = liveLoading && !liveClasses;
 
   return (
     <div className="schedule-browser" aria-live="polite">
@@ -2722,25 +2788,55 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
 
       <div className="schedule-list">
         {activeDay.classes.map((classItem, index) => {
-        const spotsNum = classItem.spotsLeft === "" || classItem.spotsLeft === null || classItem.spotsLeft === undefined
-          ? null
-          : Number(classItem.spotsLeft);
-        const isFull = spotsNum === 0;
-        const isLow = typeof spotsNum === "number" && spotsNum > 0 && spotsNum <= 3;
-        const spotsClass = spotsLoading
-          ? "spots-badge spots-loading"
-          : isFull
-          ? "spots-badge spots-full"
-          : isLow
-          ? "spots-badge spots-low"
-          : "spots-badge spots-open";
-        const spotsText = spotsLoading
-          ? "Checking\u2026"
-          : isFull
-          ? "Full"
-          : typeof spotsNum === "number"
-          ? `${spotsNum} left`
-          : "Open";
+        const liveStatus = classItem.status || "";
+        const isThisLoading = bookingState.classId === classItem.id && bookingState.type === "loading";
+        const isThisSuccess = bookingState.classId === classItem.id && bookingState.type === "success";
+
+        // Spots badge
+        const isDataLoading = isLiveDataLoading || (!liveClasses && spotsLoading);
+        const spotsNum = typeof classItem.spotsLeft === "number" ? classItem.spotsLeft : null;
+        let spotsClass = "spots-badge spots-open";
+        let spotsText = liveStatus || "Open";
+
+        if (isDataLoading) {
+          spotsClass = "spots-badge spots-loading";
+          spotsText = "Checking\u2026";
+        } else if (liveStatus === "Full" || liveStatus === "Canceled" || liveStatus === "Unavailable") {
+          spotsClass = "spots-badge spots-full";
+        } else if (liveStatus === "Join Waitlist" || liveStatus?.startsWith("Only")) {
+          spotsClass = "spots-badge spots-low";
+        } else if (liveStatus === "Booked" || isThisSuccess) {
+          spotsClass = "spots-badge spots-booked";
+          spotsText = "Booked";
+        } else if (!liveStatus && spotsNum !== null) {
+          spotsText = spotsNum === 0 ? "Full" : `${spotsNum} left`;
+          spotsClass = spotsNum === 0 ? "spots-badge spots-full" : spotsNum <= 3 ? "spots-badge spots-low" : "spots-badge spots-open";
+        }
+
+        // Book/Waitlist button
+        const effectiveStatus = isThisSuccess ? "Booked" : liveStatus;
+        let actionButton;
+        if (effectiveStatus === "Booked") {
+          actionButton = <button className="book-class" type="button" disabled>Booked</button>;
+        } else if (effectiveStatus === "Canceled") {
+          actionButton = <button className="book-class" type="button" disabled>Canceled</button>;
+        } else if (effectiveStatus === "Full") {
+          actionButton = <button className="book-class" type="button" disabled>Full</button>;
+        } else if (effectiveStatus === "Unavailable") {
+          actionButton = <button className="book-class" type="button" disabled>Unavailable</button>;
+        } else if (effectiveStatus === "Join Waitlist" || (bookingState.classId === classItem.id && bookingState.canWaitlist)) {
+          actionButton = (
+            <button className="book-class waitlist-btn" type="button" disabled={isThisLoading} onClick={() => joinWaitlist(classItem)}>
+              {isThisLoading ? "Joining..." : "Join Waitlist"}
+            </button>
+          );
+        } else {
+          actionButton = (
+            <button className="book-class" type="button" disabled={isThisLoading} onClick={() => bookClass(classItem)}>
+              {isThisLoading ? "Booking..." : "Book Class"}
+            </button>
+          );
+        }
 
         return (
           <article className="schedule-row" key={`${classItem.id || classItem.classScheduleId || index}-${classItem.startDateTime || classItem.time}`}>
@@ -2765,14 +2861,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
               <strong><span className={spotsClass}>{spotsText}</span></strong>
             </div>
             <div className="schedule-booking">
-              <button
-                className="book-class"
-                type="button"
-                disabled={bookingState.classId === classItem.id && bookingState.type === "loading"}
-                onClick={() => bookClass(classItem)}
-              >
-                {bookingState.classId === classItem.id && bookingState.type === "loading" ? "Booking..." : "Book"}
-              </button>
+              {actionButton}
               {bookingState.classId === classItem.id && bookingState.message ? (
                 <p className={`row-status ${bookingState.type}`}>{bookingState.message}</p>
               ) : null}
