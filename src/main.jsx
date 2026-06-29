@@ -1895,6 +1895,12 @@ function authStartHref(returnTo = ROUTES.account, options = {}) {
   return `/api/auth/start?${params.toString()}`;
 }
 
+function switchAccount(returnTo = ROUTES.account) {
+  apiRequest("/api/auth/sign-out", { method: "POST" }).finally(() => {
+    window.location.href = authStartHref(returnTo, { force: true });
+  });
+}
+
 function startOAuthRedirect(returnTo = ROUTES.account) {
   window.location.href = authStartHref(returnTo);
 }
@@ -1954,7 +1960,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
           {clientSession?.signedIn ? (
             <>
               <a className="pill-button black" href={ROUTES.account}>Go to Account</a>
-              <a className="pill-button outline" href={authStartHref(ROUTES.account, { force: true })}>Switch Account</a>
+              <button className="pill-button outline" type="button" onClick={() => switchAccount(ROUTES.account)}>Switch Account</button>
               <button className="pill-button outline" type="button" onClick={signOut}>Sign Out</button>
             </>
           ) : (
@@ -2343,7 +2349,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           <p>{user.email || user.username}</p>
         </div>
         <div className="account-actions">
-          <a className="pill-button outline" href={authStartHref(ROUTES.account, { force: true })}>Switch Account</a>
+          <button className="pill-button outline" type="button" onClick={() => switchAccount(ROUTES.account)}>Switch Account</button>
           <button className="pill-button outline" type="button" onClick={signOut}>Sign Out</button>
         </div>
       </div>
