@@ -301,6 +301,81 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
+    if (path === "/api/auth/link" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.consumerIdentityToken && !session?.accessToken) {
+        sendJson(response, 401, { ok: false, message: "Please sign in first." });
+        return true;
+      }
+
+      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
+      const email = session.user?.email || session.user?.username || "";
+      const firstName = session.user?.firstName || "";
+      const lastName = session.user?.lastName || "";
+
+      if (!email) {
+        sendJson(response, 400, { ok: false, message: "No email on session to link with." });
+        return true;
+      }
+
+      // Try AddOrUpdateClient — Mindbody will match an existing studio client by email
+      // or create a new stub record. Either way we get back a ClientId we can store in session.
+      let linkedClientId = session.clientId || "";
+      let linkError = null;
+
+      if (!linkedClientId) {
+        const clientPayload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
+
+        const staffLinkAttempts = [];
+
+        try {
+          const staffToken = await getMindbodyActionToken("Account link");
+          staffLinkAttempts.push(
+            () => bookingRequest("/client/addorupdateclient", { method: "POST", token: staffToken, body: { Client: clientPayload } }),
+            () => bookingRequest("/client/clients", { token: staffToken, params: { SearchText: email } })
+          );
+        } catch (_) { /* no action token */ }
+
+        const consumerLinkAttempts = [
+          () => bookingRequest("/client/addorupdateclient", { method: "POST", consumerIdentityToken: consumerToken, body: { Client: clientPayload } }),
+          () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: email } }),
+          () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: email, CrossRegionalLookup: true } }),
+          () => bookingRequest("/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { CrossRegionalLookup: true } })
+        ];
+
+        for (const attempt of [...staffLinkAttempts, ...consumerLinkAttempts]) {
+          try {
+            const result = await attempt();
+            const profile = extractClientProfile(result, email);
+            if (profile?.clientId) {
+              linkedClientId = profile.clientId;
+              break;
+            }
+          } catch (err) {
+            linkError = err.message || "Link attempt failed.";
+          }
+        }
+      }
+
+      if (linkedClientId) {
+        const updatedSession = {
+          ...session,
+          clientId: linkedClientId,
+          user: {
+            ...session.user,
+            id: linkedClientId
+          }
+        };
+        setSessionCookie(response, updatedSession);
+        sendJson(response, 200, { ok: true, clientId: linkedClientId });
+      } else {
+        sendJson(response, 200, { ok: false, message: linkError || "Could not find a matching studio account for this email." });
+      }
+
+      return true;
+    }
+
     if (path === "/api/client/required-fields") {
       const data = await bookingRequest("/client/requiredclientfields");
       sendJson(response, 200, data);

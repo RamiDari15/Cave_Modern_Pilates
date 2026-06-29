@@ -2930,6 +2930,16 @@ body.interior:has(.page-policies),
   text-decoration: underline;
 }
 
+.account-link-note .text-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .complete-profile-banner {
   background: #fff;
   border-radius: 24px;

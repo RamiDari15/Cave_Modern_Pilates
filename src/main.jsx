@@ -2256,6 +2256,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   const [dashboard, setDashboard] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [pendingProfile, setPendingProfile] = useState(null);
+  const [linkStatus, setLinkStatus] = useState(null); // "linking" | "linked" | "failed"
 
   useEffect(() => {
     if (!clientSession?.signedIn) return;
@@ -2267,6 +2268,27 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       }
     } catch (_) {}
   }, [clientSession?.signedIn]);
+
+  const attemptAutoLink = async () => {
+    setLinkStatus("linking");
+    try {
+      const result = await apiRequest("/api/auth/link", { method: "POST" });
+      if (result?.ok) {
+        setLinkStatus("linked");
+        // Refresh session and dashboard now that we have a clientId
+        const [sessionData, dashData] = await Promise.all([
+          apiRequest("/api/auth/session").catch(() => null),
+          apiRequest("/api/client/dashboard").catch(() => null)
+        ]);
+        if (sessionData?.signedIn) setClientSession(sessionData);
+        if (dashData) setDashboard(dashData);
+      } else {
+        setLinkStatus("failed");
+      }
+    } catch (_) {
+      setLinkStatus("failed");
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -2287,6 +2309,11 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           }
 
           setDashboard(data);
+
+          // Auto-attempt to link if the studio account wasn't found
+          if (isMounted && data?.clientLinked === false) {
+            attemptAutoLink();
+          }
         }
       } catch (_error) {
         // Dashboard data unavailable — cards will show empty state gracefully
@@ -2369,8 +2396,17 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
       </div>
 
-      {!dashboardLoading && dashboard?.clientLinked === false && (
-        <p className="account-link-note">Your studio account is not linked yet. Book your first class or <a href={ROUTES.contact}>contact Cave</a> to connect your Mindbody profile.</p>
+      {!dashboardLoading && dashboard?.clientLinked === false && linkStatus !== "linked" && (
+        <p className="account-link-note">
+          {linkStatus === "linking" && "Connecting your studio account..."}
+          {linkStatus === "failed" && (
+            <>
+              Could not automatically link your studio account.{" "}
+              <button className="text-button" type="button" onClick={attemptAutoLink}>Try again</button> or <a href={ROUTES.contact}>contact Cave</a>.
+            </>
+          )}
+          {!linkStatus && "Connecting your studio account..."}
+        </p>
       )}
 
       <a className="pill-button black" href={bookingUrl}>View Schedule</a>
