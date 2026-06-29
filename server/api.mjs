@@ -1918,17 +1918,21 @@ function itemPaymentAmount(item) {
 }
 
 function paymentRequiredError(message) {
+  const { paymentSetupUrl, siteId } = getBookingConfig();
+  const effectiveSetupUrl = paymentSetupUrl ||
+    (siteId ? `https://clients.mindbodyonline.com/asp/addfunds.asp?studioid=${encodeURIComponent(siteId)}` : "");
   const error = httpError(402, message);
-  error.data = compactObject({
-    paymentSetupUrl: getBookingConfig().paymentSetupUrl
-  });
+  error.data = compactObject({ paymentSetupUrl: effectiveSetupUrl });
   return error;
 }
 
 function buildPaymentSetupResponse(session, returnTo) {
-  const { paymentSetupUrl, publicBaseUrl } = getBookingConfig();
+  const { paymentSetupUrl, publicBaseUrl, siteId } = getBookingConfig();
 
-  if (!paymentSetupUrl) {
+  const effectiveSetupUrl = paymentSetupUrl ||
+    (siteId ? `https://clients.mindbodyonline.com/asp/addfunds.asp?studioid=${encodeURIComponent(siteId)}` : "");
+
+  if (!effectiveSetupUrl) {
     const error = httpError(501, "Secure add-card setup is not configured yet.");
     error.data = {
       missing: ["BOOKING_PAYMENT_SETUP_URL"],
@@ -1949,7 +1953,7 @@ function buildPaymentSetupResponse(session, returnTo) {
   };
 
   return {
-    paymentSetupUrl: applyPaymentSetupPlaceholders(paymentSetupUrl, replacements),
+    paymentSetupUrl: applyPaymentSetupPlaceholders(effectiveSetupUrl, replacements),
     returnTo: safeReturn
   };
 }
