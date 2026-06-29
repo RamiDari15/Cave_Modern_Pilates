@@ -598,8 +598,10 @@ export async function handleApiRequest(request, response) {
       const { paymentSetupUrl } = getBookingConfig();
 
       if (!paymentSetupUrl) {
-        console.warn("[add-card-url] No MINDBODY_ADD_CARD_URL / BOOKING_PAYMENT_SETUP_URL configured");
-        sendJson(response, 200, { ok: false, message: "Online card setup is being configured. Please contact the studio or try again later." });
+        sendJson(response, 200, {
+          ok: false,
+          message: "To add a payment card, please contact Cave or add one through the MindBody app — cards cannot be added online at this time."
+        });
         return true;
       }
 
@@ -2354,7 +2356,9 @@ async function purchaseContractItem(session, clientId, item, body) {
       Test: process.env.BOOKING_TEST_MODE === "true",
       ClientId: clientId,
       ContractId: Number(item.id),
-      LocationId: Number(locationId),
+      LocationId: Number(locationId) || 1,
+      StartDate: new Date().toISOString().split("T")[0],
+      FirstPaymentOccurs: "Instant",
       SendNotifications: true,
       ...compactObject({
         PaymentAuthenticationCallbackUrl: paymentAuthenticationCallbackUrl
@@ -2366,6 +2370,7 @@ async function purchaseContractItem(session, clientId, item, body) {
 
 async function checkoutServiceItem(clientId, item, body) {
   const staffToken = await getMindbodyActionToken("Service checkout");
+  const { locationId } = getBookingConfig();
 
   const paymentPayload = buildCheckoutPaymentPayload(item, body);
 
@@ -2379,7 +2384,7 @@ async function checkoutServiceItem(clientId, item, body) {
     body: {
       Test: process.env.BOOKING_TEST_MODE === "true",
       ClientId: clientId,
-      CartItems: [
+      Items: [
         {
           Item: {
             Type: "Service",
@@ -2390,6 +2395,9 @@ async function checkoutServiceItem(clientId, item, body) {
           Quantity: 1
         }
       ],
+      InStore: true,
+      LocationId: Number(locationId) || 1,
+      SendEmail: true,
       ...paymentPayload
     }
   });
@@ -3144,7 +3152,8 @@ function publicStoreGroups(store) {
   return {
     newbie: publicStoreItems(store?.newbie || store?.starter || []),
     memberships: publicStoreItems(store?.memberships || []),
-    classPacks: publicStoreItems(store?.classPacks || [])
+    classPacks: publicStoreItems(store?.classPacks || []),
+    dropIn: publicStoreItems(store?.dropIn || [])
   };
 }
 
