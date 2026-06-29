@@ -1897,17 +1897,26 @@ async function autoLinkOAuthClient(session) {
   const payload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
   const config = getBookingConfig();
 
-  // Try staff token first (most reliable), then consumer token.
   if (config.actionTokenConfigured) {
     try {
       const staffToken = await getMindbodyActionToken("OAuth auto-link");
-      const result = await bookingRequest("/client/addorupdateclient", {
+
+      // Read-only search first to avoid creating duplicate clients.
+      const searchResult = await bookingRequest("/client/clients", {
+        token: staffToken,
+        params: { SearchText: email }
+      });
+      const searchProfile = extractClientProfile(searchResult, email);
+      if (searchProfile?.clientId) return searchProfile.clientId;
+
+      // Client not found by search; fall back to addorupdateclient which will create or match.
+      const upsertResult = await bookingRequest("/client/addorupdateclient", {
         method: "POST",
         token: staffToken,
         body: { Client: payload }
       });
-      const profile = extractClientProfile(result, email);
-      if (profile?.clientId) return profile.clientId;
+      const upsertProfile = extractClientProfile(upsertResult, email);
+      if (upsertProfile?.clientId) return upsertProfile.clientId;
     } catch (_) { /* fall through to consumer token */ }
   }
 
@@ -1997,7 +2006,7 @@ async function fetchOAuthClientProfile(session) {
       });
       const profile = extractClientProfile(data, email);
 
-      if (profile?.clientId || profile?.email) {
+      if (profile?.clientId) {
         return profile;
       }
     } catch (error) {
