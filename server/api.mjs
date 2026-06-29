@@ -46,6 +46,57 @@ const liveClassesCache = {
 
 loadLocalEnv();
 
+// ---------------------------------------------------------------------------
+// Supabase client-link cache (email → MindBody clientId)
+// Uses the REST API directly so no npm package is needed.
+// ---------------------------------------------------------------------------
+
+function getSupabaseConfig() {
+  return {
+    url: process.env.SUPABASE_URL || "",
+    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+  };
+}
+
+async function supabaseFindClientLink(email) {
+  const { url, serviceKey } = getSupabaseConfig();
+  if (!url || !serviceKey || !email) return "";
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/mindbody_links?email=eq.${encodeURIComponent(email.toLowerCase())}&select=mindbody_client_id&limit=1`,
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Accept: "application/json" } }
+    );
+    if (!res.ok) return "";
+    const rows = await res.json();
+    return rows?.[0]?.mindbody_client_id || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+async function supabaseStoreClientLink(email, clientId) {
+  const { url, serviceKey } = getSupabaseConfig();
+  if (!url || !serviceKey || !email || !clientId) return;
+  try {
+    await fetch(`${url}/rest/v1/mindbody_links`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({
+        email: email.toLowerCase(),
+        mindbody_client_id: clientId,
+        updated_at: new Date().toISOString()
+      })
+    });
+  } catch (_) {
+    // Cache write failure is non-fatal.
+  }
+}
+
 function loadLocalEnv() {
   const envFile = resolve(ROOT_DIR, ".env");
 
@@ -352,21 +403,24 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      // Try AddOrUpdateClient — Mindbody will match an existing studio client by email
-      // or create a new stub record. Either way we get back a ClientId we can store in session.
       let linkedClientId = session.clientId || "";
       let linkError = null;
+
+      // Check Supabase cache first — fastest path, no MindBody call needed.
+      if (!linkedClientId) {
+        linkedClientId = await supabaseFindClientLink(email);
+      }
 
       if (!linkedClientId) {
         const clientPayload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
 
+        // Staff token: search by email first (read-only, no duplicate risk), then upsert.
         const staffLinkAttempts = [];
-
         try {
           const staffToken = await getMindbodyActionToken("Account link");
           staffLinkAttempts.push(
-            () => bookingRequest("/client/addorupdateclient", { method: "POST", token: staffToken, body: { Client: clientPayload } }),
-            () => bookingRequest("/client/clients", { token: staffToken, params: { SearchText: email } })
+            () => bookingRequest("/client/clients", { token: staffToken, params: { SearchText: email } }),
+            () => bookingRequest("/client/addorupdateclient", { method: "POST", token: staffToken, body: { Client: clientPayload } })
           );
         } catch (_) { /* no action token */ }
 
@@ -392,13 +446,11 @@ export async function handleApiRequest(request, response) {
       }
 
       if (linkedClientId) {
+        await supabaseStoreClientLink(email, linkedClientId);
         const updatedSession = {
           ...session,
           clientId: linkedClientId,
-          user: {
-            ...session.user,
-            id: linkedClientId
-          }
+          user: { ...session.user, id: linkedClientId }
         };
         setSessionCookie(response, updatedSession);
         sendJson(response, 200, { ok: true, clientId: linkedClientId });
@@ -1850,11 +1902,27 @@ async function hydrateOAuthSession(session) {
     return session;
   }
 
-  const profile = await fetchOAuthClientProfile(session).catch(() => null);
   const hydratedAt = new Date().toISOString();
+  const email = session.user?.email || session.user?.username || "";
+
+  // Check the Supabase link cache before making any MindBody API calls.
+  if (email && !session.clientId) {
+    const cachedClientId = await supabaseFindClientLink(email);
+    if (cachedClientId) {
+      return {
+        ...session,
+        clientId: cachedClientId,
+        user: { ...(session.user || {}), id: cachedClientId },
+        hydratedAt
+      };
+    }
+  }
+
+  const profile = await fetchOAuthClientProfile(session).catch(() => null);
 
   // If we have a profile with a clientId we're done.
   if (profile?.clientId) {
+    await supabaseStoreClientLink(email, profile.clientId);
     return { ...mergeSessionClientProfile(session, profile), hydratedAt };
   }
 
@@ -1907,7 +1975,10 @@ async function autoLinkOAuthClient(session) {
         params: { SearchText: email }
       });
       const searchProfile = extractClientProfile(searchResult, email);
-      if (searchProfile?.clientId) return searchProfile.clientId;
+      if (searchProfile?.clientId) {
+        await supabaseStoreClientLink(email, searchProfile.clientId);
+        return searchProfile.clientId;
+      }
 
       // Client not found by search; fall back to addorupdateclient which will create or match.
       const upsertResult = await bookingRequest("/client/addorupdateclient", {
@@ -1916,7 +1987,10 @@ async function autoLinkOAuthClient(session) {
         body: { Client: payload }
       });
       const upsertProfile = extractClientProfile(upsertResult, email);
-      if (upsertProfile?.clientId) return upsertProfile.clientId;
+      if (upsertProfile?.clientId) {
+        await supabaseStoreClientLink(email, upsertProfile.clientId);
+        return upsertProfile.clientId;
+      }
     } catch (_) { /* fall through to consumer token */ }
   }
 
@@ -1928,7 +2002,10 @@ async function autoLinkOAuthClient(session) {
         body: { Client: payload }
       });
       const profile = extractClientProfile(result, email);
-      if (profile?.clientId) return profile.clientId;
+      if (profile?.clientId) {
+        await supabaseStoreClientLink(email, profile.clientId);
+        return profile.clientId;
+      }
     } catch (_) { /* give up */ }
   }
 
