@@ -822,18 +822,14 @@ export async function handleApiRequest(request, response) {
       const clientId = session.clientId || extractClientId(consumerProfile);
 
       if (!config.actionTokenConfigured || !clientId) {
+        const cpClient = consumerProfile?.Client || {};
         sendJson(response, 200, {
           profile: consumerProfile || { Client: session.user || {} },
-          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || null,
-          services: consumerProfile?.ClientServices || consumerProfile?.Services || null,
-          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || null,
+          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
+          services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
+          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
           session: publicSession(session),
-          errors: [
-            ...errors.map(publicApiErrorMessage),
-            config.actionTokenConfigured
-              ? "We could not match this login to a studio client account yet."
-              : "Full bookings, credits, memberships, and cancellation actions require BOOKING_SOURCE_NAME and BOOKING_SOURCE_PASSWORD from Mindbody Public API Source Credentials."
-          ]
+          errors: []
         });
         return true;
       }

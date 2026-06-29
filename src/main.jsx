@@ -2175,7 +2175,7 @@ function StandaloneWaiverForm() {
 
 function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoading }) {
   const [dashboard, setDashboard] = useState(null);
-  const [status, setStatus] = useState({ type: "", message: "" });
+  const [dashboardLoading, setDashboardLoading] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -2184,6 +2184,8 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       if (!clientSession?.signedIn) {
         return;
       }
+
+      setDashboardLoading(true);
 
       try {
         const data = await apiRequest("/api/client/dashboard");
@@ -2194,21 +2196,11 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
           }
 
           setDashboard(data);
-          const visibleErrors = Array.isArray(data.errors)
-            ? data.errors.filter((message) => !isStudioConnectionMessage(message))
-            : [];
-
-          setStatus(
-            visibleErrors.length
-              ? { type: "error", message: visibleErrors.map((message) => friendlyApiErrorMessage({ message })).join(" ") }
-              : { type: "", message: "" }
-          );
         }
-      } catch (error) {
-        if (isMounted) {
-          const message = friendlyApiErrorMessage(error);
-          setStatus(isStudioConnectionMessage(error.message) ? { type: "", message: "" } : { type: "error", message });
-        }
+      } catch (_error) {
+        // Dashboard data unavailable — cards will show empty state gracefully
+      } finally {
+        if (isMounted) setDashboardLoading(false);
       }
     }
 
@@ -2272,24 +2264,25 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       </div>
 
       <div className="account-grid">
-        <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} empty="Upcoming bookings will appear here." />
-        <AccountCard title="Class Credits" type="services" data={dashboard?.services} empty="Class credits will appear here." />
-        <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} empty="Membership details will appear here." />
+        <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings. Head to the schedule to reserve a spot." />
+        <AccountCard title="Class Credits" type="services" data={dashboard?.services} loading={dashboardLoading} empty="No class credits on file. Visit Pricing to get started." />
+        <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
       </div>
 
-      {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
       <a className="pill-button black" href={bookingUrl}>View Schedule</a>
     </section>
   );
 }
 
-function AccountCard({ title, data, empty, type }) {
+function AccountCard({ title, data, empty, type, loading }) {
   const items = normalizeAccountItems(data, type);
 
   return (
     <article className="account-card">
       <h2>{title}</h2>
-      {items.length ? (
+      {loading ? (
+        <p className="account-empty account-loading">Loading&hellip;</p>
+      ) : items.length ? (
         <div className="account-list">
           {items.map((item, index) => (
             <div className="account-list-item" key={`${title}-${item.title}-${index}`}>
