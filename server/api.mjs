@@ -342,7 +342,6 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
       const email = session.user?.email || session.user?.username || "";
       const firstName = session.user?.firstName || "";
       const lastName = session.user?.lastName || "";
@@ -354,6 +353,7 @@ export async function handleApiRequest(request, response) {
 
       let linkedClientId = session.clientId || "";
       let linkError = null;
+      const config = getBookingConfig();
 
       // readHydratedSession above already tried clientcompleteinfo with the consumer token.
       // If clientId is still empty, only source/staff credentials can search by email.
