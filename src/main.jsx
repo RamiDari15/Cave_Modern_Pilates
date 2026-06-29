@@ -1216,9 +1216,15 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
     const returnTo = purchaseReturnTo(item);
     setPurchaseState({ itemId: item.id, type: "loading", message: "Opening secure card setup...", paymentSetupUrl: "" });
 
+    const accountUrl = FALLBACK_CACHE?.booking?.accountUrl || "";
+    const siteIdMatch = accountUrl.match(/studioid=(\d+)/i);
+    const fallbackSetupUrl = siteIdMatch
+      ? `https://clients.mindbodyonline.com/asp/addfunds.asp?studioid=${siteIdMatch[1]}`
+      : "";
+
     try {
       const data = await apiRequest(`/api/payment/setup?returnTo=${encodeURIComponent(returnTo)}`);
-      const setupUrl = data.paymentSetupUrl || data.url || "";
+      const setupUrl = data.paymentSetupUrl || data.url || fallbackSetupUrl;
 
       if (!setupUrl) {
         throw new Error("Secure add-card setup is not configured yet.");
@@ -1229,6 +1235,12 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
     } catch (error) {
       if (error.loginUrl) {
         window.location.href = error.loginUrl;
+        return;
+      }
+
+      if (fallbackSetupUrl && error.status !== 403) {
+        window.open(fallbackSetupUrl, "_blank", "noopener");
+        setPurchaseState({ itemId: item.id, type: "info", message: "Add your card in the tab that just opened, then come back and refresh.", paymentSetupUrl: fallbackSetupUrl });
         return;
       }
 

@@ -209,6 +209,7 @@ function configuredEnvBoolean(...keys) {
 }
 
 export async function handleApiRequest(request, response) {
+  loadLocalEnv();
   const url = new URL(request.url || "/", "http://localhost");
   const path = url.pathname;
 
