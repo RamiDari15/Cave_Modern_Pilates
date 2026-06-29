@@ -1698,6 +1698,36 @@ function ContactPage({ location }) {
   const mapSrc = `https://www.google.com/maps?q=${encodeURIComponent(contact.mapQuery)}&output=embed`;
   const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(contact.mapQuery)}`;
 
+  const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  const updateField = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.email.trim() || !form.message.trim()) {
+      setStatus({ type: "error", message: "Please fill in all fields." });
+      return;
+    }
+    setStatus({ type: "loading", message: "" });
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus({ type: "error", message: data.message || "Something went wrong. Please try again." });
+      } else {
+        setStatus({ type: "success", message: "Message sent! We’ll get back to you soon." });
+        setForm({ name: "", email: "", message: "" });
+      }
+    } catch {
+      setStatus({ type: "error", message: "Could not send your message. Please try again." });
+    }
+  };
+
   return (
     <>
       <section className="contact-hero">
@@ -1707,23 +1737,54 @@ function ContactPage({ location }) {
           <a href={`mailto:${contact.email}`}>{contact.email}</a>
           <a href={`tel:${contact.phone}`}>{contact.phoneDisplay}</a>
         </div>
-        <div className="contact-form-card" aria-label="Contact form preview">
+        <form className="contact-form-card" onSubmit={handleSubmit} noValidate aria-label="Contact form">
           <label>
             Name
-            <span />
+            <input
+              type="text"
+              name="name"
+              value={form.name}
+              onChange={updateField}
+              autoComplete="name"
+              required
+              placeholder="Your name"
+              disabled={status.type === "loading" || status.type === "success"}
+            />
           </label>
           <label>
             Email
-            <span />
+            <input
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={updateField}
+              autoComplete="email"
+              required
+              placeholder="you@example.com"
+              disabled={status.type === "loading" || status.type === "success"}
+            />
           </label>
           <label className="message-line">
             Message
-            <span />
+            <textarea
+              name="message"
+              value={form.message}
+              onChange={updateField}
+              required
+              rows={4}
+              placeholder="How can we help?"
+              disabled={status.type === "loading" || status.type === "success"}
+            />
           </label>
-          <a className="pill-button black" href={`mailto:${contact.email}`}>
-            Contact Studio
-          </a>
-        </div>
+          {status.message ? (
+            <p className={`contact-form-status contact-form-status--${status.type}`}>{status.message}</p>
+          ) : null}
+          {status.type !== "success" ? (
+            <button className="pill-button black" type="submit" disabled={status.type === "loading"}>
+              {status.type === "loading" ? "Sending…" : "Send Message"}
+            </button>
+          ) : null}
+        </form>
       </section>
 
       <section className="contact-location" aria-label="Studio location">

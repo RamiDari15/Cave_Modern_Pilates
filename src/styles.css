@@ -701,6 +701,13 @@ body.interior:has(.page-policies),
   width: min(100%, 1380px);
 }
 
+.pricing-card-grid.dropIn {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 420px));
+  justify-content: center;
+  gap: clamp(20px, 2vw, 34px);
+  width: min(100%, 520px);
+}
+
 .pricing-card-grid.newbie {
   grid-template-columns: repeat(2, minmax(280px, 460px));
   justify-content: center;
@@ -2204,7 +2211,7 @@ body.interior:has(.page-policies),
 
 .contact-form-card label {
   display: grid;
-  gap: 18px;
+  gap: 10px;
   color: rgba(5, 5, 5, 0.74);
   font-size: clamp(1.05rem, 1.5vw, 1.28rem);
   font-weight: 500;
@@ -2219,6 +2226,59 @@ body.interior:has(.page-policies),
   display: block;
   height: 2px;
   background: rgba(5, 5, 5, 0.52);
+}
+
+.contact-form-card input,
+.contact-form-card textarea {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid rgba(5, 5, 5, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--black);
+  font-size: clamp(0.95rem, 1.3vw, 1.1rem);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.18s;
+  box-sizing: border-box;
+}
+
+.contact-form-card input:focus,
+.contact-form-card textarea:focus {
+  border-color: rgba(5, 5, 5, 0.52);
+}
+
+.contact-form-card input::placeholder,
+.contact-form-card textarea::placeholder {
+  color: rgba(5, 5, 5, 0.36);
+}
+
+.contact-form-card textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+
+.contact-form-card input:disabled,
+.contact-form-card textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.contact-form-status {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.contact-form-status--error {
+  color: #c0392b;
+}
+
+.contact-form-status--success {
+  color: #1a7a4a;
 }
 
 .contact-form-card .pill-button {

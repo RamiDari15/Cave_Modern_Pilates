@@ -282,6 +282,39 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
+    if (path === "/api/contact" && request.method === "POST") {
+      const { name, email, message } = await readJsonBody(request);
+
+      if (!name || !email || !message) {
+        throw httpError(400, "Name, email, and message are required.");
+      }
+
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+      const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        throw httpError(500, "Contact form is not configured.");
+      }
+
+      const supabaseRes = await fetch(`${supabaseUrl}/rest/v1/contact_submissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Prefer: "return=minimal"
+        },
+        body: JSON.stringify({ name: String(name).slice(0, 200), email: String(email).slice(0, 200), message: String(message).slice(0, 4000) })
+      });
+
+      if (!supabaseRes.ok) {
+        throw httpError(500, "Could not save your message. Please try again.");
+      }
+
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+
     if (path === "/api/studio-cache") {
       const freshSchedule = ["1", "true", "schedule"].includes(String(url.searchParams.get("fresh") || "").toLowerCase());
       const cache = freshSchedule ? await readStoreCacheWithFreshSchedule() : readStoreCache();
