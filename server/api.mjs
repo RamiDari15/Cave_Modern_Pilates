@@ -859,28 +859,39 @@ export async function handleApiRequest(request, response) {
 
       const errors = [];
       const consumerToken = session.consumerIdentityToken || session.accessToken || "";
+      const sessionEmail = session.user?.email || session.user?.username || "";
       let consumerProfile = null;
 
       if (consumerToken) {
-        try {
-          consumerProfile = await bookingRequest("/client/clientcompleteinfo", {
-            consumerIdentityToken: consumerToken,
-            params: compactObject({
-              ClientId: session.clientId
-            })
-          });
-        } catch (error) {
-          errors.push(error.message || "Client profile request failed.");
+        const profileAttempts = [
+          () => bookingRequest("/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: compactObject({ ClientId: session.clientId }) }),
+          () => bookingRequest("/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { CrossRegionalLookup: true } }),
+          ...(sessionEmail ? [
+            () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: sessionEmail } }),
+            () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: sessionEmail, CrossRegionalLookup: true } })
+          ] : [])
+        ];
+
+        for (const attempt of profileAttempts) {
+          try {
+            const result = await attempt();
+            const extracted = extractClientId(result);
+            if (extracted || result?.Client || result?.ClientCompleteInfo?.Client || result?.Clients?.length) {
+              consumerProfile = result;
+              break;
+            }
+          } catch (_) {}
         }
       }
 
       const config = getBookingConfig();
       const clientId = session.clientId || extractClientId(consumerProfile);
+      const hasConsumerData = Boolean(consumerProfile?.Client || consumerProfile?.ClientCompleteInfo?.Client || (consumerProfile?.Clients?.length));
 
       if (!config.actionTokenConfigured || !clientId) {
         const cpClient = consumerProfile?.Client || {};
         sendJson(response, 200, {
-          clientLinked: Boolean(clientId),
+          clientLinked: Boolean(clientId) || hasConsumerData,
           profile: consumerProfile || { Client: session.user || {} },
           schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
           services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
@@ -899,7 +910,7 @@ export async function handleApiRequest(request, response) {
       if (!staffToken) {
         const cpClient = consumerProfile?.Client || {};
         sendJson(response, 200, {
-          clientLinked: Boolean(clientId),
+          clientLinked: Boolean(clientId) || hasConsumerData,
           profile: consumerProfile || { Client: session.user || {} },
           schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || cpClient?.ClientSchedule || null,
           services: consumerProfile?.ClientServices || consumerProfile?.Services || cpClient?.ClientServices || null,
@@ -1774,6 +1785,18 @@ async function fetchOAuthClientProfile(session) {
 
   if (consumerToken && oauthSub && oauthSub !== session.clientId) {
     attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { ClientId: oauthSub } }]);
+  }
+
+  if (consumerToken && email) {
+    // With Mindbody.Api.Public.v6 scope, the access token can be used as a Public API bearer
+    // to search for the client by email — covers the case where the consumer identity and studio
+    // client record haven't been linked by Mindbody (e.g., staff-added client who later logs in via OAuth)
+    attempts.push(["/client/clients", { token: consumerToken, params: { SearchText: email } }]);
+    attempts.push(["/client/clients", { token: consumerToken, params: { SearchText: email, CrossRegionalLookup: true } }]);
+  }
+
+  if (consumerToken) {
+    attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { CrossRegionalLookup: true } }]);
   }
 
   if (config.actionTokenConfigured && session.clientId) {
