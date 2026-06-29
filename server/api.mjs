@@ -221,7 +221,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/classes/book", "/api/payment/setup", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -457,6 +457,40 @@ export async function handleApiRequest(request, response) {
 
       const purchase = await purchaseStoreItem(session, item, body);
       sendJson(response, 200, { purchase });
+      return true;
+    }
+
+    if (path === "/api/client/saved-cards" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn && !session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+        sendJson(response, 200, { cards: [] });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => "");
+
+      if (!clientId) {
+        sendJson(response, 200, { cards: [] });
+        return true;
+      }
+
+      try {
+        const staffToken = await getMindbodyActionToken("Saved cards");
+        const data = await bookingRequest("/sale/creditcards", {
+          token: staffToken,
+          params: { ClientId: clientId }
+        });
+        const cards = (data.CreditCards || data.creditCards || []).map((card) => ({
+          lastFour: String(card.LastFour || card.lastFour || "").trim(),
+          cardType: String(card.CardType || card.cardType || card.Type || "").trim(),
+          expMonth: String(card.ExpMonth || card.expMonth || "").trim(),
+          expYear: String(card.ExpYear || card.expYear || "").trim()
+        })).filter((card) => /^\d{4}$/.test(card.lastFour));
+        sendJson(response, 200, { cards });
+      } catch (error) {
+        sendJson(response, 200, { cards: [], note: publicApiErrorMessage(error) });
+      }
       return true;
     }
 
