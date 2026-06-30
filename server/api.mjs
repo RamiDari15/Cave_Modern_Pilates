@@ -1086,7 +1086,7 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
-    if (path === "/api/account/payment-card" && request.method === "POST") {
+    if ((path === "/api/account/payment-card" || path === "/api/client/add-card") && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
       if (!session) {
@@ -1214,11 +1214,7 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
-    // Legacy alias — same handler as /api/account/payment-card
-    if (path === "/api/client/add-card" && request.method === "POST") {
-      request.url = request.url.replace("/api/client/add-card", "/api/account/payment-card");
-      return handleRequest(request, response);
-    }
+
 
     if (path === "/api/client/schedule" && request.method === "GET") {
       const session = await readHydratedSession(request, response);
