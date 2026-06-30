@@ -1502,6 +1502,7 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
           </button>
         ) : null}
       </div>
+      <p className="payment-safe-note">Card info is sent securely to Mindbody. Cave never stores card numbers.</p>
       {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
     </form>
   );
