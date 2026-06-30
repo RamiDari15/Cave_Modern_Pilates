@@ -1322,10 +1322,17 @@ export async function handleApiRequest(request, response) {
       }
 
       const body = await readJsonBody(request);
-      const clientId = session.clientId || body.clientId || "";
       const consumerToken = session.consumerIdentityToken || session.accessToken || "";
 
-      console.log(`[account/profile] POST clientId=${clientId || "(none)"} hasConsumerToken=${Boolean(consumerToken)}`);
+      if (!consumerToken) {
+        sendJson(response, 401, { ok: false, message: "A Mindbody sign-in is required to edit your profile. Please sign out and sign in again." });
+        return true;
+      }
+
+      // Resolve clientId — use session/body first, fall back to clientcompleteinfo lookup
+      const clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
+
+      console.log(`[account/profile] POST clientId=${clientId || "(from token)"} fields in body: ${Object.keys(body).join(",")}`);
 
       const clientUpdate = compactObject({
         Id: clientId || undefined,
@@ -1354,38 +1361,21 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      console.log(`[account/profile] calling POST /client/updateclient clientId=${clientId || "(consumer-only)"} fields=${Object.keys(clientUpdate).filter((k) => k !== "Id").join(",")}`);
+      console.log(`[account/profile] POST /client/updateclient clientId=${clientId || "(from token)"} fields=${Object.keys(clientUpdate).filter((k) => k !== "Id").join(",")}`);
 
       let updateResult = null;
       let updateError = null;
 
-      if (consumerToken) {
-        try {
-          updateResult = await bookingRequest("/client/updateclient", {
-            method: "POST",
-            consumerIdentityToken: consumerToken,
-            body: { Client: clientUpdate, CrossRegionalUpdate: true }
-          });
-          console.log("[account/profile] updateclient via consumer token: success");
-        } catch (err) {
-          updateError = err;
-          console.log(`[account/profile] consumer updateclient failed (${err.status || 0}): ${err.message}`);
-        }
-      }
-
-      if (!updateResult) {
-        try {
-          const staffToken = await getMindbodyActionToken("Profile update");
-          updateResult = await bookingRequest("/client/updateclient", {
-            method: "POST",
-            token: staffToken,
-            body: { Client: clientUpdate, CrossRegionalUpdate: true }
-          });
-          console.log("[account/profile] updateclient via staff token: success");
-        } catch (staffErr) {
-          updateError = staffErr;
-          console.error(`[account/profile] staff updateclient failed (${staffErr.status || 0}): ${staffErr.message}`);
-        }
+      try {
+        updateResult = await bookingRequest("/client/updateclient", {
+          method: "POST",
+          consumerIdentityToken: consumerToken,
+          body: { Client: clientUpdate, CrossRegionalUpdate: true }
+        });
+        console.log("[account/profile] updateclient success");
+      } catch (err) {
+        updateError = err;
+        console.error(`[account/profile] updateclient failed (${err.status || 0}): ${err.message}`);
       }
 
       if (!updateResult) {
@@ -4079,7 +4069,7 @@ async function bookingRequest(path, { method = "GET", body, params, token, consu
         SiteId: siteId,
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : consumerIdentityToken ? { Authorization: `Bearer ${consumerIdentityToken}` } : {}),
         ...(consumerIdentityToken ? { "consumer-identity-token": consumerIdentityToken } : {})
       },
       body: body ? JSON.stringify(body) : undefined,
