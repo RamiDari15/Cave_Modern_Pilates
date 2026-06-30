@@ -1258,31 +1258,23 @@ export async function handleApiRequest(request, response) {
       let userId = session.platformUserId || body.userId || "";
 
       if (!userId) {
-        const platformUser = await fetchPlatformMe(accessToken).catch(() => null);
-        userId = platformUser?.userAccount?.id || platformUser?.UserAccount?.id || "";
-        if (userId) {
-          setSessionCookie(response, { ...session, platformUserId: userId });
+        const meResult = await fetchPlatformMeWithStatus(accessToken);
+        if (meResult.ok) {
+          userId = meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "";
+          if (userId) {
+            setSessionCookie(response, { ...session, platformUserId: userId });
+          }
         }
-      }
-
-      if (!userId) {
-        const sessionEmail = session.user?.email || session.user?.username || "";
-        if (sessionEmail) {
-          try {
-            const consumerToken = session.consumerIdentityToken || session.accessToken;
-            const searchResult = await bookingRequest("/client/clients", {
-              token: consumerToken,
-              params: { SearchText: sessionEmail }
-            });
-            const firstClient = searchResult?.Clients?.[0] || searchResult?.Client;
-            const rawId = firstClient?.Id || firstClient?.UniqueId;
-            if (rawId && !isUUID(String(rawId))) {
-              setSessionCookie(response, { ...session, clientId: String(rawId), user: { ...session.user, id: String(rawId) } });
-            }
-          } catch (_) {}
+        if (!userId) {
+          const hint =
+            meResult.status === 401 ? "OAuth token is expired or missing the Platform.Accounts.Api.Read scope." :
+            meResult.status === 403 ? "OAuth app lacks permission to read Platform account data. Check your Mindbody OAuth app scopes." :
+            meResult.status === 0   ? "Could not reach Mindbody Platform API. Check server connectivity." :
+            `Mindbody returned ${meResult.status}: ${meResult.error}`;
+          console.error("[mindbody-auth] /api/account/profile: platformUserId unresolvable —", hint);
+          sendJson(response, 401, { ok: false, message: "Could not verify your Mindbody identity. Please sign out and sign in again.", debug: hint });
+          return true;
         }
-        sendJson(response, 400, { ok: false, message: "Could not resolve your Mindbody account ID. Please sign out and sign in again." });
-        return true;
       }
 
       const { apiKey, siteId } = getBookingConfig();
@@ -1368,6 +1360,54 @@ export async function handleApiRequest(request, response) {
 
       console.log("[mindbody-auth] /api/account/profile: success");
       sendJson(response, 200, { ok: true, data: profileData });
+      return true;
+    }
+
+    if (path === "/api/debug/mindbody-session" && request.method === "GET") {
+      const session = readSession(request);
+      if (!session) {
+        sendJson(response, 200, { signedIn: false, message: "No session cookie found." });
+        return true;
+      }
+
+      const accessToken = session.consumerIdentityToken || session.accessToken || "";
+      const now = Date.now();
+      const expiresAt = session.expiresAt ? new Date(session.expiresAt).getTime() : 0;
+      const tokenExpired = expiresAt > 0 && expiresAt < now;
+
+      const meResult = accessToken
+        ? await fetchPlatformMeWithStatus(accessToken)
+        : { ok: false, status: 0, error: "No access token in session" };
+
+      const userId = meResult.ok
+        ? (meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "")
+        : (session.platformUserId || "");
+
+      let profilesResult = null;
+      if (meResult.ok && userId) {
+        const profiles = await fetchPlatformBusinessProfiles(userId, accessToken).catch(() => []);
+        const { siteId } = getBookingConfig();
+        const match = findStudioBusinessProfile(profiles, siteId);
+        profilesResult = { count: profiles.length, studioMatch: Boolean(match), businessId: match?.businessId || match?.BusinessId || "" };
+      }
+
+      sendJson(response, 200, {
+        signedIn: true,
+        authMode: session.authMode || "",
+        hasAccessToken: Boolean(accessToken),
+        hasRefreshToken: Boolean(session.refreshToken),
+        tokenExpired,
+        expiresAt: session.expiresAt || "",
+        platformUserId: session.platformUserId || "",
+        businessId: session.businessId || "",
+        clientId: session.clientId || "",
+        profileId: session.profileId || "",
+        email: session.user?.email || session.user?.username || "",
+        platformMe: meResult.ok
+          ? { ok: true, userId: meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "" }
+          : { ok: false, status: meResult.status, error: meResult.error },
+        businessProfiles: profilesResult
+      });
       return true;
     }
 
@@ -2180,7 +2220,11 @@ async function linkPlatformProfile(accessToken) {
         "Accept": "application/json"
       }
     });
-    if (!meResp.ok) return null;
+    if (!meResp.ok) {
+      const body = await meResp.text().catch(() => "");
+      console.error(`[mindbody-auth] linkPlatformProfile: /platform/account/v1/me → ${meResp.status}`, body.slice(0, 300));
+      return null;
+    }
 
     const me = await meResp.json();
     const userId = me?.userAccount?.id || me?.UserAccount?.id || me?.userId || me?.UserId;
@@ -2223,10 +2267,41 @@ async function fetchPlatformMe(accessToken) {
         "Accept": "application/json"
       }
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      console.error(`[mindbody-auth] fetchPlatformMe: /platform/account/v1/me → ${resp.status}`, body.slice(0, 300));
+      return null;
+    }
     return resp.json();
-  } catch (_) {
+  } catch (e) {
+    console.error("[mindbody-auth] fetchPlatformMe: network error:", e.message);
     return null;
+  }
+}
+
+async function fetchPlatformMeWithStatus(accessToken) {
+  const { apiKey } = getBookingConfig();
+  if (!apiKey) return { ok: false, status: 0, error: "BOOKING_API_KEY not configured" };
+  if (!accessToken) return { ok: false, status: 0, error: "No OAuth access token in session" };
+
+  try {
+    const resp = await fetch(`${PLATFORM_API_BASE_URL}/account/v1/me`, {
+      headers: {
+        "Api-Key": apiKey,
+        "Authorization": `Bearer ${accessToken}`,
+        "Accept": "application/json"
+      }
+    });
+    if (!resp.ok) {
+      const errBody = await resp.json().catch(() => ({}));
+      const error = errBody?.message || errBody?.Message || errBody?.error || `HTTP ${resp.status}`;
+      console.error(`[mindbody-auth] fetchPlatformMeWithStatus: /platform/account/v1/me → ${resp.status}: ${error}`);
+      return { ok: false, status: resp.status, error };
+    }
+    const data = await resp.json();
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, status: 0, error: e.message || "Network error reaching Mindbody Platform API" };
   }
 }
 
