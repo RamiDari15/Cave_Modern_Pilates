@@ -916,7 +916,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
 function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading }) {
   if (page === "pricing") {
-    return <PricingLandingPage store={cache.store || {}} memberships={cache.memberships || []} />;
+    return <PricingLandingPage store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} />;
   }
 
   const pricingCategory = PRICING_CATEGORIES.find((category) => category.page === page);
@@ -1204,20 +1204,136 @@ function PoliciesPage() {
   );
 }
 
-function PricingLandingPage({ store, memberships }) {
+function usePricingCatalog(store, memberships) {
+  const [catalog, setCatalog] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    apiRequest("/api/pricing/catalog")
+      .then((data) => { if (mounted && data?.ok) setCatalog(data.catalog); })
+      .catch(() => {})
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  const groups = pricingStoreGroups(store, memberships);
+  return {
+    newbie: catalog?.newbie?.length ? catalog.newbie : groups.newbie || [],
+    classPacks: catalog?.classPacks?.length ? catalog.classPacks : groups.classPacks || [],
+    dropIn: catalog?.dropIn?.length ? catalog.dropIn : groups.dropIn || [],
+    memberships: catalog?.memberships?.length ? catalog.memberships : groups.memberships || [],
+    loading
+  };
+}
+
+function useCart() {
+  const [items, setItems] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const addItem = (item) => {
+    setItems((prev) => {
+      const existing = prev.find((i) => i.id === item.id && i.kind === item.kind);
+      if (existing) return prev.map((i) => i.id === item.id && i.kind === item.kind ? { ...i, quantity: i.quantity + 1 } : i);
+      return [...prev, { ...item, quantity: 1 }];
+    });
+    setIsOpen(true);
+  };
+
+  const removeItem = (id, kind) => setItems((prev) => prev.filter((i) => !(i.id === id && i.kind === kind)));
+
+  const updateQty = (id, kind, qty) => {
+    if (qty <= 0) { removeItem(id, kind); return; }
+    setItems((prev) => prev.map((i) => i.id === id && i.kind === kind ? { ...i, quantity: qty } : i));
+  };
+
+  const clear = () => setItems([]);
+  const total = items.reduce((sum, i) => sum + Number(String(i.price || "0").replace(/[^0-9.]/g, "")) * i.quantity, 0);
+
+  return { items, total, isOpen, addItem, removeItem, updateQty, clear, open: () => setIsOpen(true), close: () => setIsOpen(false) };
+}
+
+const PRICING_TABS = [
+  { key: "newbie", label: "New Client" },
+  { key: "classPacks", label: "Class Packs" },
+  { key: "memberships", label: "Memberships" },
+  { key: "dropIn", label: "Drop In" }
+];
+
+function PricingLandingPage({ store, memberships, clientSession }) {
+  const catalog = usePricingCatalog(store, memberships);
+  const cart = useCart();
+  const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
+  const [activeTab, setActiveTab] = useState("classPacks");
+
+  useEffect(() => {
+    if (!catalog.loading && catalog.newbie?.length > 0) setActiveTab("newbie");
+  }, [catalog.loading]);
+
+  const tabItems = (catalog[activeTab] || []);
+  const totalQty = cart.items.reduce((n, i) => n + i.quantity, 0);
+
   return (
-    <section className="pricing-choice section page-section" aria-label="Choose a pricing category">
-      <div className="pricing-choice-grid">
-        {PRICING_CATEGORIES.map((category) => (
-          <a className={`pricing-choice-card ${category.key}`} href={category.href} key={category.key}>
-            <span className="pricing-choice-image" aria-hidden="true" />
-            <span className="pricing-choice-copy">
-              <strong>{category.title}</strong>
-            </span>
-          </a>
-        ))}
+    <div className="pricing-page">
+      <section className="pricing-hero page-section">
+        <div className="pricing-hero-copy">
+          <h1>Choose Your Plan</h1>
+          <p>Find the option that fits your practice — from a first-time intro to unlimited membership.</p>
+        </div>
+        {totalQty > 0 ? (
+          <button className="cart-toggle pill-button black" type="button" onClick={cart.open}>
+            Cart ({totalQty}) &middot; ${cart.total.toFixed(2)}
+          </button>
+        ) : null}
+      </section>
+
+      <div className="pricing-tabs-row page-section">
+        <div className="pricing-tabs" role="tablist">
+          {PRICING_TABS.filter((tab) => catalog.loading || (catalog[tab.key] || []).length > 0).map((tab) => (
+            <button
+              key={tab.key}
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              className={`pricing-tab${activeTab === tab.key ? " active" : ""}`}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+              {!catalog.loading && (catalog[tab.key] || []).length > 0 ? (
+                <span className="pricing-tab-count">{(catalog[tab.key] || []).length}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
       </div>
-    </section>
+
+      <section className="pricing-store pricing-store-page section" aria-label="Pricing options">
+        {catalog.loading ? (
+          <p className="empty-schedule">Loading pricing...</p>
+        ) : tabItems.length === 0 ? (
+          <p className="empty-schedule">No options available in this category right now.</p>
+        ) : (
+          <div className={`pricing-card-grid ${activeTab}`}>
+            {tabItems.map((item) => (
+              <PricingCard
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                category={PRICING_CATEGORIES.find((c) => c.key === activeTab) || { key: activeTab, href: "/pricing", title: activeTab }}
+                savedCards={savedCards}
+                cardsLoaded={cardsLoaded}
+                clientSession={clientSession}
+                onCardAdded={refreshCards}
+                onAddToCart={item.kind === "service" ? () => cart.addItem(item) : undefined}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {cart.isOpen ? (
+        <CartDrawer cart={cart} clientSession={clientSession} savedCards={savedCards} cardsLoaded={cardsLoaded} onCardAdded={refreshCards} />
+      ) : null}
+    </div>
   );
 }
 
@@ -1395,103 +1511,6 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
   const groups = pricingStoreGroups(store, memberships);
   const items = groups[category.key] || [];
   const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
-  const [selectedCard, setSelectedCard] = useState("");
-  const [manualLastFour, setManualLastFour] = useState("");
-  const [acceptedTerms, setAcceptedTerms] = useState({});
-  const [expandedTerms, setExpandedTerms] = useState({});
-  const [purchaseState, setPurchaseState] = useState({ itemId: "", type: "", message: "", paymentSetupUrl: "" });
-
-  const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
-
-  const purchaseReturnTo = (item) => `${category.href}?purchase=${encodeURIComponent(`${item.kind}-${item.id}`)}`;
-
-  const addCardForItem = async (item) => {
-    setPurchaseState({ itemId: item.id, type: "loading", message: "Checking secure card setup...", paymentSetupUrl: "" });
-
-    try {
-      const data = await apiRequest("/api/mindbody/add-card-url");
-
-      if (!data.ok || !data.url) {
-        setPurchaseState({
-          itemId: item.id,
-          type: "error",
-          message: data.message || "Online card setup is being configured. Please contact the studio or try again later.",
-          paymentSetupUrl: ""
-        });
-        return;
-      }
-
-      window.open(data.url, "_blank", "noopener");
-      setPurchaseState({ itemId: item.id, type: "info", message: "Add your card in the tab that just opened, then come back and refresh.", paymentSetupUrl: data.url });
-    } catch (error) {
-      if (error.loginUrl) {
-        window.location.href = error.loginUrl;
-        return;
-      }
-
-      setPurchaseState({
-        itemId: item.id,
-        type: "error",
-        message: "Online card setup is being configured. Please contact the studio or try again later.",
-        paymentSetupUrl: ""
-      });
-    }
-  };
-
-  const buyItem = async (item) => {
-    setPurchaseState({ itemId: item.id, type: "", message: "", paymentSetupUrl: "" });
-    const storedCardLastFour = effectiveLastFour.replace(/\D/g, "");
-
-    if (item.requiresTerms && !acceptedTerms[item.id]) {
-      setPurchaseState({ itemId: item.id, type: "error", message: "Please accept the membership agreement before continuing.", paymentSetupUrl: "" });
-      return;
-    }
-
-    if (!/^\d{4}$/.test(storedCardLastFour)) {
-      setPurchaseState({
-        itemId: item.id,
-        type: "error",
-        message: savedCards.length ? "Please select a saved card." : "Enter the last four digits of the saved studio card you want to use.",
-        paymentSetupUrl: ""
-      });
-      return;
-    }
-
-    setPurchaseState({ itemId: item.id, type: "loading", message: "Starting checkout...", paymentSetupUrl: "" });
-
-    try {
-      await apiRequest("/api/store/purchase", {
-        method: "POST",
-        body: {
-          itemId: item.id,
-          kind: item.kind,
-          acceptWaiver: true,
-          acceptTerms: Boolean(item.requiresTerms ? acceptedTerms[item.id] : true),
-          storedCardLastFour,
-          returnTo: purchaseReturnTo(item)
-        }
-      });
-
-      setPurchaseState({
-        itemId: item.id,
-        type: "success",
-        message: "Purchase complete. Check your account for confirmation.",
-        paymentSetupUrl: ""
-      });
-    } catch (error) {
-      if (error.loginUrl) {
-        window.location.href = error.loginUrl;
-        return;
-      }
-
-      setPurchaseState({
-        itemId: item.id,
-        type: "error",
-        message: friendlyApiErrorMessage(error, "Checkout could not be completed."),
-        paymentSetupUrl: paymentSetupUrlFromError(error)
-      });
-    }
-  };
 
   return (
     <>
@@ -1500,26 +1519,23 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
-        <PricingStoreSection
-          id={`pricing-${category.page}`}
-          title={category.title}
-          items={items}
-          category={category}
-          purchaseState={purchaseState}
-          savedCards={savedCards}
-          cardsLoaded={cardsLoaded}
-          selectedCard={selectedCard}
-          manualLastFour={manualLastFour}
-          acceptedTerms={acceptedTerms}
-          expandedTerms={expandedTerms}
-          clientSession={clientSession}
-          onCardSelect={setSelectedCard}
-          onManualLastFourChange={setManualLastFour}
-          onToggleTerms={(itemId) => setExpandedTerms((current) => ({ ...current, [itemId]: !current[itemId] }))}
-          onAcceptTerms={(itemId, value) => setAcceptedTerms((current) => ({ ...current, [itemId]: value }))}
-          onCardAdded={refreshCards}
-          onBuy={buyItem}
-        />
+        {items.length ? (
+          <div className={`pricing-card-grid ${category.key}`}>
+            {items.map((item) => (
+              <PricingCard
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                category={category}
+                savedCards={savedCards}
+                cardsLoaded={cardsLoaded}
+                clientSession={clientSession}
+                onCardAdded={refreshCards}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="empty-schedule">No online pricing options are available in this category right now.</p>
+        )}
       </section>
     </>
   );
@@ -1565,89 +1581,233 @@ function sortBySessionsAsc(items) {
   return [...items].sort((a, b) => (Number(a.sessions) || 0) - (Number(b.sessions) || 0));
 }
 
-function PricingStoreSection({ id, title, items, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onCardAdded, onBuy }) {
-  return (
-    <div className="pricing-store-section" id={id}>
-      <div className="pricing-store-heading">
-        <h2>{title}</h2>
-      </div>
-
-      {items.length ? (
-        <div className={`pricing-card-grid ${category.key}`}>
-          {items.map((item) => (
-            <PricingCard
-              item={item}
-              category={category}
-              purchaseState={purchaseState}
-              savedCards={savedCards}
-              cardsLoaded={cardsLoaded}
-              selectedCard={selectedCard}
-              manualLastFour={manualLastFour}
-              acceptedTerms={acceptedTerms}
-              expandedTerms={expandedTerms}
-              clientSession={clientSession}
-              onCardSelect={onCardSelect}
-              onManualLastFourChange={onManualLastFourChange}
-              onToggleTerms={onToggleTerms}
-              onAcceptTerms={onAcceptTerms}
-              onCardAdded={onCardAdded}
-              onBuy={onBuy}
-              key={`${item.kind}-${item.id}-${item.name}`}
-            />
-          ))}
-        </div>
-      ) : (
-        <p className="empty-schedule">No online pricing options are available in this category right now.</p>
-      )}
-    </div>
-  );
-}
-
-function PricingCard({ item, category, purchaseState, savedCards, cardsLoaded, selectedCard, manualLastFour, acceptedTerms, expandedTerms, clientSession, onCardSelect, onManualLastFourChange, onToggleTerms, onAcceptTerms, onCardAdded, onBuy }) {
-  const isLoading = purchaseState.itemId === item.id && purchaseState.type === "loading";
-  const message = purchaseState.itemId === item.id ? purchaseState.message : "";
-  const messageType = purchaseState.itemId === item.id ? purchaseState.type : "";
-  const paymentSetupUrl = purchaseState.itemId === item.id ? purchaseState.paymentSetupUrl : "";
-  const titleLines = pricingTitleLines(item, category);
-  const isTermsExpanded = Boolean(expandedTerms?.[item.id]);
-  const hasAcceptedTerms = Boolean(acceptedTerms?.[item.id]);
+function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart }) {
+  const [selectedCard, setSelectedCard] = useState("");
+  const [manualLastFour, setManualLastFour] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [showCardForm, setShowCardForm] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [buyState, setBuyState] = useState({ type: "", message: "" });
+
+  const isLoading = buyState.type === "loading";
+  const isContract = item.kind === "contract";
+  const titleLines = pricingTitleLines(item, category);
+  const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
+
+  const buyItem = async () => {
+    setBuyState({ type: "", message: "" });
+    const storedCardLastFour = effectiveLastFour.replace(/\D/g, "");
+
+    if (isContract && !acceptedTerms) {
+      setBuyState({ type: "error", message: "Please accept the membership agreement before continuing." });
+      return;
+    }
+
+    if (!/^\d{4}$/.test(storedCardLastFour)) {
+      setBuyState({ type: "error", message: savedCards.length ? "Please select a saved card." : "Enter the last four digits of your saved card." });
+      return;
+    }
+
+    setBuyState({ type: "loading", message: isContract ? "Processing membership..." : "Starting checkout..." });
+
+    const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/store/purchase";
+    const payload = isContract
+      ? { contractId: item.id, storedCardLastFour, acceptTerms: true, acceptWaiver: true }
+      : { itemId: item.id, kind: item.kind, acceptWaiver: true, acceptTerms: true, storedCardLastFour, returnTo: category.href || "/pricing" };
+
+    try {
+      await apiRequest(endpoint, { method: "POST", body: payload });
+      setBuyState({ type: "success", message: "Purchase complete. Check your account for confirmation." });
+    } catch (err) {
+      if (err.loginUrl) { window.location.href = err.loginUrl; return; }
+      setBuyState({ type: "error", message: friendlyApiErrorMessage(err, "Purchase could not be completed.") });
+    }
+  };
 
   return (
     <article className={`pricing-card ${category.key}`}>
       <div>
+        {item.isNewbiePromo ? <span className="pricing-badge">New Client</span> : null}
         <p className="pricing-card-price">{item.price || "Ask studio"}</p>
-        <h3>
-          {titleLines.map((line) => (
-            <span key={line}>{line}</span>
-          ))}
-        </h3>
+        <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
         {item.description ? <p className="pricing-card-desc">{item.description}</p> : null}
       </div>
 
       <div className="pricing-card-actions">
-        {!clientSession?.signedIn ? (
-          <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href)}`}>
+        {buyState.type === "success" ? (
+          <p className="form-status success">{buyState.message}</p>
+        ) : !clientSession?.signedIn ? (
+          <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/pricing")}`}>
             Sign In to Buy
           </a>
         ) : (
           <>
-            <div className="payment-safe-box">
+            {onAddToCart && !showPayment ? (
+              <div className="pricing-card-ctas">
+                <button className="pill-button black" type="button" onClick={onAddToCart}>Add to Cart</button>
+                <button className="text-button" type="button" onClick={() => setShowPayment(true)}>Buy Now</button>
+              </div>
+            ) : null}
+
+            {(showPayment || isContract || !onAddToCart) ? (
+              <div className="payment-safe-box">
+                {cardsLoaded && savedCards.length > 0 ? (
+                  <>
+                    <label className="payment-safe-field">
+                      <span>Saved card</span>
+                      <select value={selectedCard} onChange={(e) => setSelectedCard(e.target.value)} aria-label="Select saved card">
+                        <option value="">Select a card</option>
+                        {savedCards.map((c) => (
+                          <option key={c.lastFour} value={c.lastFour}>
+                            {c.cardType ? `${c.cardType} ` : ""}ending in {c.lastFour}
+                            {c.expMonth && c.expYear ? ` (exp ${c.expMonth}/${c.expYear})` : ""}
+                          </option>
+                        ))}
+                        <option value="__manual__">Enter last 4 manually</option>
+                      </select>
+                    </label>
+                    {selectedCard === "__manual__" ? (
+                      <label className="payment-safe-field">
+                        <span>Last 4 digits</span>
+                        <input type="text" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="1234"
+                          value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} aria-label="Last four digits of card" />
+                      </label>
+                    ) : null}
+                  </>
+                ) : (
+                  <label className="payment-safe-field">
+                    <span>Card on file — last 4</span>
+                    <input type="text" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="Last 4"
+                      value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} aria-label={`Last four digits for ${item.name}`} />
+                  </label>
+                )}
+                <p className="payment-safe-note">Full card numbers never touch this site.</p>
+                {showCardForm ? (
+                  <AddCardForm clientSession={clientSession} onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }} onCancel={() => setShowCardForm(false)} />
+                ) : (
+                  <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
+                    {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
+                  </button>
+                )}
+              </div>
+            ) : null}
+
+            {isContract && item.agreementTerms ? (
+              <div className="agreement-box">
+                <button className="agreement-toggle" type="button" onClick={() => setShowTerms((v) => !v)} aria-expanded={showTerms}>
+                  {showTerms ? "Hide" : "View"} Membership Agreement
+                </button>
+                {showTerms ? <div className="agreement-text">{item.agreementTerms}</div> : null}
+                <label className="agreement-accept">
+                  <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} />
+                  <span>I have read and agree to the membership agreement</span>
+                </label>
+              </div>
+            ) : null}
+
+            {buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
+
+            {(showPayment || isContract || !onAddToCart) ? (
+              <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={buyItem}>
+                {isLoading ? (isContract ? "Processing..." : "Starting...") : (isContract ? "Buy Membership" : "Complete Purchase")}
+              </button>
+            ) : null}
+
+            {showPayment && onAddToCart ? (
+              <button type="button" className="text-button" style={{ marginTop: "6px" }} onClick={() => setShowPayment(false)}>Cancel</button>
+            ) : null}
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded }) {
+  const [quoteState, setQuoteState] = useState({ grandTotal: cart.total, loading: false });
+  const [checkoutState, setCheckoutState] = useState({ type: "", message: "" });
+  const [selectedCard, setSelectedCard] = useState("");
+  const [manualLastFour, setManualLastFour] = useState("");
+  const [showAddCard, setShowAddCard] = useState(false);
+
+  useEffect(() => {
+    if (!cart.items.length || !clientSession?.signedIn) return;
+    let mounted = true;
+    setQuoteState((s) => ({ ...s, loading: true }));
+    apiRequest("/api/cart/quote", { method: "POST", body: { items: cart.items } })
+      .then((data) => { if (mounted) setQuoteState({ grandTotal: data.grandTotal ?? cart.total, loading: false }); })
+      .catch(() => { if (mounted) setQuoteState((s) => ({ ...s, loading: false })); });
+    return () => { mounted = false; };
+  }, [JSON.stringify(cart.items), clientSession?.signedIn]);
+
+  const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
+
+  const handleCheckout = async () => {
+    const lastFour = effectiveLastFour.replace(/\D/g, "");
+    if (!/^\d{4}$/.test(lastFour)) {
+      setCheckoutState({ type: "error", message: savedCards.length ? "Please select a saved card." : "Enter the last 4 digits of your card." });
+      return;
+    }
+    setCheckoutState({ type: "loading", message: "Processing payment..." });
+    try {
+      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour } });
+      setCheckoutState({ type: "success", message: "Purchase complete! Credits are now in your Mindbody account." });
+      cart.clear();
+      setTimeout(() => { cart.close(); setCheckoutState({ type: "", message: "" }); }, 4000);
+    } catch (err) {
+      if (err.loginUrl) { window.location.href = err.loginUrl; return; }
+      setCheckoutState({ type: "error", message: friendlyApiErrorMessage(err, "Checkout failed. Please try again.") });
+    }
+  };
+
+  return (
+    <div className="cart-overlay" role="dialog" aria-modal="true" aria-label="Shopping cart">
+      <div className="cart-backdrop" onClick={cart.close} />
+      <div className="cart-drawer">
+        <div className="cart-drawer-header">
+          <h2>Your Cart</h2>
+          <button className="cart-close" type="button" onClick={cart.close} aria-label="Close cart"><X size={20} strokeWidth={1.7} /></button>
+        </div>
+
+        <div className="cart-items">
+          {cart.items.map((item) => (
+            <div className="cart-item" key={`${item.kind}-${item.id}`}>
+              <div className="cart-item-info">
+                <p className="cart-item-name">{item.name}</p>
+                <p className="cart-item-price">{item.price}</p>
+              </div>
+              <div className="cart-item-qty">
+                <button type="button" className="cart-qty-btn" onClick={() => cart.updateQty(item.id, item.kind, item.quantity - 1)} aria-label="Decrease"><Minus size={13} strokeWidth={2} /></button>
+                <span>{item.quantity}</span>
+                <button type="button" className="cart-qty-btn" onClick={() => cart.updateQty(item.id, item.kind, item.quantity + 1)} aria-label="Increase"><Plus size={13} strokeWidth={2} /></button>
+              </div>
+              <button type="button" className="cart-remove" onClick={() => cart.removeItem(item.id, item.kind)} aria-label="Remove"><X size={14} strokeWidth={2} /></button>
+            </div>
+          ))}
+        </div>
+
+        <div className="cart-totals">
+          {quoteState.loading ? (
+            <p className="cart-total-loading">Calculating...</p>
+          ) : (
+            <div className="cart-total-row"><span>Total</span><strong>${quoteState.grandTotal.toFixed(2)}</strong></div>
+          )}
+        </div>
+
+        {checkoutState.type === "success" ? (
+          <p className="form-status success cart-success">{checkoutState.message}</p>
+        ) : clientSession?.signedIn ? (
+          <>
+            <div className="cart-payment">
               {cardsLoaded && savedCards.length > 0 ? (
                 <>
                   <label className="payment-safe-field">
-                    <span>Saved card</span>
-                    <select
-                      value={selectedCard}
-                      onChange={(event) => onCardSelect(event.target.value)}
-                      aria-label="Select saved card"
-                    >
+                    <span>Payment card</span>
+                    <select value={selectedCard} onChange={(e) => setSelectedCard(e.target.value)}>
                       <option value="">Select a card</option>
-                      {savedCards.map((card) => (
-                        <option key={card.lastFour} value={card.lastFour}>
-                          {card.cardType ? `${card.cardType} ` : ""}ending in {card.lastFour}
-                          {card.expMonth && card.expYear ? ` (exp ${card.expMonth}/${card.expYear})` : ""}
-                        </option>
+                      {savedCards.map((c) => (
+                        <option key={c.lastFour} value={c.lastFour}>{c.cardType ? `${c.cardType} ` : ""}ending in {c.lastFour}</option>
                       ))}
                       <option value="__manual__">Enter last 4 manually</option>
                     </select>
@@ -1655,93 +1815,40 @@ function PricingCard({ item, category, purchaseState, savedCards, cardsLoaded, s
                   {selectedCard === "__manual__" ? (
                     <label className="payment-safe-field">
                       <span>Last 4 digits</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        pattern="[0-9]{4}"
-                        maxLength={4}
-                        placeholder="1234"
-                        value={manualLastFour}
-                        onChange={(event) => onManualLastFourChange(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                        aria-label="Last four digits of card"
-                      />
+                      <input type="text" inputMode="numeric" autoComplete="off" maxLength={4} placeholder="1234"
+                        value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
                     </label>
                   ) : null}
                 </>
               ) : (
                 <label className="payment-safe-field">
                   <span>Card on file — last 4</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    pattern="[0-9]{4}"
-                    maxLength={4}
-                    placeholder="Last 4"
-                    value={manualLastFour}
-                    onChange={(event) => onManualLastFourChange(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                    aria-label={`Last four digits for ${item.name}`}
-                  />
+                  <input type="text" inputMode="numeric" autoComplete="off" maxLength={4} placeholder="1234"
+                    value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
                 </label>
               )}
               <p className="payment-safe-note">Full card numbers never touch this site.</p>
-              {showCardForm ? (
-                <AddCardForm
-                  clientSession={clientSession}
-                  onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }}
-                  onCancel={() => setShowCardForm(false)}
-                />
+              {showAddCard ? (
+                <AddCardForm clientSession={clientSession} onSuccess={() => { setShowAddCard(false); onCardAdded?.(); }} onCancel={() => setShowAddCard(false)} />
               ) : (
-                <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
+                <button type="button" className="payment-add-card" onClick={() => setShowAddCard(true)}>
                   {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
                 </button>
               )}
             </div>
-
-            {item.requiresTerms && item.agreementTerms ? (
-              <div className="agreement-box">
-                <button
-                  className="agreement-toggle"
-                  type="button"
-                  onClick={() => onToggleTerms?.(item.id)}
-                  aria-expanded={isTermsExpanded}
-                >
-                  {isTermsExpanded ? "Hide" : "View"} Membership Agreement
-                </button>
-                {isTermsExpanded ? (
-                  <div className="agreement-text">{item.agreementTerms}</div>
-                ) : null}
-                <label className="agreement-accept">
-                  <input
-                    type="checkbox"
-                    checked={hasAcceptedTerms}
-                    onChange={(event) => onAcceptTerms?.(item.id, event.target.checked)}
-                  />
-                  <span>I have read and agree to the membership agreement</span>
-                </label>
-              </div>
-            ) : null}
-
-            <button
-              className="book-class"
-              type="button"
-              disabled={isLoading || !item.id || item.sellOnline === false}
-              onClick={() => onBuy(item)}
-            >
-              {isLoading ? "Starting..." : "Buy Now"}
+            {checkoutState.message ? <p className={`form-status ${checkoutState.type}`}>{checkoutState.message}</p> : null}
+            <button className="pill-button black cart-checkout-btn" type="button"
+              disabled={checkoutState.type === "loading" || cart.items.length === 0} onClick={handleCheckout}>
+              {checkoutState.type === "loading" ? "Processing..." : `Complete Purchase · $${quoteState.grandTotal.toFixed(2)}`}
             </button>
           </>
-        )}
-
-        {message ? <p className={`row-status ${messageType}`}>{message}</p> : null}
-        {paymentSetupUrl ? (
-          <a className="payment-setup-link" href={paymentSetupUrl} target="_blank" rel="noopener noreferrer">
-            Open secure add-card page
+        ) : (
+          <a className="pill-button black cart-checkout-btn" href={`/api/auth/start?returnTo=${encodeURIComponent("/pricing")}`}>
+            Sign In to Purchase
           </a>
-        ) : null}
+        )}
       </div>
-    </article>
+    </div>
   );
 }
 

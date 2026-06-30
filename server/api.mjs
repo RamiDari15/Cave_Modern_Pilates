@@ -236,7 +236,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -1752,6 +1752,424 @@ export async function handleApiRequest(request, response) {
         profileId: (session.profileId || session.clientId) ? "present" : "missing",
         lastAuthError
       });
+      return true;
+    }
+
+    // ── Pricing Catalog ────────────────────────────────────────────────────────
+    if (path === "/api/pricing/catalog" && request.method === "GET") {
+      const { locationId } = getBookingConfig();
+      const cache = readStoreCache();
+      const storeGroups = publicStoreGroups(cache.store || {});
+
+      // Try live services from Mindbody (consumer mode — no auth needed)
+      let liveServices = null;
+      try {
+        const data = await bookingRequest("/sale/services", {
+          params: {
+            "request.sellOnline": "true",
+            "request.limit": "100",
+            "request.offset": "0",
+            "request.includeDiscontinued": "false",
+            ...(locationId ? { "request.locationId": String(locationId) } : {})
+          }
+        });
+        liveServices = firstListByKey(data, "Services");
+      } catch (_) {}
+
+      const newbieIds = String(process.env.NEWBIE_SERVICE_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+      const newbieNameRe = /intro|new\s*client|first\s*time|starter|trial|welcome|newbie/i;
+
+      let catalog;
+
+      if (liveServices && liveServices.length > 0) {
+        const services = liveServices.map((item) => {
+          const id = String(item.Id || item.ProductId || "");
+          const name = item.Name || "";
+          const price = item.OnlinePrice != null ? item.OnlinePrice : (item.Price != null ? item.Price : null);
+          const priceStr = price != null ? `$${Number(price).toFixed(2)}` : "";
+          const sessions = item.Count || null;
+          const isNewbie = newbieIds.includes(id) || newbieNameRe.test(name);
+          return {
+            id,
+            kind: "service",
+            name,
+            price: priceStr,
+            sessions,
+            description: item.Description || (sessions && sessions > 0 ? `${sessions} class${sessions !== 1 ? "es" : ""}` : ""),
+            isNewbiePromo: isNewbie,
+            sellOnline: item.SellOnline !== false,
+            requiresWaiver: true,
+            requiresTerms: false
+          };
+        }).filter((s) => s.id && s.sellOnline !== false);
+
+        catalog = {
+          newbie: services.filter((s) => s.isNewbiePromo),
+          classPacks: services.filter((s) => !s.isNewbiePromo && s.sessions && s.sessions > 1),
+          dropIn: services.filter((s) => !s.isNewbiePromo && (!s.sessions || s.sessions <= 1)),
+          memberships: publicStoreItems(storeGroups.memberships || [])
+        };
+      } else {
+        // Fall back to store cache
+        catalog = {
+          newbie: publicStoreItems(storeGroups.newbie || []),
+          classPacks: publicStoreItems(storeGroups.classPacks || []),
+          dropIn: publicStoreItems(storeGroups.dropIn || []),
+          memberships: publicStoreItems(storeGroups.memberships || [])
+        };
+      }
+
+      sendJson(response, 200, { ok: true, catalog, source: liveServices ? "live" : "cache" });
+      return true;
+    }
+
+    // ── Cart Quote ─────────────────────────────────────────────────────────────
+    if (path === "/api/cart/quote" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+      const body = await readJsonBody(request);
+      const items = Array.isArray(body.items) ? body.items : [];
+
+      if (!items.length) {
+        sendJson(response, 400, { ok: false, message: "Cart is empty." });
+        return true;
+      }
+
+      const clientId = session?.clientId || (session ? await resolveSessionClientId(session).catch(() => "") : "");
+      const { locationId } = getBookingConfig();
+      const staffToken = await getMindbodyActionToken("Cart quote").catch(() => null);
+
+      if (!staffToken) {
+        // Return per-item totals without a Mindbody quote
+        const subtotal = items.reduce((sum, item) => {
+          const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
+          return sum + price * (Number(item.quantity) || 1);
+        }, 0);
+        sendJson(response, 200, { ok: true, quoted: false, grandTotal: subtotal, subTotal: subtotal, taxTotal: 0, discountTotal: 0 });
+        return true;
+      }
+
+      const cartItems = items
+        .filter((i) => i.kind === "service")
+        .map((i) => ({
+          Item: { Type: "Service", Metadata: { Id: Number(i.id) } },
+          DiscountAmount: 0,
+          Quantity: Number(i.quantity) || 1
+        }));
+
+      if (!cartItems.length) {
+        sendJson(response, 400, { ok: false, message: "Only class packs can be added to the cart." });
+        return true;
+      }
+
+      try {
+        const result = await bookingRequest("/sale/checkoutshoppingcart", {
+          method: "POST",
+          token: staffToken,
+          body: {
+            Test: true,
+            ClientId: clientId || undefined,
+            LocationId: Number(locationId) || 1,
+            InStore: false,
+            CalculateTax: true,
+            Items: cartItems,
+            Payments: clientId ? [{ Type: "StoredCard", Metadata: { Amount: 99999, LastFour: "0000" } }] : []
+          }
+        });
+        const cart = result?.ShoppingCart || result;
+        sendJson(response, 200, {
+          ok: true,
+          quoted: true,
+          grandTotal: cart?.GrandTotal ?? 0,
+          subTotal: cart?.SubTotal ?? 0,
+          taxTotal: cart?.TaxTotal ?? 0,
+          discountTotal: cart?.DiscountTotal ?? 0
+        });
+      } catch (err) {
+        const subtotal = items.reduce((sum, item) => {
+          const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
+          return sum + price * (Number(item.quantity) || 1);
+        }, 0);
+        sendJson(response, 200, { ok: true, quoted: false, grandTotal: subtotal, subTotal: subtotal, taxTotal: 0, discountTotal: 0 });
+      }
+      return true;
+    }
+
+    // ── Cart Checkout ──────────────────────────────────────────────────────────
+    if (path === "/api/cart/checkout" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, { ok: false, message: "Please sign in before purchasing.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}` });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => "");
+      if (!clientId) {
+        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
+        return true;
+      }
+
+      // Intentionally do NOT call assertNoRawCardPayload — card data is proxied securely to Mindbody.
+      const body = await readJsonBody(request);
+      const items = Array.isArray(body.items) ? body.items : [];
+
+      if (!items.length) {
+        sendJson(response, 400, { ok: false, message: "Cart is empty." });
+        return true;
+      }
+
+      const { locationId } = getBookingConfig();
+      const staffToken = await getMindbodyActionToken("Cart checkout");
+
+      const cartItems = items
+        .filter((i) => i.kind === "service")
+        .map((i) => ({
+          Item: { Type: "Service", Metadata: { Id: Number(i.id) } },
+          DiscountAmount: 0,
+          Quantity: Number(i.quantity) || 1
+        }));
+
+      if (!cartItems.length) {
+        sendJson(response, 400, { ok: false, message: "No purchasable items found. Please add class packs to your cart." });
+        return true;
+      }
+
+      // Build payment payload — prefer stored card, fall back to new card
+      let payments;
+      const storedLastFour = String(body.storedCardLastFour || body.paymentLastFour || "").replace(/\D/g, "");
+
+      if (storedLastFour.length === 4) {
+        // Quote first to get the actual total
+        let amount = 0;
+        try {
+          const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
+            method: "POST",
+            token: staffToken,
+            body: {
+              Test: true,
+              ClientId: clientId,
+              LocationId: Number(locationId) || 1,
+              InStore: false,
+              CalculateTax: true,
+              Items: cartItems,
+              Payments: [{ Type: "StoredCard", Metadata: { Amount: 99999, LastFour: storedLastFour } }]
+            }
+          });
+          amount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
+        } catch (_) {}
+
+        payments = [{ Type: "StoredCard", Metadata: { Amount: amount, LastFour: storedLastFour } }];
+      } else if (body.cardNumber) {
+        const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
+        const expMonth = Number(String(body.expMonth || "").replace(/\D/g, ""));
+        const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
+        const expYear = Number(expYearRaw.length === 2 ? `20${expYearRaw}` : expYearRaw);
+
+        if (cardNumber.length < 13 || cardNumber.length > 19) {
+          sendJson(response, 400, { ok: false, message: "Please enter a valid card number." });
+          return true;
+        }
+        if (!expMonth || expMonth < 1 || expMonth > 12 || !expYear) {
+          sendJson(response, 400, { ok: false, message: "Please enter a valid card expiry." });
+          return true;
+        }
+
+        // Quote first to get the actual total
+        let amount = 0;
+        try {
+          const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
+            method: "POST",
+            token: staffToken,
+            body: {
+              Test: true,
+              ClientId: clientId,
+              LocationId: Number(locationId) || 1,
+              InStore: false,
+              CalculateTax: true,
+              Items: cartItems,
+              Payments: []
+            }
+          });
+          amount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
+        } catch (_) {}
+
+        payments = [{
+          Type: "CreditCard",
+          Metadata: {
+            Amount: amount,
+            CreditCardNumber: cardNumber,
+            ExpMonth: expMonth,
+            ExpYear: expYear,
+            Cvv: String(body.cvv || ""),
+            BillingName: String(body.billingName || "").trim(),
+            BillingAddress: String(body.billingAddress || "").trim(),
+            BillingCity: String(body.billingCity || "").trim(),
+            BillingState: String(body.billingState || "").trim(),
+            BillingPostalCode: String(body.billingPostalCode || "").replace(/\D/g, "").slice(0, 10),
+            SaveInfo: body.saveCard !== false
+          }
+        }];
+      } else {
+        sendJson(response, 400, { ok: false, message: "Please provide a payment method." });
+        return true;
+      }
+
+      try {
+        const result = await bookingRequest("/sale/checkoutshoppingcart", {
+          method: "POST",
+          token: staffToken,
+          body: {
+            Test: process.env.BOOKING_TEST_MODE === "true",
+            ClientId: clientId,
+            LocationId: Number(locationId) || 1,
+            InStore: false,
+            CalculateTax: true,
+            SendEmail: true,
+            Items: cartItems,
+            Payments: payments
+          }
+        });
+        sendJson(response, 200, { ok: true, purchase: result });
+      } catch (err) {
+        const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Checkout could not be completed.";
+        sendJson(response, err.status || 503, { ok: false, message: msg });
+      }
+      return true;
+    }
+
+    // ── Contract / Membership Purchase ────────────────────────────────────────
+    if (path === "/api/pricing/contracts/purchase" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, { ok: false, message: "Please sign in before purchasing.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}` });
+        return true;
+      }
+
+      // Intentionally do NOT call assertNoRawCardPayload — card data is proxied securely to Mindbody.
+      const body = await readJsonBody(request);
+
+      if (!body.contractId) {
+        sendJson(response, 400, { ok: false, message: "Contract ID is required." });
+        return true;
+      }
+
+      if (!body.acceptTerms) {
+        sendJson(response, 400, { ok: false, message: "Please accept the membership agreement before continuing." });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => "");
+      if (!clientId) {
+        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
+        return true;
+      }
+
+      const { locationId, paymentAuthenticationCallbackUrl } = getBookingConfig();
+      const staffToken = await getMindbodyActionToken("Membership purchase");
+
+      // Build payment payload
+      let paymentPayload = {};
+      const storedLastFour = String(body.storedCardLastFour || body.paymentLastFour || "").replace(/\D/g, "");
+
+      if (body.useAccountCredit) {
+        paymentPayload = { UseAccountCredit: true };
+      } else if (storedLastFour.length === 4) {
+        paymentPayload = { StoredCardInfo: { LastFour: storedLastFour } };
+      } else if (body.cardNumber) {
+        const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
+        const expMonthRaw = String(body.expMonth || "").replace(/\D/g, "").padStart(2, "0").slice(-2);
+        const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
+        const expYear = expYearRaw.length === 2 ? `20${expYearRaw}` : expYearRaw;
+
+        if (cardNumber.length < 13 || cardNumber.length > 19) {
+          sendJson(response, 400, { ok: false, message: "Please enter a valid card number." });
+          return true;
+        }
+
+        paymentPayload = {
+          CreditCardInfo: {
+            CardNumber: cardNumber,
+            ExpMonth: expMonthRaw,
+            ExpYear: expYear,
+            Cvv: String(body.cvv || ""),
+            BillingName: String(body.billingName || "").trim(),
+            BillingAddress: String(body.billingAddress || "").trim(),
+            BillingCity: String(body.billingCity || "").trim(),
+            BillingState: String(body.billingState || "").trim(),
+            BillingPostalCode: String(body.billingPostalCode || "").replace(/\D/g, "").slice(0, 10)
+          }
+        };
+      } else {
+        sendJson(response, 400, { ok: false, message: "Please provide a payment method." });
+        return true;
+      }
+
+      try {
+        const result = await bookingRequest("/sale/purchasecontract", {
+          method: "POST",
+          token: staffToken,
+          body: {
+            Test: process.env.BOOKING_TEST_MODE === "true",
+            ClientId: clientId,
+            ContractId: Number(body.contractId),
+            LocationId: Number(locationId) || 1,
+            StartDate: new Date().toISOString().split("T")[0],
+            FirstPaymentOccurs: "Instant",
+            SendNotifications: true,
+            ...(paymentAuthenticationCallbackUrl ? { PaymentAuthenticationCallbackUrl: paymentAuthenticationCallbackUrl } : {}),
+            ...paymentPayload
+          }
+        });
+        sendJson(response, 200, { ok: true, purchase: result });
+      } catch (err) {
+        const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Membership purchase could not be completed.";
+        sendJson(response, err.status || 503, { ok: false, message: msg });
+      }
+      return true;
+    }
+
+    // ── Client Purchases ───────────────────────────────────────────────────────
+    if (path === "/api/client/purchases" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.signedIn) {
+        sendJson(response, 401, { ok: false, message: "Please sign in to view your purchases.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/account")}` });
+        return true;
+      }
+
+      const clientId = await resolveSessionClientId(session).catch(() => "");
+      if (!clientId) {
+        sendJson(response, 200, { ok: true, purchases: [] });
+        return true;
+      }
+
+      const staffToken = await getMindbodyActionToken("Client purchases").catch(() => null);
+      if (!staffToken) {
+        sendJson(response, 200, { ok: true, purchases: [], message: "Purchase history requires staff credentials." });
+        return true;
+      }
+
+      try {
+        const data = await bookingRequest("/client/clientpurchases", {
+          token: staffToken,
+          params: {
+            "request.clientId": clientId,
+            "request.limit": "50"
+          }
+        });
+        const purchases = firstListByKey(data, "Purchases").map((p) => ({
+          id: p.Id || p.SaleId || "",
+          name: p.Description || p.Name || "",
+          amount: p.Amount || p.Price || 0,
+          date: p.SaleDate || p.Date || "",
+          status: p.Status || "",
+          type: p.Type || ""
+        }));
+        sendJson(response, 200, { ok: true, purchases });
+      } catch (err) {
+        sendJson(response, 503, { ok: false, message: "Could not load purchases." });
+      }
       return true;
     }
 
