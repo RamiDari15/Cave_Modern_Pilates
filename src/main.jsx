@@ -2594,7 +2594,7 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
         if (updated?.data) {
           onComplete(updated.data);
         } else {
-          onComplete({ ...accountData, hasBusinessProfile: true });
+          onComplete({ ...accountData, hasBusinessProfile: true, clientId: result.clientId || accountData?.clientId });
         }
       }
     } catch (err) {

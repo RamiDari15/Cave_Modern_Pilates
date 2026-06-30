@@ -1291,9 +1291,32 @@ export async function handleApiRequest(request, response) {
         });
       }
 
-      // Fetch full client profile from Public API clientcompleteinfo if we have a clientId
-      const resolvedClientId = studioClientId || activeSession.clientId;
+      // Fetch full client profile from Public API clientcompleteinfo
+      // If Platform API gave us a clientId, use it; otherwise try consumer token alone
+      // (consumer-identity-token header lets Mindbody identify the client without a clientId param)
+      let resolvedClientId = studioClientId || activeSession.clientId;
       let fullProfile = null;
+
+      if (!resolvedClientId && accessToken) {
+        const ccFallback = await bookingRequest("/client/clientcompleteinfo", {
+          consumerIdentityToken: accessToken,
+          params: { "request.crossRegionalLookup": "true" }
+        }).catch(() => null);
+
+        if (ccFallback) {
+          const foundId = extractClientId(ccFallback);
+          if (foundId) {
+            resolvedClientId = foundId;
+            console.log(`[account/me] clientcompleteinfo (consumer token) resolved clientId: ${foundId}`);
+            setSessionCookie(response, {
+              ...activeSession,
+              clientId: foundId,
+              user: { ...(activeSession.user || {}), id: foundId }
+            });
+          }
+        }
+      }
+
       if (resolvedClientId) {
         let profileToken = null;
         try {
@@ -1302,7 +1325,10 @@ export async function handleApiRequest(request, response) {
         const ccResp = await bookingRequest("/client/clientcompleteinfo", {
           token: profileToken || undefined,
           consumerIdentityToken: profileToken ? undefined : accessToken,
-          params: { ClientId: resolvedClientId }
+          params: compactObject({
+            "request.clientId": resolvedClientId,
+            "request.crossRegionalLookup": "true"
+          })
         }).catch(() => null);
         if (ccResp) {
           const client = ccResp.ClientCompleteInfo?.Client || ccResp.Client || {};
@@ -1331,6 +1357,8 @@ export async function handleApiRequest(request, response) {
         }
       }
 
+      const resolvedHasBusinessProfile = hasBusinessProfile || Boolean(resolvedClientId);
+
       sendJson(response, 200, {
         ok: true,
         data: {
@@ -1339,10 +1367,10 @@ export async function handleApiRequest(request, response) {
           firstName: platformUser?.firstName || platformUser?.FirstName || activeSession.user?.firstName || "",
           lastName: platformUser?.lastName || platformUser?.LastName || activeSession.user?.lastName || "",
           countryCode: platformUser?.countryCode || platformUser?.CountryCode || "",
-          clientId: studioClientId,
+          clientId: resolvedClientId,
           businessId,
           profileId,
-          hasBusinessProfile,
+          hasBusinessProfile: resolvedHasBusinessProfile,
           businessProfiles: profiles,
           platformMeError: meResult.ok ? null : { status: meResult.status, error: meResult.error },
           ...fullProfile
@@ -1426,9 +1454,39 @@ export async function handleApiRequest(request, response) {
       }
 
       if (!updateResult) {
-        const message = updateError?.data?.Error?.Message || updateError?.data?.Message || updateError?.message || "Profile update failed.";
+        const mbMessage = updateError?.data?.Error?.Message || updateError?.data?.Message || updateError?.message || "";
+        const isPermissionDenied = /permission to edit/i.test(mbMessage) || /not.*allowed/i.test(mbMessage);
+
+        // If Mindbody says the consumer can't edit the profile, try to link the account
+        // via clientcompleteinfo (read-only) so the session gets a clientId even if
+        // profile fields can't be written today.
+        if (isPermissionDenied) {
+          const linkResult = await bookingRequest("/client/clientcompleteinfo", {
+            consumerIdentityToken: consumerToken,
+            params: { "request.crossRegionalLookup": "true" }
+          }).catch(() => null);
+
+          const linkedId = linkResult ? extractClientId(linkResult) : null;
+          if (linkedId) {
+            setSessionCookie(response, {
+              ...session,
+              clientId: linkedId,
+              user: { ...(session.user || {}), id: linkedId }
+            });
+            console.log(`[account/profile] account linked via clientcompleteinfo: ${linkedId}`);
+            sendJson(response, 200, {
+              ok: true,
+              linked: true,
+              permissionLimited: true,
+              clientId: linkedId,
+              message: "Your account is linked. To update profile details, please use the Mindbody app or contact the studio."
+            });
+            return true;
+          }
+        }
+
         const code = updateError?.data?.Error?.Code || updateError?.data?.code || "";
-        sendJson(response, updateError?.status || 500, { ok: false, message, code });
+        sendJson(response, updateError?.status || 500, { ok: false, message: mbMessage || "Profile update failed.", code });
         return true;
       }
 
