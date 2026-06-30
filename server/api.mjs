@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 const ROOT_DIR = resolve(import.meta.dirname, "..");
 const API_HOST = "api." + "mind" + "bodyonline.com";
 const BASE_URL = `https://${API_HOST}/public/v6`;
+const PLATFORM_API_BASE_URL = "https://api.mindbodyonline.com/platform";
+
 const OFFICIAL_SITE_URL = "https://www.cavemodernpilates.com";
 const SESSION_COOKIE = "cave_session";
 const OAUTH_COOKIE = "cave_oauth";
@@ -1911,12 +1913,56 @@ async function readHydratedSession(request, response) {
   return hydrated;
 }
 
+async function linkPlatformProfile(accessToken) {
+  const { apiKey, siteId } = getBookingConfig();
+  if (!apiKey || !accessToken) return null;
+
+  try {
+    const meResp = await fetch(`${PLATFORM_API_BASE_URL}/account/v1/me`, {
+      headers: {
+        "Api-Key": apiKey,
+        "Authorization": `Bearer ${accessToken}`,
+        "Accept": "application/json"
+      }
+    });
+    if (!meResp.ok) return null;
+
+    const me = await meResp.json();
+    const userId = me?.UserAccount?.id;
+    if (!userId) return null;
+
+    await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
+      method: "POST",
+      headers: {
+        "Api-Key": apiKey,
+        "Authorization": `Bearer ${accessToken}`,
+        "BusinessId": String(siteId),
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ userId })
+    });
+
+    return userId;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function hydrateOAuthSession(session) {
   if (!shouldHydrateOAuthSession(session)) {
     return session;
   }
 
   const hydratedAt = new Date().toISOString();
+
+  // Create the Platform API business profile link between this OAuth identity and the Cave
+  // studio. This is idempotent and makes subsequent clientcompleteinfo calls return the
+  // correct numeric studio client ID, including for clients registered via the sign-up form.
+  if (!session.clientId) {
+    const accessToken = session.consumerIdentityToken || session.accessToken;
+    await linkPlatformProfile(accessToken).catch(() => null);
+  }
 
   const profile = await fetchOAuthClientProfile(session).catch(() => null);
 
