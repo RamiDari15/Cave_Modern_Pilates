@@ -337,8 +337,9 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/auth/link" && request.method === "POST") {
-      // Verifies the active Mindbody session and returns the authenticated client's info.
-      // Mindbody is the sole source of truth — no external database is involved.
+      // Verifies the active Mindbody OAuth session and looks up the existing studio client.
+      // This endpoint ONLY searches for existing clients — it never creates new ones.
+      // Mindbody is the sole source of truth; no external database is involved.
       const session = await readHydratedSession(request, response);
 
       if (!session?.consumerIdentityToken && !session?.accessToken) {
@@ -350,6 +351,8 @@ export async function handleApiRequest(request, response) {
       const firstName = session.user?.firstName || "";
       const lastName = session.user?.lastName || "";
 
+      console.log("[mindbody-auth] /api/auth/link: OAuth login succeeded for", email || "(no email)");
+
       if (!email) {
         sendJson(response, 400, { success: false, authenticated: false, message: "No email found on Mindbody session." });
         return true;
@@ -358,16 +361,21 @@ export async function handleApiRequest(request, response) {
       let clientId = session.clientId || "";
       let lastError = null;
 
-      // 1. Platform API — creates/retrieves the business profile link
+      if (clientId) {
+        console.log("[mindbody-auth] /api/auth/link: clientId already in session:", clientId);
+      }
+
+      // 1. Platform API — retrieves the business profile link (read-only)
       if (!clientId) {
         const accessToken = session.consumerIdentityToken || session.accessToken;
         const platformResult = await linkPlatformProfile(accessToken).catch(() => null);
         if (platformResult && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(platformResult)) {
           clientId = platformResult;
+          console.log("[mindbody-auth] /api/auth/link: Platform API resolved clientId:", clientId);
         }
       }
 
-      // 2. clientcompleteinfo with consumer token (works once the Platform link exists)
+      // 2. clientcompleteinfo with consumer token
       if (!clientId) {
         const consumerToken = session.consumerIdentityToken || session.accessToken;
         const ccResult = await bookingRequest("/client/clientcompleteinfo", {
@@ -375,33 +383,40 @@ export async function handleApiRequest(request, response) {
           params: {}
         }).catch(() => null);
         const ccProfile = extractClientProfile(ccResult, email);
-        if (ccProfile?.clientId) clientId = ccProfile.clientId;
+        if (ccProfile?.clientId) {
+          clientId = ccProfile.clientId;
+          console.log("[mindbody-auth] /api/auth/link: clientcompleteinfo resolved clientId:", clientId);
+        }
       }
 
-      // 3. Source credentials: search Mindbody client list by email, create if absent
+      // 3. Source credentials: search by email only — no client creation.
+      //    If the client doesn't exist in Mindbody, we return an error rather than create a duplicate.
       if (!clientId) {
         try {
           const staffToken = await getMindbodyActionToken("Account link");
+          console.log("[mindbody-auth] /api/auth/link: source credentials token issued, searching by email");
           const searchResult = await bookingRequest("/client/clients", { token: staffToken, params: { SearchText: email } });
           const searchProfile = extractClientProfile(searchResult, email);
           if (searchProfile?.clientId) {
             clientId = searchProfile.clientId;
+            console.log("[mindbody-auth] /api/auth/link: client search succeeded:", clientId);
           } else {
-            const upsertResult = await bookingRequest("/client/addorupdateclient", {
-              method: "POST",
-              token: staffToken,
-              body: { Client: compactObject({ Email: email, FirstName: firstName, LastName: lastName }) }
-            });
-            const upsertProfile = extractClientProfile(upsertResult, email);
-            if (upsertProfile?.clientId) clientId = upsertProfile.clientId;
+            // No client found — do NOT call addorupdateclient here.
+            // Creating a client during login would produce duplicates if source credentials
+            // or scopes are misconfigured. Only /api/auth/sign-up may create new clients.
+            console.log("[mindbody-auth] /api/auth/link: client search failed: no existing Mindbody client found for email, client creation skipped");
           }
         } catch (err) {
           lastError = err.message || "Mindbody client lookup failed.";
+          console.error("[mindbody-auth] /api/auth/link: source credentials failed:", lastError);
         }
       }
 
       if (!clientId) {
-        const message = lastError || "Your Mindbody account could not be found. Please contact the studio.";
+        const isCredentialError = lastError && /source credential|rejected|user token|password|unauthorized/i.test(lastError);
+        const message = isCredentialError
+          ? "Studio booking credentials are misconfigured. Please contact the studio."
+          : "No existing Mindbody client was found for this email. Please check the email on your Mindbody account or contact the studio.";
         sendJson(response, 404, { success: false, authenticated: false, message });
         return true;
       }
@@ -417,6 +432,8 @@ export async function handleApiRequest(request, response) {
 
       // Store the resolved clientId in the session cookie
       setSessionCookie(response, { ...session, clientId, user: { ...session.user, id: clientId } });
+
+      console.log("[mindbody-auth] /api/auth/link: success, session updated with clientId:", clientId);
 
       sendJson(response, 200, {
         success: true,
@@ -2016,15 +2033,18 @@ async function hydrateOAuthSession(session) {
   }
 
   const hydratedAt = new Date().toISOString();
+  const email = session.user?.email || session.user?.username || "";
+  console.log("[mindbody-auth] hydrating OAuth session for:", email || "(no email)");
 
-  // 1. Try the Mindbody Platform API to create (or retrieve) the business profile link.
-  //    When the platform response includes the studio clientId, use it directly.
+  // 1. Try the Mindbody Platform API to retrieve the business profile link.
+  //    This is read-only — it only creates a link if one already exists on Mindbody's side.
   let platformClientId = "";
   if (!session.clientId) {
     const accessToken = session.consumerIdentityToken || session.accessToken;
     const linked = await linkPlatformProfile(accessToken).catch(() => null);
     if (linked && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(linked)) {
       platformClientId = linked;
+      console.log("[mindbody-auth] Platform API resolved clientId:", platformClientId);
     }
   }
 
@@ -2037,22 +2057,21 @@ async function hydrateOAuthSession(session) {
     };
   }
 
-  // 2. clientcompleteinfo with consumer token (works once Platform link is established)
-  //    and source-credentials staff search as fallback.
+  // 2. clientcompleteinfo with consumer token (works once Platform link is established).
   const profile = await fetchOAuthClientProfile(session).catch(() => null);
 
   if (profile?.clientId) {
+    console.log("[mindbody-auth] clientcompleteinfo resolved clientId:", profile.clientId);
     return { ...mergeSessionClientProfile(session, profile), hydratedAt };
   }
 
-  // 3. Source credentials: search by email, create if missing.
-  //    This is the most reliable path for studios that haven't used the Platform API yet.
-  const autoLinkedClientId = await autoLinkOAuthClient(session).catch(() => "");
+  // 3. Source credentials: search by email only — no client creation.
+  const foundClientId = await findExistingMindbodyClient(session).catch(() => "");
 
-  if (autoLinkedClientId) {
+  if (foundClientId) {
     return {
       ...session,
-      clientId: autoLinkedClientId,
+      clientId: foundClientId,
       user: {
         ...(session.user || {}),
         ...(profile ? {
@@ -2061,54 +2080,55 @@ async function hydrateOAuthSession(session) {
           email: profile.email || session.user?.email || "",
           username: profile.username || profile.email || session.user?.username || ""
         } : {}),
-        id: autoLinkedClientId
+        id: foundClientId
       },
       hydratedAt
     };
   }
 
+  console.log("[mindbody-auth] hydration complete: no clientId resolved for", email || "(no email)");
   return {
     ...(profile ? mergeSessionClientProfile(session, profile) : session),
     hydratedAt
   };
 }
 
-async function autoLinkOAuthClient(session) {
+async function findExistingMindbodyClient(session) {
   const email = session.user?.email || session.user?.username || "";
-  const firstName = session.user?.firstName || "";
-  const lastName = session.user?.lastName || "";
 
   if (!email) return "";
 
-  const payload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
   const config = getBookingConfig();
 
   if (!config.actionTokenConfigured) {
+    console.error("[mindbody-auth] client search skipped: source credentials not configured");
     return "";
   }
 
-  const staffToken = await getMindbodyActionToken("OAuth auto-link");
+  let staffToken;
+  try {
+    staffToken = await getMindbodyActionToken("client search");
+  } catch (err) {
+    console.error("[mindbody-auth] source credentials failed:", err.message);
+    throw err;
+  }
 
-  // Search first to avoid creating duplicates.
   const searchResult = await bookingRequest("/client/clients", {
     token: staffToken,
     params: { SearchText: email }
   }).catch(() => null);
 
   const searchProfile = extractClientProfile(searchResult, email);
+
   if (searchProfile?.clientId) {
+    console.log("[mindbody-auth] client search succeeded:", searchProfile.clientId);
     return searchProfile.clientId;
   }
 
-  // Not found — create or merge via AddOrUpdateClient.
-  const upsertResult = await bookingRequest("/client/addorupdateclient", {
-    method: "POST",
-    token: staffToken,
-    body: { Client: payload }
-  });
-
-  const upsertProfile = extractClientProfile(upsertResult, email);
-  return upsertProfile?.clientId || "";
+  // Client not found — do NOT create a new client here.
+  // Client creation only happens through the intentional sign-up flow (/api/auth/sign-up).
+  console.log("[mindbody-auth] client search failed: no existing Mindbody client found for email");
+  return "";
 }
 
 function shouldHydrateOAuthSession(session) {
