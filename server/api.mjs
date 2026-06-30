@@ -1531,7 +1531,6 @@ export async function handleApiRequest(request, response) {
       }
 
       const body = await readJsonBody(request);
-      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
       const clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
 
       if (!clientId) {
@@ -1570,37 +1569,36 @@ export async function handleApiRequest(request, response) {
       let updateResult = null;
       let updateError = null;
 
-      // Try updateclient with consumer token first (OAuth users)
-      if (consumerToken) {
-        console.log(`[account/profile] POST /client/updateclient clientId=${clientId}`);
-        try {
-          updateResult = await bookingRequest("/client/updateclient", {
-            method: "POST",
-            consumerIdentityToken: consumerToken,
-            body: { Client: { Id: clientId, ...sharedFields }, CrossRegionalUpdate: true }
-          });
-          console.log("[account/profile] updateclient success");
-        } catch (err) {
-          updateError = err;
-          console.error(`[account/profile] updateclient failed (${err.status || 0}): ${err.message}`);
-        }
-      }
+      // Use addclient with staff token — passes Id to target existing record
+      console.log(`[account/profile] POST /client/addclient clientId=${clientId}`);
+      try {
+        const staffToken = await getMindbodyActionToken("Profile update");
+        updateResult = await bookingRequest("/client/addclient", {
+          method: "POST",
+          token: staffToken,
+          body: { Id: clientId, FirstName: firstName, LastName: lastName, ...sharedFields }
+        });
+        console.log("[account/profile] addclient success");
+      } catch (addErr) {
+        updateError = addErr;
+        console.error(`[account/profile] addclient failed (${addErr.status || 0}): ${addErr.message}`);
 
-      // Fall back to addclient with staff token (email/password users or updateclient failure)
-      if (!updateResult) {
-        console.log(`[account/profile] POST /client/addclient clientId=${clientId} (staff token)`);
-        try {
-          const staffToken = await getMindbodyActionToken("Profile update");
-          updateResult = await bookingRequest("/client/addclient", {
-            method: "POST",
-            token: staffToken,
-            body: { Id: clientId, FirstName: firstName, LastName: lastName, ...sharedFields }
-          });
-          updateError = null;
-          console.log("[account/profile] addclient success");
-        } catch (err) {
-          updateError = err;
-          console.error(`[account/profile] addclient failed (${err.status || 0}): ${err.message}`);
+        // Fall back to updateclient with consumer token if available
+        const consumerToken = session.consumerIdentityToken || session.accessToken || "";
+        if (consumerToken) {
+          console.log("[account/profile] falling back to updateclient with consumer token");
+          try {
+            updateResult = await bookingRequest("/client/updateclient", {
+              method: "POST",
+              consumerIdentityToken: consumerToken,
+              body: { Client: { Id: clientId, ...sharedFields }, CrossRegionalUpdate: true }
+            });
+            updateError = null;
+            console.log("[account/profile] updateclient fallback success");
+          } catch (updErr) {
+            updateError = updErr;
+            console.error(`[account/profile] updateclient fallback failed (${updErr.status || 0}): ${updErr.message}`);
+          }
         }
       }
 
@@ -4730,42 +4728,54 @@ async function attachClientWaiver(session, waiver) {
     };
   }
 
-  // Always set the built-in Liability.LiabilityRelease field — works with consumer
-  // identity token (no staff credentials required, ReleasedBy = null = client-initiated).
-  const liabilityBody = {
-    Client: compactObject({
-      Id: clientId || undefined,
-      Liability: { LiabilityRelease: true }
-    })
-  };
+  const firstName = String(session?.user?.firstName || "").trim();
+  const lastName = String(session?.user?.lastName || "").trim();
 
   let liabilityStored = false;
 
-  if (consumerToken) {
+  // Use addclient with staff token to set Liability.LiabilityRelease: true
+  if (clientId && firstName && lastName) {
+    try {
+      const staffToken = await getMindbodyActionToken("Waiver liability sync");
+      await bookingRequest("/client/addclient", {
+        method: "POST",
+        token: staffToken,
+        body: compactObject({
+          Id: clientId,
+          FirstName: firstName,
+          LastName: lastName,
+          Liability: { LiabilityRelease: true }
+        })
+      });
+      liabilityStored = true;
+    } catch (addErr) {
+      errors.push(`addclient liability: ${addErr.message}`);
+
+      // Fall back to updateclient with consumer token
+      if (consumerToken) {
+        try {
+          await bookingRequest("/client/updateclient", {
+            method: "POST",
+            consumerIdentityToken: consumerToken,
+            body: { Client: compactObject({ Id: clientId || undefined, Liability: { LiabilityRelease: true } }) }
+          });
+          liabilityStored = true;
+        } catch (updErr) {
+          errors.push(`updateclient liability fallback: ${updErr.message}`);
+        }
+      }
+    }
+  } else if (consumerToken) {
+    // No names available — fall back to updateclient with consumer token
     try {
       await bookingRequest("/client/updateclient", {
         method: "POST",
         consumerIdentityToken: consumerToken,
-        body: liabilityBody
+        body: { Client: compactObject({ Id: clientId || undefined, Liability: { LiabilityRelease: true } }) }
       });
       liabilityStored = true;
     } catch (consumerError) {
       errors.push(`Consumer liability update: ${consumerError.message}`);
-    }
-  }
-
-  // If consumer update failed or no consumer token, try with staff token
-  if (!liabilityStored && clientId) {
-    try {
-      const staffToken = await getMindbodyActionToken("Waiver liability sync");
-      await bookingRequest("/client/updateclient", {
-        method: "POST",
-        token: staffToken,
-        body: liabilityBody
-      });
-      liabilityStored = true;
-    } catch (staffError) {
-      errors.push(`Staff liability update: ${staffError.message}`);
     }
   }
 
