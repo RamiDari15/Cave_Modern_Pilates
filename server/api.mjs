@@ -1175,10 +1175,19 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
-    if (path === "/api/account/me" && request.method === "GET") {
-      const session = await readHydratedSession(request, response);
+    if (path === "/api/account/me") {
+      if (request.method !== "GET") {
+        response.setHeader("Allow", "GET");
+        sendJson(response, 405, { message: "Method not allowed. Use GET /api/account/me." });
+        return true;
+      }
 
-      if (!session?.accessToken && !session?.consumerIdentityToken) {
+      const session = await readHydratedSession(request, response);
+      const hasToken = Boolean(session?.accessToken || session?.consumerIdentityToken);
+
+      console.log(`[account/me] hasToken=${hasToken} platformUserId=${session?.platformUserId || ""} clientId=${session?.clientId || ""}`);
+
+      if (!hasToken) {
         sendJson(response, 401, { ok: false, message: "Please sign in first.", loginUrl: "/api/auth/start?returnTo=/account" });
         return true;
       }
@@ -1186,7 +1195,8 @@ export async function handleApiRequest(request, response) {
       let accessToken = session.consumerIdentityToken || session.accessToken;
       let activeSession = session;
 
-      if (session.expiresAt && new Date(session.expiresAt).getTime() < Date.now() && session.refreshToken) {
+      const tokenExpired = session.expiresAt && new Date(session.expiresAt).getTime() < Date.now();
+      if (tokenExpired && session.refreshToken) {
         const refreshed = await refreshAccessToken(session.refreshToken).catch(() => null);
         if (refreshed?.access_token) {
           activeSession = {
@@ -1200,12 +1210,16 @@ export async function handleApiRequest(request, response) {
           };
           accessToken = refreshed.access_token;
           setSessionCookie(response, activeSession);
+          console.log("[account/me] token refreshed");
         }
       }
 
       const { siteId } = getBookingConfig();
-      const platformUser = await fetchPlatformMe(accessToken).catch(() => null);
+      const meResult = await fetchPlatformMeWithStatus(accessToken);
+      const platformUser = meResult.ok ? meResult.data : null;
       const userId = platformUser?.userAccount?.id || platformUser?.UserAccount?.id || activeSession.platformUserId || "";
+
+      console.log(`[account/me] GET /platform/account/v1/me → ok=${meResult.ok} status=${meResult.status || ""} platformUserId=${userId || "(none)"}`);
 
       const profiles = userId
         ? await fetchPlatformBusinessProfiles(userId, accessToken).catch(() => [])
@@ -1216,6 +1230,8 @@ export async function handleApiRequest(request, response) {
       const studioClientId = studioProfile?.clientId || studioProfile?.ClientId || activeSession.clientId || "";
       const businessId = studioProfile?.businessId || studioProfile?.BusinessId || activeSession.businessId || siteId || "";
       const profileId = studioProfile?.id || studioProfile?.profileId || studioProfile?.ProfileId || activeSession.profileId || "";
+
+      console.log(`[account/me] businessProfiles=${profiles.length} studioMatch=${hasBusinessProfile} businessId=${businessId} clientId=${studioClientId}`);
 
       if ((userId && userId !== activeSession.platformUserId) || (studioClientId && studioClientId !== activeSession.clientId)) {
         setSessionCookie(response, {
@@ -1239,16 +1255,27 @@ export async function handleApiRequest(request, response) {
           businessId,
           profileId,
           hasBusinessProfile,
-          businessProfiles: profiles
+          businessProfiles: profiles,
+          platformMeError: meResult.ok ? null : { status: meResult.status, error: meResult.error }
         }
       });
       return true;
     }
 
-    if (path === "/api/account/profile" && request.method === "POST") {
-      const session = await readHydratedSession(request, response);
+    if (path === "/api/account/profile") {
+      if (request.method !== "POST") {
+        response.setHeader("Allow", "POST");
+        sendJson(response, 405, { message: "Method not allowed. Use POST /api/account/profile." });
+        return true;
+      }
 
-      if (!session?.accessToken && !session?.consumerIdentityToken) {
+      const session = await readHydratedSession(request, response);
+      const hasToken = Boolean(session?.accessToken || session?.consumerIdentityToken);
+      const tokenExpired = Boolean(session?.expiresAt && new Date(session.expiresAt).getTime() < Date.now());
+
+      console.log(`[account/profile] POST hasToken=${hasToken} tokenExpired=${tokenExpired} platformUserId=${session?.platformUserId || "(none)"} businessId=${session?.businessId || "(none)"}`);
+
+      if (!hasToken) {
         sendJson(response, 401, { ok: false, message: "Please sign in first." });
         return true;
       }
@@ -1258,7 +1285,9 @@ export async function handleApiRequest(request, response) {
       let userId = session.platformUserId || body.userId || "";
 
       if (!userId) {
+        console.log("[account/profile] platformUserId missing from session — calling /platform/account/v1/me");
         const meResult = await fetchPlatformMeWithStatus(accessToken);
+        console.log(`[account/profile] GET /platform/account/v1/me → ok=${meResult.ok} status=${meResult.status || ""}`);
         if (meResult.ok) {
           userId = meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "";
           if (userId) {
@@ -1268,10 +1297,10 @@ export async function handleApiRequest(request, response) {
         if (!userId) {
           const hint =
             meResult.status === 401 ? "OAuth token is expired or missing the Platform.Accounts.Api.Read scope." :
-            meResult.status === 403 ? "OAuth app lacks permission to read Platform account data. Check your Mindbody OAuth app scopes." :
-            meResult.status === 0   ? "Could not reach Mindbody Platform API. Check server connectivity." :
-            `Mindbody returned ${meResult.status}: ${meResult.error}`;
-          console.error("[mindbody-auth] /api/account/profile: platformUserId unresolvable —", hint);
+            meResult.status === 403 ? "OAuth app lacks permission for Platform account data. Check your Mindbody OAuth app scopes." :
+            meResult.status === 0   ? "Could not reach Mindbody Platform API." :
+            `Mindbody returned HTTP ${meResult.status}: ${meResult.error}`;
+          console.error("[account/profile] cannot resolve platformUserId —", hint);
           sendJson(response, 401, { ok: false, message: "Could not verify your Mindbody identity. Please sign out and sign in again.", debug: hint });
           return true;
         }
@@ -1323,7 +1352,7 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      console.log("[mindbody-auth] /api/account/profile: updating", contactProperties.length, "fields for userId:", userId);
+      console.log(`[account/profile] calling POST /platform/contacts/v1/profiles userId=${userId} businessId=${businessId} fields=${contactProperties.map((p) => p.name).join(",")}`);
 
       const profileResp = await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
         method: "POST",
@@ -1343,7 +1372,7 @@ export async function handleApiRequest(request, response) {
       if (!profileResp.ok) {
         const message = profileData?.Error?.Message || profileData?.message || profileData?.Message || "Profile update failed.";
         const code = profileData?.Error?.Code || profileData?.code || "";
-        console.error("[mindbody-auth] /api/account/profile: Mindbody rejected:", message);
+        console.error(`[account/profile] POST /platform/contacts/v1/profiles → ${profileResp.status} code=${code} message=${message}`);
         sendJson(response, profileResp.status, { ok: false, message, code, details: profileData });
         return true;
       }
@@ -1358,7 +1387,7 @@ export async function handleApiRequest(request, response) {
         });
       }
 
-      console.log("[mindbody-auth] /api/account/profile: success");
+      console.log(`[account/profile] POST /platform/contacts/v1/profiles → 200 OK`);
       sendJson(response, 200, { ok: true, data: profileData });
       return true;
     }
