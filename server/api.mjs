@@ -48,6 +48,58 @@ const liveClassesCache = {
 
 loadLocalEnv();
 
+// ---------------------------------------------------------------------------
+// Supabase helpers — used to cache the email → Mindbody clientId mapping so
+// that the server doesn't have to call Mindbody on every OAuth session hydration.
+// Reads use the anon key (allowed by the SELECT policy on mindbody_links).
+// Writes use the service role key which bypasses RLS.
+// ---------------------------------------------------------------------------
+
+function getSupabaseConfig() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  return { url, anonKey, serviceRoleKey };
+}
+
+async function lookupMindbodyLink(email) {
+  if (!email) return null;
+  const { url, anonKey } = getSupabaseConfig();
+  if (!url || !anonKey) return null;
+  try {
+    const resp = await fetch(
+      `${url}/rest/v1/mindbody_links?email=eq.${encodeURIComponent(email.toLowerCase())}&select=mindbody_client_id&limit=1`,
+      { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, Accept: "application/json" } }
+    );
+    if (!resp.ok) return null;
+    const rows = await resp.json();
+    return rows?.[0]?.mindbody_client_id || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function saveMindbodyLink(email, mindbodyClientId) {
+  if (!email || !mindbodyClientId) return false;
+  const { url, serviceRoleKey } = getSupabaseConfig();
+  if (!url || !serviceRoleKey) return false;
+  try {
+    const resp = await fetch(`${url}/rest/v1/mindbody_links?on_conflict=email`, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify({ email: email.toLowerCase(), mindbody_client_id: mindbodyClientId })
+    });
+    return resp.ok;
+  } catch (_) {
+    return false;
+  }
+}
+
 function loadLocalEnv() {
   const envFile = resolve(ROOT_DIR, ".env");
 
@@ -340,7 +392,7 @@ export async function handleApiRequest(request, response) {
       const session = await readHydratedSession(request, response);
 
       if (!session?.consumerIdentityToken && !session?.accessToken) {
-        sendJson(response, 401, { ok: false, message: "Please sign in first." });
+        sendJson(response, 401, { success: false, linked: false, message: "Please sign in first." });
         return true;
       }
 
@@ -349,14 +401,19 @@ export async function handleApiRequest(request, response) {
       const lastName = session.user?.lastName || "";
 
       if (!email) {
-        sendJson(response, 400, { ok: false, message: "No email on session to link with." });
+        sendJson(response, 400, { success: false, linked: false, message: "No email on session to link with." });
         return true;
       }
 
       let linkedClientId = session.clientId || "";
       let linkError = null;
 
-      // 1. Try Platform API link — returns studio clientId directly if the platform profile
+      // 1. Supabase cache — fastest path, no Mindbody round-trip needed.
+      if (!linkedClientId) {
+        linkedClientId = await lookupMindbodyLink(email).catch(() => null) || "";
+      }
+
+      // 2. Try Platform API link — returns studio clientId directly if the platform profile
       //    response includes it, otherwise creates the link so clientcompleteinfo can resolve it.
       if (!linkedClientId) {
         const accessToken = session.consumerIdentityToken || session.accessToken;
@@ -366,8 +423,7 @@ export async function handleApiRequest(request, response) {
         }
       }
 
-      // 2. If Platform API gave us the clientId, no further lookup needed.
-      //    Otherwise retry clientcompleteinfo (the Platform link may now resolve it).
+      // 3. Retry clientcompleteinfo in case the Platform link just made it resolvable.
       if (!linkedClientId) {
         const consumerToken = session.consumerIdentityToken || session.accessToken;
         const ccResult = await bookingRequest("/client/clientcompleteinfo", {
@@ -378,7 +434,7 @@ export async function handleApiRequest(request, response) {
         if (ccProfile?.clientId) linkedClientId = ccProfile.clientId;
       }
 
-      // 3. Fall back to source/staff credentials: search then create.
+      // 4. Source/staff credentials: search by email, then create if missing.
       if (!linkedClientId) {
         const clientPayload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
         try {
@@ -398,15 +454,22 @@ export async function handleApiRequest(request, response) {
       }
 
       if (linkedClientId) {
+        // Persist to Supabase so future logins resolve instantly without hitting Mindbody.
+        await saveMindbodyLink(email, linkedClientId).catch(() => null);
+
         const updatedSession = {
           ...session,
           clientId: linkedClientId,
           user: { ...session.user, id: linkedClientId }
         };
         setSessionCookie(response, updatedSession);
-        sendJson(response, 200, { ok: true, clientId: linkedClientId });
+        sendJson(response, 200, { success: true, linked: true, mindbodyClientId: linkedClientId });
       } else {
-        sendJson(response, 200, { ok: false, message: linkError || "Could not find a matching studio account for this email." });
+        sendJson(response, 200, {
+          success: false,
+          linked: false,
+          message: linkError || "Could not find a matching studio account for this email address."
+        });
       }
 
       return true;
@@ -1995,22 +2058,36 @@ async function hydrateOAuthSession(session) {
   }
 
   const hydratedAt = new Date().toISOString();
+  const email = session.user?.email || session.user?.username || "";
 
-  // Create the Platform API business profile link between this OAuth identity and the studio.
+  // Fast path: Supabase mindbody_links cache — avoids a Mindbody round-trip entirely.
+  if (!session.clientId && email) {
+    const cachedClientId = await lookupMindbodyLink(email).catch(() => null);
+    if (cachedClientId) {
+      return {
+        ...session,
+        clientId: cachedClientId,
+        user: { ...(session.user || {}), id: cachedClientId },
+        hydratedAt
+      };
+    }
+  }
+
+  // Try the Mindbody Platform API to create (or retrieve) the business profile link.
   // When the platform response includes the studio clientId use it directly; otherwise the
   // link creation makes the subsequent clientcompleteinfo call resolve the studio client.
   let platformClientId = "";
   if (!session.clientId) {
     const accessToken = session.consumerIdentityToken || session.accessToken;
     const linked = await linkPlatformProfile(accessToken).catch(() => null);
-    // A non-UUID, numeric-ish string is the studio clientId; a UUID (userId) is just a sentinel.
+    // A non-UUID, numeric-ish string is the studio clientId; a UUID is just a sentinel.
     if (linked && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(linked)) {
       platformClientId = linked;
     }
   }
 
-  // If the Platform API gave us a clientId directly, merge it and skip the v6 lookup.
   if (platformClientId) {
+    await saveMindbodyLink(email, platformClientId).catch(() => null);
     return {
       ...session,
       clientId: platformClientId,
@@ -2021,8 +2098,8 @@ async function hydrateOAuthSession(session) {
 
   const profile = await fetchOAuthClientProfile(session).catch(() => null);
 
-  // If we have a profile with a clientId we're done.
   if (profile?.clientId) {
+    await saveMindbodyLink(email, profile.clientId).catch(() => null);
     return { ...mergeSessionClientProfile(session, profile), hydratedAt };
   }
 
@@ -2031,6 +2108,7 @@ async function hydrateOAuthSession(session) {
   const autoLinkedClientId = await autoLinkOAuthClient(session).catch(() => "");
 
   if (autoLinkedClientId) {
+    await saveMindbodyLink(email, autoLinkedClientId).catch(() => null);
     return {
       ...session,
       clientId: autoLinkedClientId,

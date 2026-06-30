@@ -2483,7 +2483,8 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
     setLinkStatus("linking");
     try {
       const result = await apiRequest("/api/auth/link", { method: "POST" });
-      if (result?.ok) {
+      // Accept both the new { success, linked } shape and the legacy { ok } shape
+      if (result?.linked || result?.ok || result?.success) {
         setLinkStatus("linked");
         try { sessionStorage.removeItem("cave_link_tried"); } catch (_) {}
         // Refresh session and dashboard now that we have a clientId
