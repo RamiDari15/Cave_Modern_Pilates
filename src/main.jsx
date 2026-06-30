@@ -1727,6 +1727,7 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
                         value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
                     </label>
                   )}
+                  {showCardForm ? (
                     <AddCardForm clientSession={clientSession} onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }} onCancel={() => setShowCardForm(false)} />
                   ) : (
                     <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
@@ -2657,9 +2658,19 @@ function AccountWaiverSection({ accountData, onSigned }) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
 
-  // Already signed — nothing to show
+  // Already signed — show green confirmation
   if (accountData?.hasWaiver) {
-    return null;
+    const dateStr = accountData.waiverDate
+      ? new Date(accountData.waiverDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+      : null;
+    return (
+      <div className="account-waiver-section account-waiver-signed">
+        <div className="account-waiver-header">
+          <strong>Liability Waiver Signed</strong>
+          {dateStr ? <p>Signed on {dateStr}</p> : <p>On file with the studio.</p>}
+        </div>
+      </div>
+    );
   }
 
   const submit = async (e) => {
@@ -3069,7 +3080,7 @@ function normalizeAccountItems(data, type) {
       return {
         title,
         detail: remaining ? `${remaining} remaining` : "",
-        meta: expiration ? `Expires ${expiration}` : ""
+        meta: ""
       };
     }
 
