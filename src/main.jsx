@@ -1315,7 +1315,8 @@ function useSavedCards(clientSession) {
 }
 
 function AddCardForm({ clientSession, onSuccess, onCancel }) {
-  const [form, setForm] = useState({ number: "", expiry: "", name: "", zip: "" });
+  const emptyForm = { number: "", expiry: "", cardHolder: "", address: "", city: "", state: "", postalCode: "" };
+  const [form, setForm] = useState(emptyForm);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -1352,24 +1353,45 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
     const [, expMonth, expYearShort] = expiryMatch;
     const expYear = expYearShort.length === 2 ? `20${expYearShort}` : expYearShort;
 
-    if (!form.name.trim()) {
+    if (!form.cardHolder.trim()) {
       setStatus({ type: "error", message: "Please enter the name on the card." });
+      return;
+    }
+    if (!form.address.trim()) {
+      setStatus({ type: "error", message: "Please enter the billing address." });
+      return;
+    }
+    if (!form.city.trim()) {
+      setStatus({ type: "error", message: "Please enter the billing city." });
+      return;
+    }
+    if (!form.state.trim()) {
+      setStatus({ type: "error", message: "Please enter the billing state." });
+      return;
+    }
+    if (!form.postalCode.trim()) {
+      setStatus({ type: "error", message: "Please enter the billing ZIP code." });
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await apiRequest("/api/client/add-card", {
+      await apiRequest("/api/account/payment-card", {
         method: "POST",
         body: {
           cardNumber: digits,
           expMonth,
           expYear,
-          billingName: form.name.trim(),
-          billingPostalCode: form.zip.trim()
+          cardHolder: form.cardHolder.trim(),
+          address: form.address.trim(),
+          city: form.city.trim(),
+          state: form.state.trim(),
+          postalCode: form.postalCode.trim()
         }
       });
-      setStatus({ type: "success", message: "Card saved. You can now select it below." });
+      // Clear all card fields immediately after successful submission
+      setForm(emptyForm);
+      setStatus({ type: "success", message: "Card saved to your studio account." });
       onSuccess?.();
     } catch (error) {
       if (error.loginUrl) { window.location.href = error.loginUrl; return; }
@@ -1410,29 +1432,66 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
           />
         </label>
         <label className="payment-safe-field">
-          <span>ZIP</span>
+          <span>Name on card</span>
           <input
             type="text"
-            inputMode="numeric"
-            autoComplete="postal-code"
-            placeholder="60601"
-            value={form.zip}
-            onChange={handleChange("zip", (v) => v.replace(/\D/g, "").slice(0, 10))}
-            maxLength={10}
+            autoComplete="cc-name"
+            placeholder="Full name"
+            value={form.cardHolder}
+            onChange={handleChange("cardHolder")}
+            required
           />
         </label>
       </div>
       <label className="payment-safe-field">
-        <span>Name on card</span>
+        <span>Billing address</span>
         <input
           type="text"
-          autoComplete="cc-name"
-          placeholder="Full name"
-          value={form.name}
-          onChange={handleChange("name")}
+          autoComplete="billing address-line1"
+          placeholder="123 Main St"
+          value={form.address}
+          onChange={handleChange("address")}
           required
         />
       </label>
+      <div className="add-card-three-col">
+        <label className="payment-safe-field">
+          <span>City</span>
+          <input
+            type="text"
+            autoComplete="billing address-level2"
+            placeholder="City"
+            value={form.city}
+            onChange={handleChange("city")}
+            required
+          />
+        </label>
+        <label className="payment-safe-field">
+          <span>State</span>
+          <input
+            type="text"
+            autoComplete="billing address-level1"
+            placeholder="IL"
+            value={form.state}
+            onChange={handleChange("state")}
+            maxLength={2}
+            required
+          />
+        </label>
+        <label className="payment-safe-field">
+          <span>ZIP</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="billing postal-code"
+            placeholder="60601"
+            value={form.postalCode}
+            onChange={handleChange("postalCode", (v) => v.replace(/[^\d-]/g, "").slice(0, 10))}
+            maxLength={10}
+            required
+          />
+        </label>
+      </div>
       <p className="payment-safe-note">Card info is sent securely to the studio — Cave never stores card numbers.</p>
       <div className="add-card-actions">
         <button type="submit" className="pill-button black" disabled={isSubmitting}>
@@ -2568,10 +2627,10 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
             </button>
           </div>
 
-          {!accountLoading && accountData.hasWaiver === false && (
+          {!accountLoading && accountData?.hasBusinessProfile && (
             <AccountWaiverSection
               accountData={accountData}
-              onSigned={(updated) => setAccountData((prev) => ({ ...prev, hasWaiver: true, ...updated }))}
+              onSigned={(updated) => setAccountData((prev) => ({ ...prev, ...updated }))}
             />
           )}
 
@@ -2602,6 +2661,21 @@ function AccountWaiverSection({ accountData, onSigned }) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
 
+  // Already signed — show the agreement date from Mindbody
+  if (accountData?.hasWaiver) {
+    const dateStr = accountData.waiverDate
+      ? new Date(accountData.waiverDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+      : null;
+    return (
+      <div className="account-waiver-section account-waiver-signed">
+        <div className="account-waiver-header">
+          <strong>Liability Waiver Signed</strong>
+          {dateStr ? <p>Signed on {dateStr}</p> : <p>On file with the studio.</p>}
+        </div>
+      </div>
+    );
+  }
+
   const submit = async (e) => {
     e.preventDefault();
     if (!accepted) {
@@ -2620,7 +2694,7 @@ function AccountWaiverSection({ accountData, onSigned }) {
       };
       await apiRequest("/api/client/waiver", { method: "POST", body: { waiver } });
       setStatus({ type: "success", message: "Liability waiver signed and saved." });
-      if (onSigned) onSigned({ hasWaiver: true });
+      if (onSigned) onSigned({ hasWaiver: true, waiverDate: new Date().toISOString() });
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Could not save waiver. Please try again." });
     } finally {

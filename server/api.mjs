@@ -236,7 +236,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -1086,14 +1086,14 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
-    if (path === "/api/client/add-card" && request.method === "POST") {
+    if (path === "/api/account/payment-card" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
       if (!session) {
         sendJson(response, 401, {
           ok: false,
           message: "Please sign in before adding a card.",
-          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}`
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/account")}`
         });
         return true;
       }
@@ -1105,24 +1105,27 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      // Intentionally do NOT call assertNoRawCardPayload here — this endpoint's
-      // sole purpose is to accept card data and proxy it securely to MindBody.
+      // Intentionally skip assertNoRawCardPayload — this route exists solely to
+      // proxy card data securely to Mindbody. Card data is never stored or logged.
       const body = await readJsonBody(request);
 
       const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
-      const expMonth = String(body.expMonth || "").replace(/\D/g, "").padStart(2, "0").slice(-2);
+      const expMonthRaw = String(body.expMonth || "").replace(/\D/g, "").padStart(2, "0").slice(-2);
       const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
       const expYear = expYearRaw.length === 2 ? `20${expYearRaw}` : expYearRaw;
-      const billingName = String(body.billingName || "").trim();
-      const billingPostalCode = String(body.billingPostalCode || "").replace(/\D/g, "").slice(0, 10);
+      const cardHolder = String(body.cardHolder || body.billingName || "").trim();
+      const address = String(body.address || body.billingAddress || "").trim();
+      const city = String(body.city || body.billingCity || "").trim();
+      const state = String(body.state || body.billingState || "").trim();
+      const postalCode = String(body.postalCode || body.billingPostalCode || "").replace(/[^\w\s-]/g, "").trim().slice(0, 10);
 
       if (cardNumber.length < 13 || cardNumber.length > 19) {
         sendJson(response, 400, { ok: false, message: "Please enter a valid card number." });
         return true;
       }
 
-      const monthNum = Number(expMonth);
-      if (!expMonth || monthNum < 1 || monthNum > 12) {
+      const monthNum = Number(expMonthRaw);
+      if (!expMonthRaw || monthNum < 1 || monthNum > 12) {
         sendJson(response, 400, { ok: false, message: "Please enter a valid expiry month (01–12)." });
         return true;
       }
@@ -1132,39 +1135,89 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      if (!billingName) {
+      if (!cardHolder) {
         sendJson(response, 400, { ok: false, message: "Please enter the name on the card." });
         return true;
       }
 
-      try {
-        const staffToken = await getMindbodyActionToken("Add card");
+      if (!postalCode) {
+        sendJson(response, 400, { ok: false, message: "Please enter the billing ZIP code." });
+        return true;
+      }
 
-        await bookingRequest("/client/addorupdateclient", {
+      let staffToken;
+      try {
+        staffToken = await getMindbodyActionToken("Add card");
+      } catch (tokenErr) {
+        console.error("[account/payment-card] getMindbodyActionToken failed:", tokenErr.message);
+        sendJson(response, 500, { ok: false, message: "The studio booking service is not configured correctly. Please contact Cave." });
+        return true;
+      }
+
+      console.log(`[account/payment-card] POST /client/updateclient clientId=${clientId}`);
+
+      try {
+        const updateResult = await bookingRequest("/client/updateclient", {
           method: "POST",
           token: staffToken,
           body: {
-            Client: compactObject({
+            Client: {
               Id: clientId,
-              CreditCard: compactObject({
+              ClientCreditCard: compactObject({
                 CardNumber: cardNumber,
-                ExpMonth: expMonth,
+                ExpMonth: expMonthRaw,
                 ExpYear: expYear,
-                BillingName: billingName,
-                BillingPostalCode: billingPostalCode || undefined,
-                SaveInfo: true
+                CardHolder: cardHolder,
+                Address: address || undefined,
+                City: city || undefined,
+                State: state || undefined,
+                PostalCode: postalCode
               })
-            })
+            },
+            CrossRegionalUpdate: false
           }
         });
 
-        sendJson(response, 200, { ok: true, message: "Card saved successfully." });
+        const savedCard = updateResult?.Client?.ClientCreditCard || null;
+        const hasBillingAddress = Boolean(savedCard?.Address || savedCard?.City || savedCard?.State);
+        if (savedCard && !hasBillingAddress) {
+          console.warn("[account/payment-card] Mindbody saved card but returned null billing address fields.");
+        }
+
+        const masked = savedCard ? {
+          cardType: savedCard.CardType || null,
+          lastFour: savedCard.LastFour || savedCard.CardNumber?.slice(-4) || null,
+          expMonth: savedCard.ExpMonth || null,
+          expYear: savedCard.ExpYear || null,
+          cardHolder: savedCard.CardHolder || null,
+          address: savedCard.Address || null,
+          city: savedCard.City || null,
+          state: savedCard.State || null,
+          postalCode: savedCard.PostalCode || null
+        } : null;
+
+        console.log("[account/payment-card] updateclient success");
+        sendJson(response, 200, {
+          ok: true,
+          message: "Card saved successfully.",
+          card: masked,
+          billingAddressStored: hasBillingAddress
+        });
       } catch (error) {
-        const status = error.status >= 400 && error.status < 600 ? error.status : 503;
-        sendJson(response, status, { ok: false, message: error.message || "Could not save card. Please try again." });
+        const status = (error.status >= 400 && error.status < 600) ? error.status : 503;
+        const mbMessage = error.data?.Error?.Message || error.data?.Message || error.message || "";
+        // Never echo card numbers in error messages
+        const safeMessage = mbMessage.replace(/\b\d{13,19}\b/g, "****");
+        sendJson(response, status, { ok: false, message: safeMessage || "Could not save card. Please try again." });
       }
 
       return true;
+    }
+
+    // Legacy alias — same handler as /api/account/payment-card
+    if (path === "/api/client/add-card" && request.method === "POST") {
+      request.url = request.url.replace("/api/client/add-card", "/api/account/payment-card");
+      return handleRequest(request, response);
     }
 
     if (path === "/api/client/schedule" && request.method === "GET") {
@@ -1548,6 +1601,9 @@ export async function handleApiRequest(request, response) {
 
       const clientPayload = compactObject({
         Id: clientId,
+        FirstName: firstName,
+        LastName: lastName,
+        Email: body.email || session.user?.email || undefined,
         MobilePhone: body.phone,
         HomePhone: body.homePhone,
         WorkPhone: body.workPhone,
@@ -1565,7 +1621,7 @@ export async function handleApiRequest(request, response) {
         EmergencyContactInfoRelationship: body.emergencyContactRelationship
       });
 
-      if (Object.keys(clientPayload).filter((k) => k !== "Id").length === 0) {
+      if (Object.keys(clientPayload).filter((k) => !["Id", "FirstName", "LastName", "Email"].includes(k)).length === 0) {
         sendJson(response, 400, { ok: false, message: "No editable fields provided." });
         return true;
       }
@@ -1588,7 +1644,7 @@ export async function handleApiRequest(request, response) {
         updateResult = await bookingRequest("/client/updateclient", {
           method: "POST",
           token: staffToken,
-          body: { Client: clientPayload, CrossRegionalUpdate: true }
+          body: { Client: clientPayload, CrossRegionalUpdate: false }
         });
         console.log("[account/profile] updateclient success");
       } catch (err) {
