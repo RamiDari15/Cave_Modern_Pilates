@@ -2780,6 +2780,8 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
         method: "POST",
         body: {
           clientId: accountData?.clientId,
+          firstName: accountData?.firstName || clientSession?.user?.firstName || "",
+          lastName: accountData?.lastName || clientSession?.user?.lastName || "",
           ...form
         }
       });
@@ -2794,27 +2796,46 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
 
   return (
     <div className="edit-profile-section">
-      <h2>Edit Profile</h2>
-      <p className="edit-profile-note">Name, email, and external ID are managed by Mindbody and cannot be changed here.</p>
-      <form onSubmit={submit}>
-        <div className="form-grid two">
-          <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" />
-          <FormField label="Home Phone" name="homePhone" type="tel" value={form.homePhone} onChange={updateField} />
+      <div className="edit-profile-header">
+        <h2>Edit Profile</h2>
+        <p className="edit-profile-note">Name, email, and studio ID are managed by Mindbody and cannot be changed here.</p>
+      </div>
+      <form onSubmit={submit} className="edit-profile-body">
+        <div>
+          <p className="edit-profile-section-title">Contact</p>
+          <div style={{ display: "grid", gap: "14px", marginTop: "10px" }}>
+            <div className="form-grid two">
+              <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" />
+              <FormField label="Home Phone" name="homePhone" type="tel" value={form.homePhone} onChange={updateField} />
+            </div>
+          </div>
         </div>
-        <div className="form-grid two">
-          <FormField label="Middle Name" name="middleName" value={form.middleName} onChange={updateField} />
-          <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
+        <div className="edit-profile-divider" />
+        <div>
+          <p className="edit-profile-section-title">Personal</p>
+          <div style={{ display: "grid", gap: "14px", marginTop: "10px" }}>
+            <div className="form-grid two">
+              <FormField label="Middle Name" name="middleName" value={form.middleName} onChange={updateField} />
+              <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
+            </div>
+          </div>
         </div>
-        <FormField label="Address Line 1" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" />
-        <FormField label="Address Line 2" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
-        <div className="form-grid three">
-          <FormField label="City" name="city" value={form.city} onChange={updateField} autoComplete="address-level2" />
-          <FormField label="State" name="state" value={form.state} onChange={updateField} autoComplete="address-level1" />
-          <FormField label="Zip / Postal Code" name="postalCode" value={form.postalCode} onChange={updateField} autoComplete="postal-code" />
-        </div>
-        <div className="form-grid two">
-          <FormField label="Country" name="country" value={form.country} onChange={updateField} autoComplete="country-name" />
-          <FormField label="Referred By" name="referredBy" value={form.referredBy} onChange={updateField} />
+        <div className="edit-profile-divider" />
+        <div>
+          <p className="edit-profile-section-title">Address</p>
+          <div style={{ display: "grid", gap: "14px", marginTop: "10px" }}>
+            <FormField label="Address Line 1" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" />
+            <FormField label="Address Line 2" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
+            <div className="form-grid three">
+              <FormField label="City" name="city" value={form.city} onChange={updateField} autoComplete="address-level2" />
+              <FormField label="State" name="state" value={form.state} onChange={updateField} autoComplete="address-level1" />
+              <FormField label="Zip / Postal Code" name="postalCode" value={form.postalCode} onChange={updateField} autoComplete="postal-code" />
+            </div>
+            <div className="form-grid two">
+              <FormField label="Country" name="country" value={form.country} onChange={updateField} autoComplete="country-name" />
+              <FormField label="Referred By" name="referredBy" value={form.referredBy} onChange={updateField} />
+            </div>
+          </div>
         </div>
         <div className="edit-profile-group">
           <p className="edit-profile-group-label">Emergency Contact</p>
@@ -2827,10 +2848,12 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
             <FormField label="Email" name="emergencyContactEmail" type="email" value={form.emergencyContactEmail} onChange={updateField} />
           </div>
         </div>
-        {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
-        <button className="pill-button black" type="submit" disabled={saving}>
-          {saving ? "Saving\u2026" : "Save Changes"}
-        </button>
+        <div className="edit-profile-footer">
+          <button className="pill-button black" type="submit" disabled={saving}>
+            {saving ? "Saving\u2026" : "Save Changes"}
+          </button>
+          {status.message && <p className={`form-status ${status.type}`} style={{ margin: 0 }}>{status.message}</p>}
+        </div>
       </form>
     </div>
   );

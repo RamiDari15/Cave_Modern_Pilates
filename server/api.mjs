@@ -1524,30 +1524,37 @@ export async function handleApiRequest(request, response) {
       }
 
       const session = await readHydratedSession(request, response);
-      const hasAuth = Boolean(
-        session?.accessToken || session?.consumerIdentityToken || session?.authMode === "created-client"
-      );
 
-      if (!hasAuth) {
+      if (!session) {
         sendJson(response, 401, { ok: false, message: "Please sign in first." });
         return true;
       }
 
       const body = await readJsonBody(request);
-      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
 
-      if (!consumerToken) {
-        sendJson(response, 401, { ok: false, message: "A Mindbody sign-in is required to edit your profile. Please sign out and sign in again." });
+      // Resolve clientId so addclient can target the existing record
+      const clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
+
+      if (!clientId) {
+        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
         return true;
       }
 
-      // Resolve clientId — use session/body first, fall back to clientcompleteinfo lookup
-      const clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
+      // firstName and lastName are required by addclient
+      const firstName = String(body.firstName || session.user?.firstName || "").trim();
+      const lastName = String(body.lastName || session.user?.lastName || "").trim();
 
-      console.log(`[account/profile] POST clientId=${clientId || "(from token)"} fields in body: ${Object.keys(body).join(",")}`);
+      if (!firstName || !lastName) {
+        sendJson(response, 400, { ok: false, message: "First name and last name are required." });
+        return true;
+      }
 
-      const clientUpdate = compactObject({
-        Id: clientId || undefined,
+      console.log(`[account/profile] POST /client/addclient clientId=${clientId} fields in body: ${Object.keys(body).join(",")}`);
+
+      const clientPayload = compactObject({
+        Id: clientId,
+        FirstName: firstName,
+        LastName: lastName,
         MobilePhone: body.phone,
         HomePhone: body.homePhone,
         WorkPhone: body.workPhone,
@@ -1567,63 +1574,26 @@ export async function handleApiRequest(request, response) {
         EmergencyContactInfoRelationship: body.emergencyContactRelationship
       });
 
-      const fieldCount = Object.keys(clientUpdate).filter((k) => k !== "Id").length;
-      if (!fieldCount) {
-        sendJson(response, 400, { ok: false, message: "No valid profile fields provided." });
-        return true;
-      }
-
-      console.log(`[account/profile] POST /client/updateclient clientId=${clientId || "(from token)"} fields=${Object.keys(clientUpdate).filter((k) => k !== "Id").join(",")}`);
+      const staffToken = await getMindbodyActionToken("Profile update");
 
       let updateResult = null;
       let updateError = null;
 
       try {
-        updateResult = await bookingRequest("/client/updateclient", {
+        updateResult = await bookingRequest("/client/addclient", {
           method: "POST",
-          consumerIdentityToken: consumerToken,
-          body: { Client: clientUpdate, CrossRegionalUpdate: true }
+          token: staffToken,
+          body: clientPayload
         });
-        console.log("[account/profile] updateclient success");
+        console.log("[account/profile] addclient success");
       } catch (err) {
         updateError = err;
-        console.error(`[account/profile] updateclient failed (${err.status || 0}): ${err.message}`);
+        console.error(`[account/profile] addclient failed (${err.status || 0}): ${err.message}`);
       }
 
       if (!updateResult) {
         const mbMessage = updateError?.data?.Error?.Message || updateError?.data?.Message || updateError?.message || "";
-        const isPermissionDenied = /permission to edit/i.test(mbMessage) || /not.*allowed/i.test(mbMessage);
-
-        // If Mindbody says the consumer can't edit the profile, try to link the account
-        // via clientcompleteinfo (read-only) so the session gets a clientId even if
-        // profile fields can't be written today.
-        if (isPermissionDenied) {
-          const linkResult = await bookingRequest("/client/clientcompleteinfo", {
-            consumerIdentityToken: consumerToken,
-            params: { "request.crossRegionalLookup": "true" }
-          }).catch(() => null);
-
-          const linkedId = linkResult ? extractClientId(linkResult) : null;
-          if (linkedId) {
-            setSessionCookie(response, {
-              ...session,
-              clientId: linkedId,
-              user: { ...(session.user || {}), id: linkedId }
-            });
-            console.log(`[account/profile] account linked via clientcompleteinfo: ${linkedId}`);
-            sendJson(response, 200, {
-              ok: true,
-              linked: true,
-              permissionLimited: true,
-              clientId: linkedId,
-              message: "Your account is linked. To update profile details, please use the Mindbody app or contact the studio."
-            });
-            return true;
-          }
-        }
-
-        const code = updateError?.data?.Error?.Code || updateError?.data?.code || "";
-        sendJson(response, updateError?.status || 500, { ok: false, message: mbMessage || "Profile update failed.", code });
+        sendJson(response, updateError?.status || 500, { ok: false, message: mbMessage || "Profile update failed." });
         return true;
       }
 
