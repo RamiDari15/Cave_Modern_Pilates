@@ -482,6 +482,7 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/auth/callback" && ["GET", "POST"].includes(request.method || "")) {
       const form = request.method === "POST" ? await readFormBody(request) : Object.fromEntries(url.searchParams);
+      console.log(`[auth/callback] hit — method=${request.method} hasCode=${Boolean(form.code)} hasError=${Boolean(form.error)}`);
       await finishOAuthSignIn(request, response, form);
       return true;
     }
@@ -1393,49 +1394,72 @@ export async function handleApiRequest(request, response) {
     }
 
     if (path === "/api/debug/mindbody-session" && request.method === "GET") {
-      const session = readSession(request);
-      if (!session) {
-        sendJson(response, 200, { signedIn: false, message: "No session cookie found." });
+      const cookies = parseCookies(request.headers.cookie || "");
+      const cookieValue = readChunkedCookie(cookies, SESSION_COOKIE);
+      const hasSessionCookie = Boolean(cookieValue);
+
+      let session = null;
+      let sessionDecrypts = false;
+      try {
+        if (cookieValue) {
+          session = unseal(cookieValue);
+          sessionDecrypts = true;
+        }
+      } catch (_) {
+        sessionDecrypts = false;
+      }
+
+      if (!hasSessionCookie) {
+        sendJson(response, 200, {
+          hasSessionCookie: false,
+          sessionDecrypts: false,
+          hasAccessToken: false,
+          hasRefreshToken: false,
+          tokenExpired: false,
+          platformUserId: "missing",
+          email: "missing",
+          businessId: "missing",
+          profileId: "missing",
+          lastAuthError: "No session cookie found. Not signed in."
+        });
+        return true;
+      }
+
+      if (!sessionDecrypts) {
+        sendJson(response, 200, {
+          hasSessionCookie: true,
+          sessionDecrypts: false,
+          hasAccessToken: false,
+          hasRefreshToken: false,
+          tokenExpired: false,
+          platformUserId: "missing",
+          email: "missing",
+          businessId: "missing",
+          profileId: "missing",
+          lastAuthError: "Session cookie exists but could not be decrypted. SESSION_SECRET may have changed."
+        });
         return true;
       }
 
       const accessToken = session.consumerIdentityToken || session.accessToken || "";
-      const now = Date.now();
       const expiresAt = session.expiresAt ? new Date(session.expiresAt).getTime() : 0;
-      const tokenExpired = expiresAt > 0 && expiresAt < now;
+      const tokenExpired = expiresAt > 0 && expiresAt < Date.now();
 
-      const meResult = accessToken
-        ? await fetchPlatformMeWithStatus(accessToken)
-        : { ok: false, status: 0, error: "No access token in session" };
-
-      const userId = meResult.ok
-        ? (meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "")
-        : (session.platformUserId || "");
-
-      let profilesResult = null;
-      if (meResult.ok && userId) {
-        const profiles = await fetchPlatformBusinessProfiles(userId, accessToken).catch(() => []);
-        const { siteId } = getBookingConfig();
-        const match = findStudioBusinessProfile(profiles, siteId);
-        profilesResult = { count: profiles.length, studioMatch: Boolean(match), businessId: match?.businessId || match?.BusinessId || "" };
-      }
+      let lastAuthError = null;
+      if (!accessToken) lastAuthError = "Session has no access token.";
+      else if (tokenExpired && !session.refreshToken) lastAuthError = "Token expired and no refresh token available.";
 
       sendJson(response, 200, {
-        signedIn: true,
-        authMode: session.authMode || "",
+        hasSessionCookie: true,
+        sessionDecrypts: true,
         hasAccessToken: Boolean(accessToken),
         hasRefreshToken: Boolean(session.refreshToken),
         tokenExpired,
-        expiresAt: session.expiresAt || "",
-        platformUserId: session.platformUserId || "",
-        businessId: session.businessId || "",
-        clientId: session.clientId || "",
-        profileId: session.profileId || "",
-        email: session.user?.email || session.user?.username || "",
-        platformMe: meResult.ok
-          ? { ok: true, userId: meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "" }
-          : { ok: false, status: meResult.status, error: meResult.error },
-        businessProfiles: profilesResult
+        platformUserId: session.platformUserId ? "present" : "missing",
+        email: (session.user?.email || session.user?.username) ? "present" : "missing",
+        businessId: session.businessId ? "present" : "missing",
+        profileId: (session.profileId || session.clientId) ? "present" : "missing",
+        lastAuthError
       });
       return true;
     }
@@ -1945,13 +1969,18 @@ async function finishOAuthSignIn(request, response, form) {
   }
 
   try {
+    console.log(`[auth/callback] exchanging code for token (popup=${Boolean(oauthSession.popup)})`);
     const tokenResponse = await exchangeOAuthCode(form.code, oauthSession.codeVerifier);
+    console.log(`[auth/callback] token exchange success — accessToken present: ${Boolean(tokenResponse?.access_token)} refreshToken present: ${Boolean(tokenResponse?.refresh_token)}`);
+
     const session = await hydrateOAuthSession(normalizeOAuthSession(tokenResponse, {
       authorizationIdToken: form.id_token,
       expectedNonce: oauthSession.nonce
     }));
 
+    console.log(`[auth/callback] session hydrated — platformUserId: ${session.platformUserId ? "present" : "missing"} clientId: ${session.clientId ? "present" : "missing"} email: ${session.user?.email ? "present" : "missing"}`);
     setSessionCookie(response, session);
+    console.log(`[auth/callback] session cookie set`);
     if (oauthSession.popup) {
       finishPopup({
         ok: true,
@@ -4240,7 +4269,7 @@ function readChunkedCookie(cookies, name) {
 
 function setChunkedCookie(response, name, value, { path, maxAge }) {
   const { secureCookies } = getBookingConfig();
-  const sameSite = secureCookies ? "SameSite=None" : "SameSite=Lax";
+  const sameSite = "SameSite=Lax";
   const chunks = [];
 
   for (let index = 0; index < value.length; index += SESSION_COOKIE_CHUNK_SIZE) {

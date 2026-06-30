@@ -515,7 +515,7 @@ function isPublicPricingItem(item) {
 async function apiRequest(path, { method = "GET", body, token } = {}) {
   const response = await fetch(path, {
     method,
-    credentials: "same-origin",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
