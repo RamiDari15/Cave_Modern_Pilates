@@ -2478,6 +2478,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings. Head to the schedule to reserve a spot." />
         <AccountCard title="Class Credits" type="services" data={dashboard?.services} loading={dashboardLoading} empty="No class credits on file. Visit Pricing to get started." />
         <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
+        <AccountCard title="Rewards" type="rewards" data={dashboard?.rewards} loading={dashboardLoading} empty="No reward points on file." />
       </div>
 
       <a className="pill-button outline account-edit-toggle" href={bookingUrl}>View Schedule</a>
@@ -2880,6 +2881,16 @@ function normalizeAccountItems(data, type) {
       };
     }
 
+    if (type === "rewards") {
+      const name = firstText(item.Name, item.RewardType, item.ProgramName, "Reward Points");
+      const balance = firstText(item.PointBalance, item.Balance, item.Points, item.Total);
+      return {
+        title: name,
+        detail: balance !== null && balance !== undefined ? `${balance} points` : "",
+        meta: ""
+      };
+    }
+
     const title = firstText(item.ContractName, item.Name, item.MembershipName, item.AgreementName, "Membership");
     const status = firstText(item.Status, item.ContractStatus, item.Active === true ? "Active" : "");
     const starts = formatAccountDate(firstText(item.StartDate, item.StartDateTime));
@@ -2900,6 +2911,10 @@ function accountPreferredKeys(type) {
 
   if (type === "services") {
     return ["ClientServices", "Services", "Packages", "Credits"];
+  }
+
+  if (type === "rewards") {
+    return ["RewardPoints", "LoyaltyPoints", "Points", "Rewards"];
   }
 
   return ["ClientContracts", "Contracts", "Memberships", "Agreements"];

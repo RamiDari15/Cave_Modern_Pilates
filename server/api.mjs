@@ -1107,88 +1107,118 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      const errors = [];
       const consumerToken = session.consumerIdentityToken || session.accessToken || "";
       const sessionEmail = session.user?.email || session.user?.username || "";
-      let consumerProfile = null;
 
-      if (consumerToken) {
-        const profileAttempts = [
-          () => bookingRequest("/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: compactObject({ ClientId: session.clientId }) }),
-          () => bookingRequest("/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { CrossRegionalLookup: true } }),
-          ...(sessionEmail ? [
-            () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: sessionEmail } }),
-            () => bookingRequest("/client/clients", { token: consumerToken, params: { SearchText: sessionEmail, CrossRegionalLookup: true } })
-          ] : [])
-        ];
+      // Resolve clientId — session first, then email lookup
+      let clientId = session.clientId || "";
+      let uniqueClientId = session.uniqueClientId || "";
 
-        for (const attempt of profileAttempts) {
-          try {
-            const result = await attempt();
-            const extracted = extractClientId(result);
-            if (extracted || result?.Client || result?.ClientCompleteInfo?.Client || result?.Clients?.length) {
-              consumerProfile = result;
-              break;
-            }
-          } catch (_) {}
+      if (!clientId && sessionEmail) {
+        const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+        if (found) {
+          clientId = found.clientId;
+          uniqueClientId = found.uniqueId || "";
+          setSessionCookie(response, { ...session, clientId, user: { ...(session.user || {}), id: clientId } });
         }
       }
 
-      const config = getBookingConfig();
-      const clientId = session.clientId || extractClientId(consumerProfile);
-      const hasConsumerData = Boolean(consumerProfile?.Client || consumerProfile?.ClientCompleteInfo?.Client || (consumerProfile?.Clients?.length));
-
-      if (!config.actionTokenConfigured || !clientId) {
-        const ccInfo = consumerProfile?.ClientCompleteInfo || {};
-        const cpClient = consumerProfile?.Client || ccInfo?.Client || {};
+      if (!clientId && !consumerToken) {
         sendJson(response, 200, {
-          clientLinked: Boolean(clientId) || hasConsumerData,
-          profile: consumerProfile || { Client: session.user || {} },
-          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || ccInfo?.ClientSchedule || ccInfo?.Schedule || cpClient?.ClientSchedule || null,
-          services: consumerProfile?.ClientServices || consumerProfile?.Services || ccInfo?.ClientServices || ccInfo?.Services || cpClient?.ClientServices || null,
-          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || ccInfo?.ClientContracts || ccInfo?.ClientMemberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
+          clientLinked: false,
+          profile: null,
+          schedule: null,
+          services: null,
+          contracts: null,
+          rewards: null,
           session: publicSession(session),
-          errors: []
+          errors: ["Could not resolve Mindbody client ID."]
         });
         return true;
       }
 
+      // Best available auth for staff-level calls
       let staffToken = null;
       try {
-        staffToken = await getMindbodyActionToken("Account dashboard");
-      } catch (_) { /* fall back to consumerProfile data */ }
+        staffToken = await getMindbodyActionToken("dashboard");
+      } catch (_) {}
 
-      if (!staffToken) {
-        const ccInfo = consumerProfile?.ClientCompleteInfo || {};
-        const cpClient = consumerProfile?.Client || ccInfo?.Client || {};
-        sendJson(response, 200, {
-          clientLinked: Boolean(clientId) || hasConsumerData,
-          profile: consumerProfile || { Client: session.user || {} },
-          schedule: consumerProfile?.ClientSchedule || consumerProfile?.Schedule || ccInfo?.ClientSchedule || ccInfo?.Schedule || cpClient?.ClientSchedule || null,
-          services: consumerProfile?.ClientServices || consumerProfile?.Services || ccInfo?.ClientServices || ccInfo?.Services || cpClient?.ClientServices || null,
-          contracts: consumerProfile?.ClientContracts || consumerProfile?.ClientMemberships || consumerProfile?.Memberships || ccInfo?.ClientContracts || ccInfo?.ClientMemberships || cpClient?.ClientContracts || cpClient?.ClientMemberships || null,
-          session: publicSession(session),
-          errors: []
-        });
-        return true;
-      }
+      // Date range: today through 90 days out
+      const today = new Date().toISOString().split("T")[0];
+      const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-      const requestOptions = { token: staffToken };
-      const [profile, schedule, services, contracts] = await Promise.allSettled([
-        bookingRequest("/client/clients", { ...requestOptions, params: { ClientIds: clientId } }),
-        bookingRequest("/client/clientschedule", { ...requestOptions, params: { ClientId: clientId } }),
-        bookingRequest("/client/clientservices", { ...requestOptions, params: { ClientId: clientId } }),
-        bookingRequest("/client/clientcontracts", { ...requestOptions, params: { ClientId: clientId } })
+      // Param sets — prefer request.xxx format per Mindbody v6 API docs
+      const clientParams = compactObject({
+        "request.clientId": clientId || undefined,
+        "request.uniqueClientId": uniqueClientId || undefined
+      });
+
+      const staffAuth = staffToken ? { token: staffToken } : {};
+      const consumerAuth = consumerToken ? { consumerIdentityToken: consumerToken } : {};
+
+      // clientcompleteinfo: consumer token in consumer-identity-token header (no Authorization mismatch)
+      // staffToken is used as fallback if consumer token not present
+      const ccInfoAuth = consumerToken ? consumerAuth : staffAuth;
+
+      const [scheduleResult, ccInfoResult, contractsResult, rewardsResult] = await Promise.allSettled([
+        bookingRequest("/client/clientschedule", {
+          ...staffAuth,
+          params: {
+            ...clientParams,
+            "request.startDate": today,
+            "request.endDate": ninetyDaysOut,
+            "request.includeWaitlistEntries": "true",
+            "request.crossRegionalLookup": "true"
+          }
+        }),
+        bookingRequest("/client/clientcompleteinfo", {
+          ...ccInfoAuth,
+          params: {
+            ...clientParams,
+            "request.crossRegionalLookup": "true",
+            "request.showActiveOnly": "true"
+          }
+        }),
+        bookingRequest("/client/clientcontracts", {
+          ...staffAuth,
+          params: {
+            ...clientParams,
+            "request.crossRegionalLookup": "true"
+          }
+        }),
+        bookingRequest("/client/rewardpoints", {
+          ...staffAuth,
+          params: clientParams
+        }).catch(() => null)
       ]);
+
+      const ccInfo = fulfilledValue(ccInfoResult);
+      const schedule = fulfilledValue(scheduleResult);
+      const contracts = fulfilledValue(contractsResult);
+      const rewards = fulfilledValue(rewardsResult);
+
+      // Extract services/class packs from clientcompleteinfo response
+      const services = ccInfo?.ClientServices || ccInfo?.Services || ccInfo?.ClientCompleteInfo?.ClientServices || null;
+      // Extract memberships from contracts or clientcompleteinfo
+      const memberships = contracts?.ClientContracts || contracts?.Contracts
+        || ccInfo?.ClientMemberships || ccInfo?.Memberships
+        || ccInfo?.ClientCompleteInfo?.ClientMemberships || null;
+
+      const errors = [scheduleResult, ccInfoResult, contractsResult]
+        .filter((r) => r.status === "rejected")
+        .map((r) => r.reason?.message)
+        .filter(Boolean);
 
       sendJson(response, 200, {
         clientLinked: true,
-        profile: fulfilledValue(profile) || consumerProfile,
-        schedule: fulfilledValue(schedule),
-        services: fulfilledValue(services),
-        contracts: fulfilledValue(contracts),
+        clientId,
+        profile: ccInfo?.Client || ccInfo?.ClientCompleteInfo?.Client || null,
+        schedule,
+        services,
+        contracts: memberships,
+        rewards,
         session: publicSession(session),
-        errors: []
+        errors
       });
       return true;
     }
@@ -4155,7 +4185,6 @@ function compactObject(object) {
 
 async function bookingRequest(path, { method = "GET", body, params, token, consumerIdentityToken } = {}) {
   const { apiKey, siteId } = getBookingConfig();
-  const authToken = token || consumerIdentityToken;
 
   if (!apiKey) {
     throw httpError(500, "Booking API key is not configured.");
@@ -4182,7 +4211,7 @@ async function bookingRequest(path, { method = "GET", body, params, token, consu
         SiteId: siteId,
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : consumerIdentityToken ? { Authorization: `Bearer ${consumerIdentityToken}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(consumerIdentityToken ? { "consumer-identity-token": consumerIdentityToken } : {})
       },
       body: body ? JSON.stringify(body) : undefined,
