@@ -1019,36 +1019,45 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/store/purchase" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
+      // Intentionally do NOT call assertNoRawCardPayload — this route proxies card data securely to Mindbody.
       const body = await readJsonBody(request);
-      assertNoRawCardPayload(body);
-      const item = findStoreItem(body.itemId, body.kind);
-
-      if (!item) {
-        sendJson(response, 404, { message: "That pricing option is not available in the studio store cache." });
-        return true;
-      }
-
-      if (item.requiresWaiver && !body.acceptWaiver) {
-        sendJson(response, 400, { message: "Please accept the liability waiver before continuing." });
-        return true;
-      }
-
-      if (item.requiresTerms && !body.acceptTerms) {
-        sendJson(response, 400, { message: "Please accept the membership agreement before continuing." });
-        return true;
-      }
 
       if (!session) {
-        const returnTo = safeReturnTo(body.returnTo || `/pricing?purchase=${item.kind}-${item.id}`);
+        const returnTo = safeReturnTo(String(body.returnTo || "/pricing"));
         sendJson(response, 401, {
-          message: "Please sign in before buying.",
+          ok: false,
+          message: "Please sign in before purchasing.",
           loginUrl: `/api/auth/start?returnTo=${encodeURIComponent(returnTo)}`
         });
         return true;
       }
 
-      const purchase = await purchaseStoreItem(session, item, body);
-      sendJson(response, 200, { ok: true, purchase });
+      const item = findStoreItem(body.itemId, body.kind);
+
+      if (!item) {
+        sendJson(response, 404, { ok: false, message: "That pricing option is not available in the studio store cache." });
+        return true;
+      }
+
+      if (item.requiresWaiver && !body.acceptWaiver) {
+        sendJson(response, 400, { ok: false, message: "Please accept the liability waiver before continuing." });
+        return true;
+      }
+
+      if (item.requiresTerms && !body.acceptTerms) {
+        sendJson(response, 400, { ok: false, message: "Please accept the membership agreement before continuing." });
+        return true;
+      }
+
+      try {
+        const purchase = await purchaseStoreItem(session, item, body);
+        sendJson(response, 200, { ok: true, purchase });
+      } catch (err) {
+        const status = err.status >= 400 && err.status < 600 ? err.status : 503;
+        const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Purchase could not be completed.";
+        const extra = err.data?.paymentSetupUrl ? { paymentSetupUrl: err.data.paymentSetupUrl } : {};
+        sendJson(response, status, { ok: false, message: msg, ...extra });
+      }
       return true;
     }
 
@@ -3867,33 +3876,59 @@ async function checkoutServiceItem(clientId, item, body) {
   const staffToken = await getMindbodyActionToken("Service checkout");
   const { locationId } = getBookingConfig();
 
-  const paymentPayload = buildCheckoutPaymentPayload(item, body);
+  const cartItems = [
+    {
+      Item: { Type: "Service", Metadata: { Id: Number(item.id) } },
+      DiscountAmount: 0,
+      Quantity: 1
+    }
+  ];
 
-  if (!Object.keys(paymentPayload).length) {
-    throw paymentRequiredError("A saved payment method is required before this package can be bought on-site.");
+  const baseBody = {
+    ClientId: clientId,
+    LocationId: Number(locationId) || 1,
+    InStore: false,
+    CalculateTax: true,
+    Items: cartItems
+  };
+
+  // Quote first to get Mindbody's authoritative total
+  let quotedAmount = 0;
+  try {
+    const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
+      method: "POST",
+      token: staffToken,
+      body: { ...baseBody, Test: true, Payments: [] }
+    });
+    quotedAmount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
+  } catch (_) {
+    const fallback = parseFloat(String(item.price || "0").replace(/[^\d.]/g, ""));
+    quotedAmount = Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+  }
+
+  if (!quotedAmount) {
+    throw httpError(400, "Could not determine a valid checkout amount for this item.");
+  }
+
+  const lastFour = normalizeStoredCardLastFour(body);
+
+  if (!lastFour) {
+    throw paymentRequiredError("A saved payment method is required. Please add a card to your studio account first.");
   }
 
   return bookingRequest("/sale/checkoutshoppingcart", {
     method: "POST",
     token: staffToken,
     body: {
+      ...baseBody,
       Test: process.env.BOOKING_TEST_MODE === "true",
-      ClientId: clientId,
-      Items: [
-        {
-          Item: {
-            Type: "Service",
-            Metadata: {
-              Id: Number(item.id)
-            }
-          },
-          Quantity: 1
-        }
-      ],
-      InStore: true,
-      LocationId: Number(locationId) || 1,
       SendEmail: true,
-      ...paymentPayload
+      Payments: [
+        {
+          Type: "StoredCard",
+          Metadata: { Amount: quotedAmount, LastFour: lastFour }
+        }
+      ]
     }
   });
 }

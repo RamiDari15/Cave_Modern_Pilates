@@ -1532,6 +1532,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
                 clientSession={clientSession}
                 onCardAdded={refreshCards}
                 onAddToCart={cart && item.kind === "service" ? () => cart.addItem(item) : undefined}
+                onPurchaseSuccess={refreshCards}
               />
             ))}
           </div>
@@ -1594,7 +1595,7 @@ function sortBySessionsAsc(items) {
   return [...items].sort((a, b) => (Number(a.sessions) || 0) - (Number(b.sessions) || 0));
 }
 
-function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart }) {
+function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess }) {
   const [showModal, setShowModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
@@ -1642,7 +1643,8 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
 
     try {
       await apiRequest(endpoint, { method: "POST", body: payload });
-      setBuyState({ type: "success", message: "Purchase complete! Check your account for confirmation." });
+      setBuyState({ type: "success", message: isContract ? "Membership activated!" : "Purchase complete!" });
+      onPurchaseSuccess?.();
     } catch (err) {
       if (err.loginUrl) { window.location.href = err.loginUrl; return; }
       setBuyState({ type: "error", message: friendlyApiErrorMessage(err, "Purchase could not be completed.") });
@@ -1692,7 +1694,8 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
             {buyState.type === "success" ? (
               <div className="purchase-modal-success">
                 <p className="form-status success">{buyState.message}</p>
-                <button className="pill-button black" type="button" onClick={closeModal}>Done</button>
+                <a className="pill-button black" href="/account">View Account</a>
+                <button className="text-button" type="button" onClick={closeModal} style={{ marginTop: "8px" }}>Close</button>
               </div>
             ) : (
               <>
@@ -1808,9 +1811,8 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
     setCheckoutState({ type: "loading", message: "Processing payment..." });
     try {
       await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour } });
-      setCheckoutState({ type: "success", message: "Purchase complete! Credits are now in your Mindbody account." });
+      setCheckoutState({ type: "success", message: "Purchase complete!" });
       cart.clear();
-      closeTimerRef.current = setTimeout(() => { cart.close(); setCheckoutState({ type: "", message: "" }); }, 4000);
     } catch (err) {
       if (err.loginUrl) { window.location.href = err.loginUrl; return; }
       setCheckoutState({ type: "error", message: friendlyApiErrorMessage(err, "Checkout failed. Please try again.") });
@@ -1852,7 +1854,10 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
         </div>
 
         {checkoutState.type === "success" ? (
-          <p className="form-status success cart-success">{checkoutState.message}</p>
+          <div className="cart-success-block">
+            <p className="form-status success cart-success">{checkoutState.message}</p>
+            <a className="pill-button black cart-checkout-btn" href="/account">View Account</a>
+          </div>
         ) : clientSession?.signedIn ? (
           <>
             <div className="cart-payment">
