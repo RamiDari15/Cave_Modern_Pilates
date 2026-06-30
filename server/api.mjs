@@ -5239,13 +5239,15 @@ function enforceSameOrigin(request) {
   }
 
   const rawHost = String(request.headers.host || "").toLowerCase().split(":")[0].replace(/^www\./, "");
+  const forwardedHost = String(request.headers["x-forwarded-host"] || "").toLowerCase().split(":")[0].replace(/^www\./, "");
   const config = getBookingConfig();
   let allowedHost = "";
   try {
     allowedHost = new URL(config.publicBaseUrl).hostname.toLowerCase().replace(/^www\./, "");
   } catch (_) {}
 
-  if (rawHost !== originHost && allowedHost !== originHost) {
+  const hosts = [rawHost, forwardedHost, allowedHost].filter(Boolean);
+  if (!hosts.some((h) => h === originHost)) {
     throw httpError(403, "Cross-origin request blocked.");
   }
 }
