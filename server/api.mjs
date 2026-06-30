@@ -16,7 +16,7 @@ const STORE_CACHE_FILE = resolve(ROOT_DIR, "data", "studio-cache.json");
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const OAUTH_TTL_SECONDS = 10 * 60;
 const DEFAULT_OAUTH_SCOPE =
-  "email openid profile Platform.Contacts.Api.Write Platform.Contacts.Api.Read Platform.Accounts.Api.Read Mindbody.Api.Public.v6 Platform.ProductInventory.Api.Read Platform.ProductInventory.Api.Write";
+  "email openid profile offline_access Platform.Contacts.Api.Write Platform.Contacts.Api.Read Platform.Accounts.Api.Read Mindbody.Api.Public.v6 Platform.ProductInventory.Api.Read Platform.ProductInventory.Api.Write";
 const OAUTH_PROFILE_REFRESH_MS = 10 * 60 * 1000;
 const PUBLIC_SCHEDULE_REFRESH_TTL_MS = Math.max(Number(process.env.BOOKING_SCHEDULE_REFRESH_SECONDS || 120), 30) * 1000;
 const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
@@ -236,7 +236,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -369,8 +369,8 @@ export async function handleApiRequest(request, response) {
       if (!clientId) {
         const accessToken = session.consumerIdentityToken || session.accessToken;
         const platformResult = await linkPlatformProfile(accessToken).catch(() => null);
-        if (platformResult && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(platformResult)) {
-          clientId = platformResult;
+        if (platformResult?.clientId) {
+          clientId = platformResult.clientId;
           console.log("[mindbody-auth] /api/auth/link: Platform API resolved clientId:", clientId);
         }
       }
@@ -1175,6 +1175,179 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
+    if (path === "/api/account/me" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.accessToken && !session?.consumerIdentityToken) {
+        sendJson(response, 401, { ok: false, message: "Please sign in first.", loginUrl: "/api/auth/start?returnTo=/account" });
+        return true;
+      }
+
+      let accessToken = session.consumerIdentityToken || session.accessToken;
+      let activeSession = session;
+
+      if (session.expiresAt && new Date(session.expiresAt).getTime() < Date.now() && session.refreshToken) {
+        const refreshed = await refreshAccessToken(session.refreshToken).catch(() => null);
+        if (refreshed?.access_token) {
+          activeSession = {
+            ...session,
+            accessToken: refreshed.access_token,
+            consumerIdentityToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token || session.refreshToken,
+            expiresAt: refreshed.expires_in
+              ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
+              : session.expiresAt
+          };
+          accessToken = refreshed.access_token;
+          setSessionCookie(response, activeSession);
+        }
+      }
+
+      const { siteId } = getBookingConfig();
+      const platformUser = await fetchPlatformMe(accessToken).catch(() => null);
+      const userId = platformUser?.userAccount?.id || platformUser?.UserAccount?.id || activeSession.platformUserId || "";
+
+      const profiles = userId
+        ? await fetchPlatformBusinessProfiles(userId, accessToken).catch(() => [])
+        : [];
+
+      const studioProfile = findStudioBusinessProfile(profiles, siteId);
+      const hasBusinessProfile = Boolean(studioProfile);
+      const studioClientId = studioProfile?.clientId || studioProfile?.ClientId || activeSession.clientId || "";
+      const businessId = studioProfile?.businessId || studioProfile?.BusinessId || activeSession.businessId || siteId || "";
+      const profileId = studioProfile?.id || studioProfile?.profileId || studioProfile?.ProfileId || activeSession.profileId || "";
+
+      if ((userId && userId !== activeSession.platformUserId) || (studioClientId && studioClientId !== activeSession.clientId)) {
+        setSessionCookie(response, {
+          ...activeSession,
+          platformUserId: userId || activeSession.platformUserId || "",
+          businessId: businessId || activeSession.businessId || "",
+          profileId: profileId || activeSession.profileId || "",
+          clientId: studioClientId || activeSession.clientId || ""
+        });
+      }
+
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          userId,
+          email: platformUser?.email || platformUser?.Email || activeSession.user?.email || "",
+          firstName: platformUser?.firstName || platformUser?.FirstName || activeSession.user?.firstName || "",
+          lastName: platformUser?.lastName || platformUser?.LastName || activeSession.user?.lastName || "",
+          countryCode: platformUser?.countryCode || platformUser?.CountryCode || "",
+          clientId: studioClientId,
+          businessId,
+          profileId,
+          hasBusinessProfile,
+          businessProfiles: profiles
+        }
+      });
+      return true;
+    }
+
+    if (path === "/api/account/profile" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.accessToken && !session?.consumerIdentityToken) {
+        sendJson(response, 401, { ok: false, message: "Please sign in first." });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const accessToken = session.consumerIdentityToken || session.accessToken;
+      const userId = session.platformUserId || body.userId || "";
+
+      if (!userId) {
+        sendJson(response, 400, { ok: false, message: "Mindbody user ID is required. Please load your account page and try again." });
+        return true;
+      }
+
+      const { apiKey, siteId } = getBookingConfig();
+      const businessId = session.businessId || body.businessId || siteId || "";
+
+      const ALLOWED_PROPS = new Set([
+        "middle_name", "address_line_1", "address_line_2", "city", "state", "country",
+        "postal_code", "home_phone_number", "work_phone_number", "mobile_phone_number",
+        "birth_date", "referred_by", "emergency_contact_name", "emergency_contact_email",
+        "emergency_contact_phone", "emergency_contact_relationship", "gender"
+      ]);
+
+      let contactProperties = [];
+
+      if (Array.isArray(body.contactProperties)) {
+        contactProperties = body.contactProperties.filter((p) => ALLOWED_PROPS.has(p?.name) && p?.value);
+      } else {
+        const fieldMap = {
+          mobile_phone_number: body.phone,
+          address_line_1: body.addressLine1,
+          address_line_2: body.addressLine2,
+          city: body.city,
+          state: body.state,
+          country: body.country,
+          postal_code: body.postalCode,
+          birth_date: body.birthDate,
+          home_phone_number: body.homePhone,
+          work_phone_number: body.workPhone,
+          referred_by: body.referredBy,
+          emergency_contact_name: body.emergencyContactName,
+          emergency_contact_email: body.emergencyContactEmail,
+          emergency_contact_phone: body.emergencyContactPhone,
+          emergency_contact_relationship: body.emergencyContactRelationship,
+          gender: body.gender,
+          middle_name: body.middleName
+        };
+        for (const [name, value] of Object.entries(fieldMap)) {
+          if (value && String(value).trim()) {
+            contactProperties.push({ name, value: String(value).trim() });
+          }
+        }
+      }
+
+      if (!contactProperties.length) {
+        sendJson(response, 400, { ok: false, message: "No valid profile fields provided." });
+        return true;
+      }
+
+      console.log("[mindbody-auth] /api/account/profile: updating", contactProperties.length, "fields for userId:", userId);
+
+      const profileResp = await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
+        method: "POST",
+        headers: {
+          "Api-Key": apiKey,
+          "Authorization": `Bearer ${accessToken}`,
+          "SiteId": String(siteId),
+          "BusinessId": String(businessId),
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ userId, contactProperties })
+      });
+
+      const profileData = await profileResp.json().catch(() => ({}));
+
+      if (!profileResp.ok) {
+        const message = profileData?.Error?.Message || profileData?.message || profileData?.Message || "Profile update failed.";
+        const code = profileData?.Error?.Code || profileData?.code || "";
+        console.error("[mindbody-auth] /api/account/profile: Mindbody rejected:", message);
+        sendJson(response, profileResp.status, { ok: false, message, code, details: profileData });
+        return true;
+      }
+
+      const profileObj = profileData?.profile || profileData?.Profile || profileData;
+      const rawClientId = profileObj?.clientId || profileObj?.ClientId;
+      if (rawClientId && !isUUID(String(rawClientId))) {
+        setSessionCookie(response, {
+          ...session,
+          clientId: String(rawClientId),
+          user: { ...session.user, id: String(rawClientId) }
+        });
+      }
+
+      console.log("[mindbody-auth] /api/account/profile: success");
+      sendJson(response, 200, { ok: true, data: profileData });
+      return true;
+    }
+
     sendJson(response, 404, { message: "API route not found." });
     return true;
   } catch (error) {
@@ -1514,7 +1687,7 @@ async function checkOAuthAuthorizeRequest(config) {
   authorizeUrl.searchParams.set("nonce", "readiness");
   authorizeUrl.searchParams.set("state", "readiness");
 
-  if (config.oauthIncludeSubscriberId && config.oauthSubscriberId) {
+  if (config.oauthSubscriberId) {
     authorizeUrl.searchParams.set("subscriberId", config.oauthSubscriberId);
   }
 
@@ -1610,7 +1783,7 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
     authorizeUrl.searchParams.set("max_age", "0");
   }
 
-  if (oauthIncludeSubscriberId && oauthSubscriberId) {
+  if (oauthSubscriberId) {
     authorizeUrl.searchParams.set("subscriberId", oauthSubscriberId);
   }
 
@@ -1882,7 +2055,7 @@ async function exchangeOAuthCode(code, codeVerifier = "") {
     scope: oauthScope
   });
 
-  if (oauthIncludeSubscriberId && oauthSubscriberId) {
+  if (oauthSubscriberId) {
     body.set("subscriberId", oauthSubscriberId);
   }
 
@@ -1987,12 +2160,9 @@ async function linkPlatformProfile(accessToken) {
     if (!meResp.ok) return null;
 
     const me = await meResp.json();
-    // Platform API uses camelCase; guard against PascalCase variants just in case
     const userId = me?.userAccount?.id || me?.UserAccount?.id || me?.userId || me?.UserId;
     if (!userId) return null;
 
-    // Create (or retrieve) the business profile linking this consumer identity to the studio.
-    // Mindbody Platform API uses SiteId header (not BusinessId).
     const linkResp = await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
       method: "POST",
       headers: {
@@ -2005,26 +2175,94 @@ async function linkPlatformProfile(accessToken) {
       body: JSON.stringify({ userId })
     });
 
-    if (!linkResp.ok) return null;
+    if (!linkResp.ok) return { platformUserId: userId, clientId: "" };
 
     const linkData = await linkResp.json();
-
-    // Extract the studio clientId if the platform profile response includes it.
-    // The response may be { profile: { clientId, ... } } or { clientId, ... } depending on version.
     const profileObj = linkData?.profile || linkData?.Profile || linkData;
     const rawClientId = profileObj?.clientId || profileObj?.ClientId || profileObj?.client_id || profileObj?.studioClientId;
+    const clientId = (rawClientId && !isUUID(String(rawClientId))) ? String(rawClientId) : "";
 
-    // Studio client IDs are never UUID-format (those are consumer identity IDs).
-    if (rawClientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(rawClientId))) {
-      return String(rawClientId);
-    }
-
-    // Link created but no clientId in response — return a truthy sentinel so the caller
-    // knows to retry clientcompleteinfo (the v6 endpoint will now resolve the studio client).
-    return userId;
+    return { platformUserId: userId, clientId };
   } catch (_) {
     return null;
   }
+}
+
+async function fetchPlatformMe(accessToken) {
+  const { apiKey } = getBookingConfig();
+  if (!apiKey || !accessToken) return null;
+
+  try {
+    const resp = await fetch(`${PLATFORM_API_BASE_URL}/account/v1/me`, {
+      headers: {
+        "Api-Key": apiKey,
+        "Authorization": `Bearer ${accessToken}`,
+        "Accept": "application/json"
+      }
+    });
+    if (!resp.ok) return null;
+    return resp.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function fetchPlatformBusinessProfiles(userId, accessToken) {
+  const { apiKey } = getBookingConfig();
+  if (!apiKey || !accessToken || !userId) return [];
+
+  try {
+    const resp = await fetch(`${PLATFORM_API_BASE_URL}/account/v1/users/${encodeURIComponent(userId)}/businessprofiles`, {
+      headers: {
+        "Api-Key": apiKey,
+        "Authorization": `Bearer ${accessToken}`,
+        "Accept": "application/json"
+      }
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data?.businessProfiles || data?.BusinessProfiles || data?.profiles || [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function refreshAccessToken(refreshToken) {
+  if (!refreshToken) return null;
+  const { oauthClientId, oauthClientSecret, oauthTokenUrl, oauthSubscriberId } = getBookingConfig();
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: oauthClientId,
+    refresh_token: refreshToken
+  });
+  if (oauthClientSecret) body.set("client_secret", oauthClientSecret);
+  if (oauthSubscriberId) body.set("subscriberId", oauthSubscriberId);
+
+  try {
+    const resp = await fetch(oauthTokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: body.toString()
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data?.access_token ? data : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function findStudioBusinessProfile(profiles, siteId) {
+  if (!Array.isArray(profiles) || !profiles.length) return null;
+  const id = String(siteId || "");
+  return profiles.find((p) =>
+    String(p?.businessId || p?.BusinessId || p?.siteId || p?.SiteId || "") === id
+  ) || profiles[0] || null;
+}
+
+function isUUID(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
 }
 
 async function hydrateOAuthSession(session) {
@@ -2037,14 +2275,17 @@ async function hydrateOAuthSession(session) {
   console.log("[mindbody-auth] hydrating OAuth session for:", email || "(no email)");
 
   // 1. Try the Mindbody Platform API to retrieve the business profile link.
-  //    This is read-only — it only creates a link if one already exists on Mindbody's side.
   let platformClientId = "";
+  let platformUserId = session.platformUserId || "";
   if (!session.clientId) {
     const accessToken = session.consumerIdentityToken || session.accessToken;
     const linked = await linkPlatformProfile(accessToken).catch(() => null);
-    if (linked && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(linked)) {
-      platformClientId = linked;
-      console.log("[mindbody-auth] Platform API resolved clientId:", platformClientId);
+    if (linked) {
+      if (linked.platformUserId) platformUserId = linked.platformUserId;
+      if (linked.clientId) {
+        platformClientId = linked.clientId;
+        console.log("[mindbody-auth] Platform API resolved clientId:", platformClientId);
+      }
     }
   }
 
@@ -2052,6 +2293,7 @@ async function hydrateOAuthSession(session) {
     return {
       ...session,
       clientId: platformClientId,
+      platformUserId: platformUserId || session.platformUserId || "",
       user: { ...(session.user || {}), id: platformClientId },
       hydratedAt
     };
@@ -2062,7 +2304,7 @@ async function hydrateOAuthSession(session) {
 
   if (profile?.clientId) {
     console.log("[mindbody-auth] clientcompleteinfo resolved clientId:", profile.clientId);
-    return { ...mergeSessionClientProfile(session, profile), hydratedAt };
+    return { ...mergeSessionClientProfile(session, profile), platformUserId: platformUserId || session.platformUserId || "", hydratedAt };
   }
 
   // 3. Source credentials: search by email only — no client creation.
@@ -2072,6 +2314,7 @@ async function hydrateOAuthSession(session) {
     return {
       ...session,
       clientId: foundClientId,
+      platformUserId: platformUserId || session.platformUserId || "",
       user: {
         ...(session.user || {}),
         ...(profile ? {
@@ -2089,6 +2332,7 @@ async function hydrateOAuthSession(session) {
   console.log("[mindbody-auth] hydration complete: no clientId resolved for", email || "(no email)");
   return {
     ...(profile ? mergeSessionClientProfile(session, profile) : session),
+    platformUserId: platformUserId || session.platformUserId || "",
     hydratedAt
   };
 }
@@ -3706,6 +3950,10 @@ function publicSession(session) {
     authMode: session.authMode || "",
     clientId: session.clientId || "",
     hasStudioClient: Boolean(session.clientId),
+    platformUserId: session.platformUserId || "",
+    businessId: session.businessId || "",
+    profileId: session.profileId || "",
+    hasBusinessProfile: Boolean(session.businessId || session.profileId || session.clientId),
     expiresAt: session.expiresAt || "",
     user: session.user || {},
     waiver: session.waiver || null

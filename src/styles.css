@@ -3085,6 +3085,88 @@ body.interior:has(.page-policies),
   flex-wrap: wrap;
 }
 
+.account-info-section {
+  background: #fff;
+  border-radius: 24px;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.account-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px 24px;
+}
+
+.account-info-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-info-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(5, 5, 5, 0.45);
+  font-weight: 600;
+}
+
+.account-info-value {
+  font-size: 0.95rem;
+  color: #050505;
+  font-weight: 500;
+}
+
+.account-info-mono {
+  font-family: "SF Mono", "Fira Mono", "Consolas", monospace;
+  font-size: 0.82rem;
+  color: rgba(5, 5, 5, 0.65);
+}
+
+.account-edit-toggle {
+  align-self: flex-start;
+}
+
+.edit-profile-section {
+  background: #fff;
+  border-radius: 24px;
+  padding: 28px;
+  display: grid;
+  gap: 20px;
+}
+
+.edit-profile-section h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.edit-profile-note {
+  font-size: 0.85rem;
+  color: rgba(5, 5, 5, 0.5);
+  margin: 0;
+}
+
+.edit-profile-group {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(247, 247, 244, 0.7);
+  border-radius: 16px;
+}
+
+.edit-profile-group-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(5, 5, 5, 0.45);
+  font-weight: 600;
+  margin: 0;
+}
+
 .account-list {
   display: grid;
   gap: 12px;

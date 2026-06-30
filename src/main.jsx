@@ -943,7 +943,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   }
 
   if (page === "signup") {
-    return <SignupPage setClientSession={setClientSession} />;
+    return <SignupPage clientSession={clientSession} bookingUrl={bookingUrl} />;
   }
 
   if (page === "account") {
@@ -2211,144 +2211,23 @@ function buildWaiverPayload(form) {
   };
 }
 
-function SignupPage({ setClientSession }) {
-  const formRef = React.useRef(null);
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    birthDate: "",
-    waiverParticipantName: "",
-    waiverSignature: "",
-    waiverDate: defaultWaiverDate(),
-    guardianName: "",
-    guardianSignature: "",
-    mediaOptOut: false,
-    acceptWaiver: false,
-    acceptPolicies: false
-  });
-  const [status, setStatus] = useState({ type: "", message: "" });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const updateField = (event) => {
-    const { name, type, checked, value } = event.target;
-    setForm((current) => {
-      const next = { ...current, [name]: type === "checkbox" ? checked : value };
-      if ((name === "firstName" || name === "lastName") && !current.waiverParticipantName) {
-        next.waiverParticipantName = `${name === "firstName" ? value : current.firstName} ${name === "lastName" ? value : current.lastName}`.trim();
-      }
-      return next;
-    });
-  };
-
-  const showError = (message) => {
-    setStatus({ type: "error", message });
-    setTimeout(() => {
-      formRef.current?.querySelector(".form-status")?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 50);
-  };
-
-  const submit = async (event) => {
-    event.preventDefault();
-    setStatus({ type: "", message: "" });
-
-    const waiver = buildWaiverPayload(form);
-
-    if (!waiver.participantName || !waiver.signature || !waiver.accepted) {
-      showError("Please complete and sign the liability waiver.");
-      setTimeout(() => {
-        document.getElementById("liability-waiver")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
-      return;
-    }
-
-    if (!form.acceptPolicies) {
-      showError("Please accept the studio terms and policies.");
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      const data = await apiRequest("/api/auth/sign-up", {
-        method: "POST",
-        body: { ...form, waiver }
-      });
-
-      if (data.session?.signedIn) {
-        setClientSession(data.session);
-        window.location.href = ROUTES.account;
-        return;
-      }
-
-      setStatus({ type: "success", message: "Account created. You are signed in on this site." });
-    } catch (error) {
-      const isCredentialError = isStudioConnectionMessage(error?.message || "") || error?.status === 501;
-      if (isCredentialError) {
-        try {
-          sessionStorage.setItem("cave_pending_profile", JSON.stringify({
-            phone: form.phone,
-            addressLine1: form.addressLine1,
-            addressLine2: form.addressLine2,
-            city: form.city,
-            state: form.state,
-            postalCode: form.postalCode,
-            birthDate: form.birthDate,
-            waiver
-          }));
-        } catch (_) {}
-        window.location.href = authStartHref(ROUTES.account);
-        return;
-      }
-      showError(friendlyApiErrorMessage(error, "Account could not be created right now."));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+function SignupPage({ clientSession, bookingUrl }) {
+  if (clientSession?.signedIn) {
+    window.location.replace(ROUTES.account);
+    return null;
+  }
 
   return (
     <section className="login-page signup-page">
       <div className="login-copy">
         <h1>Start your Cave account.</h1>
-        <p>Create your studio profile, complete the first-class waiver, and use the same account for booking.</p>
+        <p>Sign in or create a Mindbody account, then complete your studio profile to book classes and sign the liability waiver.</p>
       </div>
-
-      <form ref={formRef} className="login-panel signup-panel" onSubmit={submit}>
-        {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
-        <div className="form-grid two">
-          <FormField label="First Name" name="firstName" value={form.firstName} onChange={updateField} autoComplete="given-name" required />
-          <FormField label="Last Name" name="lastName" value={form.lastName} onChange={updateField} autoComplete="family-name" required />
-        </div>
-        <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" required />
-        <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
-        <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
-        <FormField label="Apt, Suite, Optional" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
-        <div className="form-grid three">
-          <FormField label="City" name="city" value={form.city} onChange={updateField} autoComplete="address-level2" required />
-          <FormField label="State" name="state" value={form.state} onChange={updateField} autoComplete="address-level1" required />
-          <FormField label="Zip" name="postalCode" value={form.postalCode} onChange={updateField} autoComplete="postal-code" required />
-        </div>
-        <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
-        <LiabilityWaiverForm form={form} onChange={updateField} />
-        <label className="check-row">
-          <input name="acceptPolicies" type="checkbox" checked={form.acceptPolicies} onChange={updateField} required />
-          <span>
-            I agree to the <a href={ROUTES.terms}>terms</a> and <a href={ROUTES.policies}>studio policies</a>.
-          </span>
-        </label>
-        <button className="pill-button black" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Creating Account..." : "Create Account"}
-        </button>
-        <a className="pill-button outline" href={ROUTES.login}>
-          Already Have an Account
-        </a>
-      </form>
+      <div className="login-panel">
+        <a className="pill-button black" href={authStartHref(ROUTES.account)}>Create Account</a>
+        <a className="pill-button outline" href={ROUTES.login}>Already Have an Account</a>
+        {bookingUrl && <a className="pill-button outline" href={bookingUrl}>View Schedule</a>}
+      </div>
     </section>
   );
 }
@@ -2460,86 +2339,37 @@ function StandaloneWaiverForm() {
 }
 
 function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoading }) {
+  const [accountData, setAccountData] = useState(null);
+  const [accountLoading, setAccountLoading] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
-  const [pendingProfile, setPendingProfile] = useState(null);
-  const [linkStatus, setLinkStatus] = useState(null); // "linking" | "linked" | "failed"
-  const [linkError, setLinkError] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (!clientSession?.signedIn) return;
-    try {
-      const raw = sessionStorage.getItem("cave_pending_profile");
-      if (raw) {
-        setPendingProfile(JSON.parse(raw));
-        sessionStorage.removeItem("cave_pending_profile");
-      }
-    } catch (_) {}
-  }, [clientSession?.signedIn]);
-
-  const attemptAutoLink = async () => {
-    setLinkStatus("linking");
-    setLinkError("");
-    try {
-      const result = await apiRequest("/api/auth/link", { method: "POST" });
-      if (result?.success || result?.authenticated) {
-        setLinkStatus("linked");
-        // Refresh session and dashboard with the resolved Mindbody clientId
-        const [sessionData, dashData] = await Promise.all([
-          apiRequest("/api/auth/session").catch(() => null),
-          apiRequest("/api/client/dashboard").catch(() => null)
-        ]);
-        if (sessionData?.signedIn) setClientSession(sessionData);
-        if (dashData) setDashboard(dashData);
-      } else {
-        setLinkStatus("failed");
-        setLinkError(result?.message || "");
-      }
-    } catch (err) {
-      setLinkStatus("failed");
-      setLinkError(err?.message || "");
-    }
-  };
-
-  useEffect(() => {
     let isMounted = true;
 
-    async function loadDashboard() {
-      if (!clientSession?.signedIn) {
-        return;
+    setAccountLoading(true);
+    setDashboardLoading(true);
+
+    Promise.all([
+      apiRequest("/api/account/me").catch(() => null),
+      apiRequest("/api/client/dashboard").catch(() => null)
+    ]).then(([acct, dash]) => {
+      if (!isMounted) return;
+      if (acct?.data) setAccountData(acct.data);
+      if (dash) {
+        if (dash.session?.signedIn) setClientSession(dash.session);
+        setDashboard(dash);
       }
+    }).finally(() => {
+      if (!isMounted) return;
+      setAccountLoading(false);
+      setDashboardLoading(false);
+    });
 
-      setDashboardLoading(true);
-
-      try {
-        const data = await apiRequest("/api/client/dashboard");
-
-        if (isMounted) {
-          if (data.session?.signedIn && JSON.stringify(data.session) !== JSON.stringify(clientSession)) {
-            setClientSession(data.session);
-          }
-
-          setDashboard(data);
-
-          // Auto-attempt to resolve the Mindbody client on every load when not yet linked.
-          // No sessionStorage gate — the server is the source of truth.
-          if (isMounted && data?.clientLinked === false) {
-            attemptAutoLink();
-          }
-        }
-      } catch (_error) {
-        // Dashboard data unavailable — cards will show empty state gracefully
-      } finally {
-        if (isMounted) setDashboardLoading(false);
-      }
-    }
-
-    loadDashboard();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [clientSession]);
+    return () => { isMounted = false; };
+  }, [clientSession?.signedIn]);
 
   const signOut = () => {
     apiRequest("/api/auth/sign-out", { method: "POST" }).finally(() => {
@@ -2593,13 +2423,46 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         </div>
       </div>
 
-      {pendingProfile && (
-        <CompleteProfileBanner
-          pendingProfile={pendingProfile}
+      {accountLoading && (
+        <p className="account-link-note">Loading your Mindbody profile\u2026</p>
+      )}
+
+      {!accountLoading && accountData !== null && !accountData.hasBusinessProfile && (
+        <CompleteStudioProfile
+          accountData={accountData}
           clientSession={clientSession}
-          setClientSession={setClientSession}
-          onDone={() => setPendingProfile(null)}
+          onComplete={(updated) => setAccountData(updated)}
         />
+      )}
+
+      {!accountLoading && accountData?.hasBusinessProfile && (
+        <>
+          <div className="account-info-section">
+            <div className="account-info-grid">
+              <AccountInfoField label="First Name" value={accountData.firstName || user.firstName} />
+              <AccountInfoField label="Last Name" value={accountData.lastName || user.lastName} />
+              <AccountInfoField label="Email" value={accountData.email || user.email} />
+              {accountData.userId && <AccountInfoField label="Mindbody User ID" value={accountData.userId} mono />}
+              {accountData.clientId && <AccountInfoField label="Studio Client ID" value={accountData.clientId} mono />}
+              {accountData.businessId && <AccountInfoField label="Business ID" value={accountData.businessId} mono />}
+            </div>
+            <button
+              className="pill-button outline account-edit-toggle"
+              type="button"
+              onClick={() => setEditOpen((v) => !v)}
+            >
+              {editOpen ? "Cancel Edit" : "Edit Profile"}
+            </button>
+          </div>
+
+          {editOpen && (
+            <EditProfileSection
+              accountData={accountData}
+              clientSession={clientSession}
+              onSaved={() => setEditOpen(false)}
+            />
+          )}
+        </>
       )}
 
       <div className="account-grid">
@@ -2608,23 +2471,198 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
       </div>
 
-      {!dashboardLoading && dashboard?.clientLinked === false && linkStatus !== "linked" && (
-        <p className="account-link-note">
-          {(linkStatus === "linking" || !linkStatus) && "Connecting your studio account\u2026"}
-          {linkStatus === "failed" && (
-            <>
-              {linkError
-                ? `Studio account: ${linkError}`
-                : "Could not connect your studio account."}{" "}
-              <button className="text-button" type="button" onClick={attemptAutoLink}>Try again</button>{" "}
-              or <a href={ROUTES.contact}>contact Cave</a>.
-            </>
-          )}
-        </p>
-      )}
-
       <a className="pill-button black" href={bookingUrl}>View Schedule</a>
     </section>
+  );
+}
+
+function AccountInfoField({ label, value, mono }) {
+  if (!value) return null;
+  return (
+    <div className="account-info-field">
+      <span className="account-info-label">{label}</span>
+      <span className={`account-info-value${mono ? " account-info-mono" : ""}`}>{value}</span>
+    </div>
+  );
+}
+
+function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
+  const user = clientSession?.user || {};
+  const [form, setForm] = useState({
+    phone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    birthDate: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelationship: "",
+    gender: "",
+    referredBy: ""
+  });
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [saving, setSaving] = useState(false);
+
+  const updateField = (e) => {
+    const { name, value } = e.target;
+    setForm((c) => ({ ...c, [name]: value }));
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await apiRequest("/api/account/profile", {
+        method: "POST",
+        body: {
+          userId: accountData?.userId,
+          businessId: accountData?.businessId,
+          ...form
+        }
+      });
+
+      if (result.ok) {
+        // Reload account data with updated profile
+        const updated = await apiRequest("/api/account/me").catch(() => null);
+        if (updated?.data) {
+          onComplete(updated.data);
+        } else {
+          onComplete({ ...accountData, hasBusinessProfile: true });
+        }
+      }
+    } catch (err) {
+      setStatus({ type: "error", message: err.message || "Profile could not be saved. Please try again." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="complete-profile-banner">
+      <div className="complete-profile-header">
+        <strong>Complete your Cave studio profile</strong>
+        <p>Add your contact details to finish linking your Mindbody account to this studio and enable booking.</p>
+      </div>
+      <form onSubmit={submit}>
+        <div className="form-grid two">
+          <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
+          <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
+        </div>
+        <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
+        <FormField label="Apt, Suite (Optional)" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
+        <div className="form-grid three">
+          <FormField label="City" name="city" value={form.city} onChange={updateField} autoComplete="address-level2" required />
+          <FormField label="State" name="state" value={form.state} onChange={updateField} autoComplete="address-level1" required />
+          <FormField label="Zip" name="postalCode" value={form.postalCode} onChange={updateField} autoComplete="postal-code" required />
+        </div>
+        <div className="form-grid two">
+          <FormField label="Emergency Contact Name" name="emergencyContactName" value={form.emergencyContactName} onChange={updateField} />
+          <FormField label="Emergency Contact Phone" name="emergencyContactPhone" type="tel" value={form.emergencyContactPhone} onChange={updateField} />
+        </div>
+        {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
+        <button className="pill-button black" type="submit" disabled={saving}>
+          {saving ? "Saving\u2026" : "Complete Studio Profile"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function EditProfileSection({ accountData, clientSession, onSaved }) {
+  const [form, setForm] = useState({
+    phone: "",
+    homePhone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    country: "",
+    postalCode: "",
+    birthDate: "",
+    gender: "",
+    referredBy: "",
+    middleName: "",
+    emergencyContactName: "",
+    emergencyContactEmail: "",
+    emergencyContactPhone: "",
+    emergencyContactRelationship: ""
+  });
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [saving, setSaving] = useState(false);
+
+  const updateField = (e) => {
+    const { name, value } = e.target;
+    setForm((c) => ({ ...c, [name]: value }));
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      await apiRequest("/api/account/profile", {
+        method: "POST",
+        body: {
+          userId: accountData?.userId,
+          businessId: accountData?.businessId,
+          ...form
+        }
+      });
+      setStatus({ type: "success", message: "Profile updated." });
+      if (onSaved) setTimeout(onSaved, 1200);
+    } catch (err) {
+      setStatus({ type: "error", message: err.message || "Profile could not be saved. Please try again." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="edit-profile-section">
+      <h2>Edit Profile</h2>
+      <p className="edit-profile-note">Name, email, and external ID are managed by Mindbody and cannot be changed here.</p>
+      <form onSubmit={submit}>
+        <div className="form-grid two">
+          <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" />
+          <FormField label="Home Phone" name="homePhone" type="tel" value={form.homePhone} onChange={updateField} />
+        </div>
+        <div className="form-grid two">
+          <FormField label="Middle Name" name="middleName" value={form.middleName} onChange={updateField} />
+          <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
+        </div>
+        <FormField label="Address Line 1" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" />
+        <FormField label="Address Line 2" name="addressLine2" value={form.addressLine2} onChange={updateField} autoComplete="address-line2" />
+        <div className="form-grid three">
+          <FormField label="City" name="city" value={form.city} onChange={updateField} autoComplete="address-level2" />
+          <FormField label="State" name="state" value={form.state} onChange={updateField} autoComplete="address-level1" />
+          <FormField label="Zip / Postal Code" name="postalCode" value={form.postalCode} onChange={updateField} autoComplete="postal-code" />
+        </div>
+        <div className="form-grid two">
+          <FormField label="Country" name="country" value={form.country} onChange={updateField} autoComplete="country-name" />
+          <FormField label="Referred By" name="referredBy" value={form.referredBy} onChange={updateField} />
+        </div>
+        <div className="edit-profile-group">
+          <p className="edit-profile-group-label">Emergency Contact</p>
+          <div className="form-grid two">
+            <FormField label="Name" name="emergencyContactName" value={form.emergencyContactName} onChange={updateField} />
+            <FormField label="Relationship" name="emergencyContactRelationship" value={form.emergencyContactRelationship} onChange={updateField} />
+          </div>
+          <div className="form-grid two">
+            <FormField label="Phone" name="emergencyContactPhone" type="tel" value={form.emergencyContactPhone} onChange={updateField} />
+            <FormField label="Email" name="emergencyContactEmail" type="email" value={form.emergencyContactEmail} onChange={updateField} />
+          </div>
+        </div>
+        {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
+        <button className="pill-button black" type="submit" disabled={saving}>
+          {saving ? "Saving\u2026" : "Save Changes"}
+        </button>
+      </form>
+    </div>
   );
 }
 
