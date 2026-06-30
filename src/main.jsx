@@ -1605,7 +1605,7 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const [showCardForm, setShowCardForm] = useState(false);
   const [buyState, setBuyState] = useState({ type: "", message: "" });
 
-  const isLoading = buyState.type === "loading";
+  const isLoading = buyState.type === "";
   const isContract = item.kind === "contract";
   const titleLines = pricingTitleLines(item, category);
   const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
@@ -1635,7 +1635,7 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
       return;
     }
 
-    setBuyState({ type: "loading", message: isContract ? "Processing membership..." : "Starting checkout..." });
+    setBuyState({ type: "", message: isContract ? "Processing membership..." : "Starting checkout..." });
 
     const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/store/purchase";
     const payload = isContract
@@ -1809,7 +1809,7 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
       setCheckoutState({ type: "error", message: savedCards.length ? "Please select a saved card." : "Enter the last 4 digits of your card." });
       return;
     }
-    setCheckoutState({ type: "loading", message: "Processing payment..." });
+    setCheckoutState({ type: "", message: "Processing payment..." });
     try {
       await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour } });
       setCheckoutState({ type: "success", message: "Purchase complete!" });
@@ -2556,7 +2556,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       <section className="login-page">
         <div className="login-copy">
           <p className="kicker">Account</p>
-          <h1>Loading your account.</h1>
+          <h1></h1>
           <p>Checking the secure studio session.</p>
         </div>
       </section>
@@ -2597,7 +2597,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       </div>
 
       {accountLoading && (
-        <p className="account-link-note">Loading\u2026</p>
+        <p className="account-link-note"></p>
       )}
 
       {!accountLoading && accountData !== null && !accountData.hasBusinessProfile && (
