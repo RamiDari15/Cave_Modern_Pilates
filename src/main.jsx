@@ -1492,7 +1492,6 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
           />
         </label>
       </div>
-      <p className="payment-safe-note">Card info is sent securely to the studio — Cave never stores card numbers.</p>
       <div className="add-card-actions">
         <button type="submit" className="pill-button black" disabled={isSubmitting}>
           {isSubmitting ? "Saving..." : "Save Card"}
@@ -1728,8 +1727,6 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
                         value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
                     </label>
                   )}
-                  <p className="payment-safe-note">Full card numbers never touch this site.</p>
-                  {showCardForm ? (
                     <AddCardForm clientSession={clientSession} onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }} onCancel={() => setShowCardForm(false)} />
                   ) : (
                     <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
@@ -1885,7 +1882,6 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
                     value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
                 </label>
               )}
-              <p className="payment-safe-note">Full card numbers never touch this site.</p>
               {showAddCard ? (
                 <AddCardForm clientSession={clientSession} onSuccess={() => { setShowAddCard(false); onCardAdded?.(); }} onCancel={() => setShowAddCard(false)} />
               ) : (
@@ -2594,7 +2590,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       </div>
 
       {accountLoading && (
-        <p className="account-link-note">Loading your Mindbody profile\u2026</p>
+        <p className="account-link-note">Loading\u2026</p>
       )}
 
       {!accountLoading && accountData !== null && !accountData.hasBusinessProfile && (
@@ -2661,19 +2657,9 @@ function AccountWaiverSection({ accountData, onSigned }) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
 
-  // Already signed — show the agreement date from Mindbody
+  // Already signed — nothing to show
   if (accountData?.hasWaiver) {
-    const dateStr = accountData.waiverDate
-      ? new Date(accountData.waiverDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
-      : null;
-    return (
-      <div className="account-waiver-section account-waiver-signed">
-        <div className="account-waiver-header">
-          <strong>Liability Waiver Signed</strong>
-          {dateStr ? <p>Signed on {dateStr}</p> : <p>On file with the studio.</p>}
-        </div>
-      </div>
-    );
+    return null;
   }
 
   const submit = async (e) => {
@@ -2706,7 +2692,6 @@ function AccountWaiverSection({ accountData, onSigned }) {
     <div className="account-waiver-section">
       <div className="account-waiver-header">
         <strong>Liability Waiver Required</strong>
-        <p>You must sign the Cave Modern Pilates liability waiver before booking classes.</p>
         <a className="account-waiver-link" href="/assets/cave-modern-pilates-liability-waiver.pdf" target="_blank" rel="noopener noreferrer">Read the full waiver (PDF)</a>
       </div>
       <form onSubmit={submit} className="account-waiver-form">
@@ -2795,7 +2780,6 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
     <div className="complete-profile-banner">
       <div className="complete-profile-header">
         <strong>Complete your Cave studio profile</strong>
-        <p>Add your contact details to finish linking your Mindbody account to this studio and enable booking.</p>
       </div>
       <form onSubmit={submit}>
         <div className="form-grid two">
@@ -2877,7 +2861,6 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
     <div className="edit-profile-section">
       <div className="edit-profile-header">
         <h2>Edit Profile</h2>
-        <p className="edit-profile-note">Name, email, and studio ID are managed by Mindbody and cannot be changed here.</p>
       </div>
       <form onSubmit={submit} className="edit-profile-body">
         <div>
@@ -3002,7 +2985,6 @@ function CompleteProfileBanner({ pendingProfile, clientSession, setClientSession
     <div className="complete-profile-banner">
       <div className="complete-profile-header">
         <strong>Complete your Cave profile</strong>
-        <p>Add your address and sign the studio waiver to finish setting up your account.</p>
       </div>
       <form onSubmit={submit}>
         <div className="form-grid two">
