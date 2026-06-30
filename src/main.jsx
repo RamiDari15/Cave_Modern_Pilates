@@ -2464,6 +2464,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [pendingProfile, setPendingProfile] = useState(null);
   const [linkStatus, setLinkStatus] = useState(null); // "linking" | "linked" | "failed"
+  const [linkError, setLinkError] = useState("");
 
   useEffect(() => {
     if (!clientSession?.signedIn) return;
@@ -2476,18 +2477,14 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
     } catch (_) {}
   }, [clientSession?.signedIn]);
 
-  const attemptAutoLink = async (manual = false) => {
-    if (manual) {
-      try { sessionStorage.removeItem("cave_link_tried"); } catch (_) {}
-    }
+  const attemptAutoLink = async () => {
     setLinkStatus("linking");
+    setLinkError("");
     try {
       const result = await apiRequest("/api/auth/link", { method: "POST" });
-      // Accept both the new { success, linked } shape and the legacy { ok } shape
-      if (result?.linked || result?.ok || result?.success) {
+      if (result?.success || result?.authenticated) {
         setLinkStatus("linked");
-        try { sessionStorage.removeItem("cave_link_tried"); } catch (_) {}
-        // Refresh session and dashboard now that we have a clientId
+        // Refresh session and dashboard with the resolved Mindbody clientId
         const [sessionData, dashData] = await Promise.all([
           apiRequest("/api/auth/session").catch(() => null),
           apiRequest("/api/client/dashboard").catch(() => null)
@@ -2496,11 +2493,11 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         if (dashData) setDashboard(dashData);
       } else {
         setLinkStatus("failed");
-        try { sessionStorage.setItem("cave_link_tried", "1"); } catch (_) {}
+        setLinkError(result?.message || "");
       }
-    } catch (_) {
+    } catch (err) {
       setLinkStatus("failed");
-      try { sessionStorage.setItem("cave_link_tried", "1"); } catch (_) {}
+      setLinkError(err?.message || "");
     }
   };
 
@@ -2524,14 +2521,10 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 
           setDashboard(data);
 
-          // Auto-attempt to link if the studio account wasn't found
+          // Auto-attempt to resolve the Mindbody client on every load when not yet linked.
+          // No sessionStorage gate — the server is the source of truth.
           if (isMounted && data?.clientLinked === false) {
-            const alreadyTried = (() => { try { return sessionStorage.getItem("cave_link_tried"); } catch (_) { return null; } })();
-            if (alreadyTried) {
-              setLinkStatus("failed");
-            } else {
-              attemptAutoLink();
-            }
+            attemptAutoLink();
           }
         }
       } catch (_error) {
@@ -2617,14 +2610,16 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 
       {!dashboardLoading && dashboard?.clientLinked === false && linkStatus !== "linked" && (
         <p className="account-link-note">
-          {linkStatus === "linking" && "Connecting your studio account..."}
+          {(linkStatus === "linking" || !linkStatus) && "Connecting your studio account\u2026"}
           {linkStatus === "failed" && (
             <>
-              Could not automatically link your studio account.{" "}
-              <button className="text-button" type="button" onClick={() => attemptAutoLink(true)}>Try again</button> or <a href={ROUTES.contact}>contact Cave</a>.
+              {linkError
+                ? `Studio account: ${linkError}`
+                : "Could not connect your studio account."}{" "}
+              <button className="text-button" type="button" onClick={attemptAutoLink}>Try again</button>{" "}
+              or <a href={ROUTES.contact}>contact Cave</a>.
             </>
           )}
-          {!linkStatus && "Connecting your studio account..."}
         </p>
       )}
 
