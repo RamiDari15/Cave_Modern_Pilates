@@ -1244,6 +1244,46 @@ export async function handleApiRequest(request, response) {
         });
       }
 
+      // Fetch full client profile from Public API clientcompleteinfo if we have a clientId
+      const resolvedClientId = studioClientId || activeSession.clientId;
+      let fullProfile = null;
+      if (resolvedClientId) {
+        let profileToken = null;
+        try {
+          profileToken = await getMindbodyActionToken("Account profile load");
+        } catch (_) {}
+        const ccResp = await bookingRequest("/client/clientcompleteinfo", {
+          token: profileToken || undefined,
+          consumerIdentityToken: profileToken ? undefined : accessToken,
+          params: { ClientId: resolvedClientId }
+        }).catch(() => null);
+        if (ccResp) {
+          const client = ccResp.ClientCompleteInfo?.Client || ccResp.Client || {};
+          fullProfile = compactObject({
+            phone: client.MobilePhone || undefined,
+            homePhone: client.HomePhone || undefined,
+            workPhone: client.WorkPhone || undefined,
+            middleName: client.MiddleName || undefined,
+            addressLine1: client.AddressLine1 || undefined,
+            addressLine2: client.AddressLine2 || undefined,
+            city: client.City || undefined,
+            state: client.State || undefined,
+            country: client.Country || undefined,
+            postalCode: client.PostalCode || undefined,
+            birthDate: client.BirthDate ? String(client.BirthDate).slice(0, 10) : undefined,
+            gender: client.Gender || undefined,
+            referredBy: client.ReferredBy || undefined,
+            emergencyContactName: client.EmergencyContactInfoName || undefined,
+            emergencyContactEmail: client.EmergencyContactInfoEmail || undefined,
+            emergencyContactPhone: client.EmergencyContactInfoPhone || undefined,
+            emergencyContactRelationship: client.EmergencyContactInfoRelationship || undefined
+          });
+          fullProfile.hasWaiver = Boolean(client.Liability?.IsReleased);
+          fullProfile.waiverDate = client.Liability?.AgreementDate || null;
+          console.log(`[account/me] clientcompleteinfo: hasWaiver=${fullProfile.hasWaiver} hasPhone=${Boolean(fullProfile.phone)}`);
+        }
+      }
+
       sendJson(response, 200, {
         ok: true,
         data: {
@@ -1257,7 +1297,8 @@ export async function handleApiRequest(request, response) {
           profileId,
           hasBusinessProfile,
           businessProfiles: profiles,
-          platformMeError: meResult.ok ? null : { status: meResult.status, error: meResult.error }
+          platformMeError: meResult.ok ? null : { status: meResult.status, error: meResult.error },
+          ...fullProfile
         }
       });
       return true;
@@ -1271,125 +1312,101 @@ export async function handleApiRequest(request, response) {
       }
 
       const session = await readHydratedSession(request, response);
-      const hasToken = Boolean(session?.accessToken || session?.consumerIdentityToken);
-      const tokenExpired = Boolean(session?.expiresAt && new Date(session.expiresAt).getTime() < Date.now());
+      const hasAuth = Boolean(
+        session?.accessToken || session?.consumerIdentityToken || session?.authMode === "created-client"
+      );
 
-      console.log(`[account/profile] POST hasToken=${hasToken} tokenExpired=${tokenExpired} platformUserId=${session?.platformUserId || "(none)"} businessId=${session?.businessId || "(none)"}`);
-
-      if (!hasToken) {
+      if (!hasAuth) {
         sendJson(response, 401, { ok: false, message: "Please sign in first." });
         return true;
       }
 
       const body = await readJsonBody(request);
-      const accessToken = session.consumerIdentityToken || session.accessToken;
-      let userId = session.platformUserId || body.userId || "";
+      const clientId = session.clientId || body.clientId || "";
+      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
 
-      if (!userId) {
-        console.log("[account/profile] platformUserId missing from session — calling /platform/account/v1/me");
-        const meResult = await fetchPlatformMeWithStatus(accessToken);
-        console.log(`[account/profile] GET /platform/account/v1/me → ok=${meResult.ok} status=${meResult.status || ""}`);
-        if (meResult.ok) {
-          userId = meResult.data?.userAccount?.id || meResult.data?.UserAccount?.id || "";
-          if (userId) {
-            setSessionCookie(response, { ...session, platformUserId: userId });
-          }
-        }
-        if (!userId) {
-          const hint =
-            meResult.status === 401 ? "OAuth token is expired or missing the Platform.Accounts.Api.Read scope." :
-            meResult.status === 403 ? "OAuth app lacks permission for Platform account data. Check your Mindbody OAuth app scopes." :
-            meResult.status === 0   ? "Could not reach Mindbody Platform API." :
-            `Mindbody returned HTTP ${meResult.status}: ${meResult.error}`;
-          console.error("[account/profile] cannot resolve platformUserId —", hint);
-          sendJson(response, 401, { ok: false, message: "Could not verify your Mindbody identity. Please sign out and sign in again.", debug: hint });
-          return true;
-        }
-      }
+      console.log(`[account/profile] POST clientId=${clientId || "(none)"} hasConsumerToken=${Boolean(consumerToken)}`);
 
-      const { apiKey, siteId } = getBookingConfig();
-      const businessId = session.businessId || body.businessId || siteId || "";
+      const clientUpdate = compactObject({
+        Id: clientId || undefined,
+        MobilePhone: body.phone,
+        HomePhone: body.homePhone,
+        WorkPhone: body.workPhone,
+        MiddleName: body.middleName,
+        AddressLine1: body.addressLine1,
+        AddressLine2: body.addressLine2,
+        City: body.city,
+        State: body.state,
+        PostalCode: body.postalCode,
+        Country: body.country,
+        BirthDate: body.birthDate,
+        Gender: body.gender,
+        ReferredBy: body.referredBy,
+        EmergencyContactInfoName: body.emergencyContactName,
+        EmergencyContactInfoEmail: body.emergencyContactEmail,
+        EmergencyContactInfoPhone: body.emergencyContactPhone,
+        EmergencyContactInfoRelationship: body.emergencyContactRelationship
+      });
 
-      const ALLOWED_PROPS = new Set([
-        "middle_name", "address_line_1", "address_line_2", "city", "state", "country",
-        "postal_code", "home_phone_number", "work_phone_number", "mobile_phone_number",
-        "birth_date", "referred_by", "emergency_contact_name", "emergency_contact_email",
-        "emergency_contact_phone", "emergency_contact_relationship", "gender"
-      ]);
-
-      let contactProperties = [];
-
-      if (Array.isArray(body.contactProperties)) {
-        contactProperties = body.contactProperties.filter((p) => ALLOWED_PROPS.has(p?.name) && p?.value);
-      } else {
-        const fieldMap = {
-          mobile_phone_number: body.phone,
-          address_line_1: body.addressLine1,
-          address_line_2: body.addressLine2,
-          city: body.city,
-          state: body.state,
-          country: body.country,
-          postal_code: body.postalCode,
-          birth_date: body.birthDate,
-          home_phone_number: body.homePhone,
-          work_phone_number: body.workPhone,
-          referred_by: body.referredBy,
-          emergency_contact_name: body.emergencyContactName,
-          emergency_contact_email: body.emergencyContactEmail,
-          emergency_contact_phone: body.emergencyContactPhone,
-          emergency_contact_relationship: body.emergencyContactRelationship,
-          gender: body.gender,
-          middle_name: body.middleName
-        };
-        for (const [name, value] of Object.entries(fieldMap)) {
-          if (value && String(value).trim()) {
-            contactProperties.push({ name, value: String(value).trim() });
-          }
-        }
-      }
-
-      if (!contactProperties.length) {
+      const fieldCount = Object.keys(clientUpdate).filter((k) => k !== "Id").length;
+      if (!fieldCount) {
         sendJson(response, 400, { ok: false, message: "No valid profile fields provided." });
         return true;
       }
 
-      console.log(`[account/profile] calling POST /platform/contacts/v1/profiles userId=${userId} businessId=${businessId} fields=${contactProperties.map((p) => p.name).join(",")}`);
+      console.log(`[account/profile] calling POST /client/updateclient clientId=${clientId || "(consumer-only)"} fields=${Object.keys(clientUpdate).filter((k) => k !== "Id").join(",")}`);
 
-      const profileResp = await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
-        method: "POST",
-        headers: {
-          "Api-Key": apiKey,
-          "Authorization": `Bearer ${accessToken}`,
-          "SiteId": String(siteId),
-          "BusinessId": String(businessId),
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({ userId, contactProperties })
-      });
+      let updateResult = null;
+      let updateError = null;
 
-      const profileData = await profileResp.json().catch(() => ({}));
+      if (consumerToken) {
+        try {
+          updateResult = await bookingRequest("/client/updateclient", {
+            method: "POST",
+            consumerIdentityToken: consumerToken,
+            body: { Client: clientUpdate, CrossRegionalUpdate: true }
+          });
+          console.log("[account/profile] updateclient via consumer token: success");
+        } catch (err) {
+          updateError = err;
+          console.log(`[account/profile] consumer updateclient failed (${err.status || 0}): ${err.message}`);
+        }
+      }
 
-      if (!profileResp.ok) {
-        const message = profileData?.Error?.Message || profileData?.message || profileData?.Message || "Profile update failed.";
-        const code = profileData?.Error?.Code || profileData?.code || "";
-        console.error(`[account/profile] POST /platform/contacts/v1/profiles → ${profileResp.status} code=${code} message=${message}`);
-        sendJson(response, profileResp.status, { ok: false, message, code, details: profileData });
+      if (!updateResult) {
+        try {
+          const staffToken = await getMindbodyActionToken("Profile update");
+          updateResult = await bookingRequest("/client/updateclient", {
+            method: "POST",
+            token: staffToken,
+            body: { Client: clientUpdate, CrossRegionalUpdate: true }
+          });
+          console.log("[account/profile] updateclient via staff token: success");
+        } catch (staffErr) {
+          updateError = staffErr;
+          console.error(`[account/profile] staff updateclient failed (${staffErr.status || 0}): ${staffErr.message}`);
+        }
+      }
+
+      if (!updateResult) {
+        const message = updateError?.data?.Error?.Message || updateError?.data?.Message || updateError?.message || "Profile update failed.";
+        const code = updateError?.data?.Error?.Code || updateError?.data?.code || "";
+        sendJson(response, updateError?.status || 500, { ok: false, message, code });
         return true;
       }
 
-      const profileObj = profileData?.profile || profileData?.Profile || profileData;
-      const rawClientId = profileObj?.clientId || profileObj?.ClientId;
-      if (rawClientId && !isUUID(String(rawClientId))) {
+      const updatedClient = updateResult?.Client || updateResult?.Clients?.[0] || updateResult?.ClientResponse?.Client;
+      const returnedClientId = updatedClient?.Id || updatedClient?.ClientId;
+      if (returnedClientId && !isUUID(String(returnedClientId)) && returnedClientId !== session.clientId) {
         setSessionCookie(response, {
           ...session,
-          clientId: String(rawClientId),
-          user: { ...session.user, id: String(rawClientId) }
+          clientId: String(returnedClientId),
+          user: { ...session.user, id: String(returnedClientId) }
         });
       }
 
-      console.log(`[account/profile] POST /platform/contacts/v1/profiles → 200 OK`);
-      sendJson(response, 200, { ok: true, data: profileData });
+      console.log("[account/profile] success");
+      sendJson(response, 200, { ok: true, data: updateResult });
       return true;
     }
 

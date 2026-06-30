@@ -2442,9 +2442,11 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
               <AccountInfoField label="First Name" value={accountData.firstName || user.firstName} />
               <AccountInfoField label="Last Name" value={accountData.lastName || user.lastName} />
               <AccountInfoField label="Email" value={accountData.email || user.email} />
+              <AccountInfoField label="Phone" value={accountData.phone} />
+              <AccountInfoField label="Address" value={accountData.addressLine1} />
+              <AccountInfoField label="City" value={accountData.city} />
               {accountData.userId && <AccountInfoField label="Mindbody User ID" value={accountData.userId} mono />}
               {accountData.clientId && <AccountInfoField label="Studio Client ID" value={accountData.clientId} mono />}
-              {accountData.businessId && <AccountInfoField label="Business ID" value={accountData.businessId} mono />}
             </div>
             <button
               className="pill-button outline account-edit-toggle"
@@ -2454,6 +2456,13 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
               {editOpen ? "Cancel Edit" : "Edit Profile"}
             </button>
           </div>
+
+          {!accountLoading && accountData.hasWaiver === false && (
+            <AccountWaiverSection
+              accountData={accountData}
+              onSigned={(updated) => setAccountData((prev) => ({ ...prev, hasWaiver: true, ...updated }))}
+            />
+          )}
 
           {editOpen && (
             <EditProfileSection
@@ -2473,6 +2482,60 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 
       <a className="pill-button outline account-edit-toggle" href={bookingUrl}>View Schedule</a>
     </section>
+  );
+}
+
+function AccountWaiverSection({ accountData, onSigned }) {
+  const [accepted, setAccepted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!accepted) {
+      setStatus({ type: "error", message: "Please check the box to accept the waiver." });
+      return;
+    }
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const waiver = {
+        accepted: true,
+        participantName: `${accountData.firstName || ""} ${accountData.lastName || ""}`.trim(),
+        signature: `${accountData.firstName || ""} ${accountData.lastName || ""}`.trim(),
+        signedDate: new Date().toISOString().slice(0, 10),
+        acceptedAt: new Date().toISOString()
+      };
+      await apiRequest("/api/client/waiver", { method: "POST", body: { waiver } });
+      setStatus({ type: "success", message: "Liability waiver signed and saved." });
+      if (onSigned) onSigned({ hasWaiver: true });
+    } catch (err) {
+      setStatus({ type: "error", message: err.message || "Could not save waiver. Please try again." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="account-waiver-section">
+      <strong>Liability Waiver Required</strong>
+      <p>You must sign the Cave Modern Pilates liability waiver before booking classes.</p>
+      <a className="account-waiver-link" href="/assets/cave-modern-pilates-liability-waiver.pdf" target="_blank" rel="noopener noreferrer">Read the full waiver (PDF)</a>
+      <form onSubmit={submit} className="account-waiver-form">
+        <label className="waiver-checkbox-label">
+          <input
+            type="checkbox"
+            checked={accepted}
+            onChange={(e) => setAccepted(e.target.checked)}
+          />
+          I have read and agree to the Cave Modern Pilates liability waiver.
+        </label>
+        {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
+        <button className="pill-button black" type="submit" disabled={saving || !accepted}>
+          {saving ? "Saving\u2026" : "Sign Waiver"}
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -2519,8 +2582,7 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
       const result = await apiRequest("/api/account/profile", {
         method: "POST",
         body: {
-          userId: accountData?.userId,
-          businessId: accountData?.businessId,
+          clientId: accountData?.clientId,
           ...form
         }
       });
@@ -2608,8 +2670,7 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
       await apiRequest("/api/account/profile", {
         method: "POST",
         body: {
-          userId: accountData?.userId,
-          businessId: accountData?.businessId,
+          clientId: accountData?.clientId,
           ...form
         }
       });
