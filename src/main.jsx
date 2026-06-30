@@ -1268,7 +1268,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
 
   useEffect(() => {
     if (!catalog.loading && catalog.newbie?.length > 0) setActiveTab("newbie");
-  }, [catalog.loading]);
+  }, [catalog.loading, catalog.newbie?.length]);
 
   const tabItems = (catalog[activeTab] || []);
   const totalQty = cart.items.reduce((n, i) => n + i.quantity, 0);
@@ -1730,7 +1730,13 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
   const [showAddCard, setShowAddCard] = useState(false);
+  const closeTimerRef = React.useRef(null);
 
+  useEffect(() => {
+    return () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); };
+  }, []);
+
+  const cartItemsKey = cart.items.map((i) => `${i.id}:${i.kind}:${i.quantity}`).join(",");
   useEffect(() => {
     if (!cart.items.length || !clientSession?.signedIn) return;
     let mounted = true;
@@ -1739,7 +1745,8 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
       .then((data) => { if (mounted) setQuoteState({ grandTotal: data.grandTotal ?? cart.total, loading: false }); })
       .catch(() => { if (mounted) setQuoteState((s) => ({ ...s, loading: false })); });
     return () => { mounted = false; };
-  }, [JSON.stringify(cart.items), clientSession?.signedIn]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartItemsKey, clientSession?.signedIn]);
 
   const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
 
@@ -1754,7 +1761,7 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
       await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour } });
       setCheckoutState({ type: "success", message: "Purchase complete! Credits are now in your Mindbody account." });
       cart.clear();
-      setTimeout(() => { cart.close(); setCheckoutState({ type: "", message: "" }); }, 4000);
+      closeTimerRef.current = setTimeout(() => { cart.close(); setCheckoutState({ type: "", message: "" }); }, 4000);
     } catch (err) {
       if (err.loginUrl) { window.location.href = err.loginUrl; return; }
       setCheckoutState({ type: "error", message: friendlyApiErrorMessage(err, "Checkout failed. Please try again.") });

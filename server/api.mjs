@@ -1872,7 +1872,7 @@ export async function handleApiRequest(request, response) {
             InStore: false,
             CalculateTax: true,
             Items: cartItems,
-            Payments: clientId ? [{ Type: "StoredCard", Metadata: { Amount: 99999, LastFour: "0000" } }] : []
+            Payments: []
           }
         });
         const cart = result?.ShoppingCart || result;
