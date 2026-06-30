@@ -551,7 +551,7 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      if (!session?.signedIn && !session?.clientId && !session?.consumerIdentityToken && !session?.accessToken) {
+      if (!session) {
         sendJson(response, 401, {
           message: "Please sign in before saving your waiver.",
           loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/policies#liability-waiver")}`
@@ -750,7 +750,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/mindbody/client-info" && request.method === "GET") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, { ok: false, code: "NO_CLIENT_ID", message: "Please sign in first.", loginUrl: "/api/auth/start?returnTo=/account" });
         return true;
       }
@@ -775,7 +775,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/mindbody/client-memberships" && request.method === "GET") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, { ok: false, code: "NO_CLIENT_ID", message: "Please sign in first." });
         return true;
       }
@@ -815,7 +815,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/mindbody/book-class" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, {
           ok: false,
           code: "NO_CLIENT_ID",
@@ -921,7 +921,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/mindbody/join-waitlist" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, {
           ok: false,
           code: "NO_CLIENT_ID",
@@ -1038,7 +1038,7 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      if (!session?.signedIn) {
+      if (!session) {
         const returnTo = safeReturnTo(body.returnTo || `/pricing?purchase=${item.kind}-${item.id}`);
         sendJson(response, 401, {
           message: "Please sign in before buying.",
@@ -1055,7 +1055,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/client/saved-cards" && request.method === "GET") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn && !session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+      if (!session) {
         sendJson(response, 200, { cards: [] });
         return true;
       }
@@ -1089,7 +1089,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/client/add-card" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, {
           ok: false,
           message: "Please sign in before adding a card.",
@@ -1898,7 +1898,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/cart/checkout" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, { ok: false, message: "Please sign in before purchasing.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}` });
         return true;
       }
@@ -2041,7 +2041,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/pricing/contracts/purchase" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, { ok: false, message: "Please sign in before purchasing.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}` });
         return true;
       }
@@ -2133,7 +2133,7 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/client/purchases" && request.method === "GET") {
       const session = await readHydratedSession(request, response);
 
-      if (!session?.signedIn) {
+      if (!session) {
         sendJson(response, 401, { ok: false, message: "Please sign in to view your purchases.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/account")}` });
         return true;
       }
