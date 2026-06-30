@@ -2410,7 +2410,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   const user = clientSession.user || {};
 
   return (
-    <section className="account-page section">
+    <section className="account-page">
       <div className="account-header">
         <div>
           <p className="kicker">Account</p>
@@ -2471,7 +2471,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
       </div>
 
-      <a className="pill-button black" href={bookingUrl}>View Schedule</a>
+      <a className="pill-button outline account-edit-toggle" href={bookingUrl}>View Schedule</a>
     </section>
   );
 }
@@ -2574,22 +2574,22 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
 
 function EditProfileSection({ accountData, clientSession, onSaved }) {
   const [form, setForm] = useState({
-    phone: "",
-    homePhone: "",
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    state: "",
-    country: "",
-    postalCode: "",
-    birthDate: "",
-    gender: "",
-    referredBy: "",
-    middleName: "",
-    emergencyContactName: "",
-    emergencyContactEmail: "",
-    emergencyContactPhone: "",
-    emergencyContactRelationship: ""
+    phone: accountData?.phone || "",
+    homePhone: accountData?.homePhone || "",
+    addressLine1: accountData?.addressLine1 || "",
+    addressLine2: accountData?.addressLine2 || "",
+    city: accountData?.city || "",
+    state: accountData?.state || "",
+    country: accountData?.country || accountData?.countryCode || "",
+    postalCode: accountData?.postalCode || "",
+    birthDate: accountData?.birthDate || "",
+    gender: accountData?.gender || "",
+    referredBy: accountData?.referredBy || "",
+    middleName: accountData?.middleName || "",
+    emergencyContactName: accountData?.emergencyContactName || "",
+    emergencyContactEmail: accountData?.emergencyContactEmail || "",
+    emergencyContactPhone: accountData?.emergencyContactPhone || "",
+    emergencyContactRelationship: accountData?.emergencyContactRelationship || ""
   });
   const [status, setStatus] = useState({ type: "", message: "" });
   const [saving, setSaving] = useState(false);
