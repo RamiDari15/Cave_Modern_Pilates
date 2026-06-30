@@ -1397,26 +1397,7 @@ export async function handleApiRequest(request, response) {
       }
 
       let accessToken = session.consumerIdentityToken || session.accessToken;
-      let activeSession = session;
-
-      const tokenExpired = session.expiresAt && new Date(session.expiresAt).getTime() < Date.now();
-      if (tokenExpired && session.refreshToken) {
-        const refreshed = await refreshAccessToken(session.refreshToken).catch(() => null);
-        if (refreshed?.access_token) {
-          activeSession = {
-            ...session,
-            accessToken: refreshed.access_token,
-            consumerIdentityToken: refreshed.access_token,
-            refreshToken: refreshed.refresh_token || session.refreshToken,
-            expiresAt: refreshed.expires_in
-              ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
-              : session.expiresAt
-          };
-          accessToken = refreshed.access_token;
-          setSessionCookie(response, activeSession);
-          console.log("[account/me] token refreshed");
-        }
-      }
+      const activeSession = session;
 
       const { siteId } = getBookingConfig();
       const meResult = await fetchPlatformMeWithStatus(accessToken);
@@ -2560,10 +2541,32 @@ function normalizeOAuthSession(data, options = {}) {
 }
 
 async function readHydratedSession(request, response) {
-  const session = readSession(request);
+  let session = readSession(request);
 
   if (!session) {
     return null;
+  }
+
+  // Refresh an expired OAuth token before hydrating so all downstream calls use a valid token.
+  if (session.authMode === "oauth" && session.refreshToken) {
+    const tokenExpired = session.expiresAt
+      ? new Date(session.expiresAt).getTime() < Date.now() + 60_000
+      : false;
+    if (tokenExpired) {
+      const refreshed = await refreshAccessToken(session.refreshToken).catch(() => null);
+      if (refreshed?.access_token) {
+        session = {
+          ...session,
+          accessToken: refreshed.access_token,
+          consumerIdentityToken: refreshed.access_token,
+          refreshToken: refreshed.refresh_token || session.refreshToken,
+          expiresAt: refreshed.expires_in
+            ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
+            : session.expiresAt
+        };
+        setSessionCookie(response, session);
+      }
+    }
   }
 
   const hydrated = await hydrateOAuthSession(session);

@@ -696,11 +696,13 @@ function useClientSession() {
     loadSession(true);
     window.addEventListener("focus", refreshOnFocus);
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    const interval = setInterval(() => loadSession(false), 5 * 60 * 1000);
 
     return () => {
       isMounted = false;
       window.removeEventListener("focus", refreshOnFocus);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      clearInterval(interval);
     };
   }, []);
 
