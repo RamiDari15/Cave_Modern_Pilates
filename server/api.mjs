@@ -1255,10 +1255,33 @@ export async function handleApiRequest(request, response) {
 
       const body = await readJsonBody(request);
       const accessToken = session.consumerIdentityToken || session.accessToken;
-      const userId = session.platformUserId || body.userId || "";
+      let userId = session.platformUserId || body.userId || "";
 
       if (!userId) {
-        sendJson(response, 400, { ok: false, message: "Mindbody user ID is required. Please load your account page and try again." });
+        const platformUser = await fetchPlatformMe(accessToken).catch(() => null);
+        userId = platformUser?.userAccount?.id || platformUser?.UserAccount?.id || "";
+        if (userId) {
+          setSessionCookie(response, { ...session, platformUserId: userId });
+        }
+      }
+
+      if (!userId) {
+        const sessionEmail = session.user?.email || session.user?.username || "";
+        if (sessionEmail) {
+          try {
+            const consumerToken = session.consumerIdentityToken || session.accessToken;
+            const searchResult = await bookingRequest("/client/clients", {
+              token: consumerToken,
+              params: { SearchText: sessionEmail }
+            });
+            const firstClient = searchResult?.Clients?.[0] || searchResult?.Client;
+            const rawId = firstClient?.Id || firstClient?.UniqueId;
+            if (rawId && !isUUID(String(rawId))) {
+              setSessionCookie(response, { ...session, clientId: String(rawId), user: { ...session.user, id: String(rawId) } });
+            }
+          } catch (_) {}
+        }
+        sendJson(response, 400, { ok: false, message: "Could not resolve your Mindbody account ID. Please sign out and sign in again." });
         return true;
       }
 
