@@ -3472,6 +3472,89 @@ body.interior:has(.page-policies),
   border-color: var(--white);
 }
 
+.account-waiver-section {
+  display: grid;
+  gap: 0;
+  border: 1px solid rgba(255, 220, 80, 0.3);
+  border-radius: 20px;
+  overflow: hidden;
+  background: rgba(255, 200, 30, 0.06);
+  backdrop-filter: blur(8px);
+}
+
+.account-waiver-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(255, 220, 80, 0.18);
+}
+
+.account-waiver-section strong {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(255, 220, 100, 0.95);
+  margin: 0 0 4px;
+  letter-spacing: 0.01em;
+}
+
+.account-waiver-section > p,
+.account-waiver-header > p {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.account-waiver-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(255, 220, 100, 0.75);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  margin-top: 8px;
+  transition: color 150ms ease;
+}
+
+.account-waiver-link:hover {
+  color: rgba(255, 220, 100, 1);
+}
+
+.account-waiver-form {
+  padding: 18px 24px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.waiver-checkbox-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.88rem !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: 400 !important;
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.waiver-checkbox-label input[type="checkbox"] {
+  width: 16px !important;
+  min-height: 16px !important;
+  height: 16px !important;
+  flex-shrink: 0;
+  margin-top: 2px;
+  accent-color: rgba(255, 220, 100, 0.9);
+  cursor: pointer;
+}
+
+.account-waiver-form .pill-button {
+  justify-self: start;
+}
+
 .account-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

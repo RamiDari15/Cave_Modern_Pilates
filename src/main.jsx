@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
@@ -2452,9 +2452,12 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   const [dashboard, setDashboard] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const accountLoadedRef = useRef(false);
 
   useEffect(() => {
     if (!clientSession?.signedIn) return;
+    if (accountLoadedRef.current) return;
+    accountLoadedRef.current = true;
     let isMounted = true;
 
     setAccountLoading(true);
@@ -2467,7 +2470,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       if (!isMounted) return;
       if (acct?.data) setAccountData(acct.data);
       if (dash) {
-        if (dash.session?.signedIn) setClientSession(dash.session);
+        if (dash.session?.signedIn) setClientSession((prev) => ({ ...prev, ...dash.session }));
         setDashboard(dash);
       }
     }).finally(() => {
@@ -2627,9 +2630,11 @@ function AccountWaiverSection({ accountData, onSigned }) {
 
   return (
     <div className="account-waiver-section">
-      <strong>Liability Waiver Required</strong>
-      <p>You must sign the Cave Modern Pilates liability waiver before booking classes.</p>
-      <a className="account-waiver-link" href="/assets/cave-modern-pilates-liability-waiver.pdf" target="_blank" rel="noopener noreferrer">Read the full waiver (PDF)</a>
+      <div className="account-waiver-header">
+        <strong>Liability Waiver Required</strong>
+        <p>You must sign the Cave Modern Pilates liability waiver before booking classes.</p>
+        <a className="account-waiver-link" href="/assets/cave-modern-pilates-liability-waiver.pdf" target="_blank" rel="noopener noreferrer">Read the full waiver (PDF)</a>
+      </div>
       <form onSubmit={submit} className="account-waiver-form">
         <label className="waiver-checkbox-label">
           <input

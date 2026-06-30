@@ -1531,8 +1531,7 @@ export async function handleApiRequest(request, response) {
       }
 
       const body = await readJsonBody(request);
-
-      // Resolve clientId so addclient can target the existing record
+      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
       const clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
 
       if (!clientId) {
@@ -1540,7 +1539,6 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      // firstName and lastName are required by addclient
       const firstName = String(body.firstName || session.user?.firstName || "").trim();
       const lastName = String(body.lastName || session.user?.lastName || "").trim();
 
@@ -1549,12 +1547,7 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      console.log(`[account/profile] POST /client/addclient clientId=${clientId} fields in body: ${Object.keys(body).join(",")}`);
-
-      const clientPayload = compactObject({
-        Id: clientId,
-        FirstName: firstName,
-        LastName: lastName,
+      const sharedFields = compactObject({
         MobilePhone: body.phone,
         HomePhone: body.homePhone,
         WorkPhone: body.workPhone,
@@ -1574,21 +1567,41 @@ export async function handleApiRequest(request, response) {
         EmergencyContactInfoRelationship: body.emergencyContactRelationship
       });
 
-      const staffToken = await getMindbodyActionToken("Profile update");
-
       let updateResult = null;
       let updateError = null;
 
-      try {
-        updateResult = await bookingRequest("/client/addclient", {
-          method: "POST",
-          token: staffToken,
-          body: clientPayload
-        });
-        console.log("[account/profile] addclient success");
-      } catch (err) {
-        updateError = err;
-        console.error(`[account/profile] addclient failed (${err.status || 0}): ${err.message}`);
+      // Try updateclient with consumer token first (OAuth users)
+      if (consumerToken) {
+        console.log(`[account/profile] POST /client/updateclient clientId=${clientId}`);
+        try {
+          updateResult = await bookingRequest("/client/updateclient", {
+            method: "POST",
+            consumerIdentityToken: consumerToken,
+            body: { Client: { Id: clientId, ...sharedFields }, CrossRegionalUpdate: true }
+          });
+          console.log("[account/profile] updateclient success");
+        } catch (err) {
+          updateError = err;
+          console.error(`[account/profile] updateclient failed (${err.status || 0}): ${err.message}`);
+        }
+      }
+
+      // Fall back to addclient with staff token (email/password users or updateclient failure)
+      if (!updateResult) {
+        console.log(`[account/profile] POST /client/addclient clientId=${clientId} (staff token)`);
+        try {
+          const staffToken = await getMindbodyActionToken("Profile update");
+          updateResult = await bookingRequest("/client/addclient", {
+            method: "POST",
+            token: staffToken,
+            body: { Id: clientId, FirstName: firstName, LastName: lastName, ...sharedFields }
+          });
+          updateError = null;
+          console.log("[account/profile] addclient success");
+        } catch (err) {
+          updateError = err;
+          console.error(`[account/profile] addclient failed (${err.status || 0}): ${err.message}`);
+        }
       }
 
       if (!updateResult) {
