@@ -737,7 +737,7 @@ body.interior:has(.page-policies),
 .cart-fab {
   position: fixed;
   bottom: 28px;
-  right: 28px;
+  left: 28px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -826,6 +826,18 @@ body.interior:has(.page-policies),
 .purchase-modal-success {
   display: grid;
   gap: 16px;
+}
+
+.purchase-modal .payment-safe-box {
+  width: 100%;
+}
+
+.purchase-modal .agreement-box {
+  width: 100%;
+}
+
+.purchase-modal .book-class {
+  width: 100%;
 }
 
 .pricing-choice {
@@ -956,6 +968,7 @@ body.interior:has(.page-policies),
   font-size: clamp(3.25rem, 6.8vw, 6.35rem);
   font-weight: 350;
   line-height: 0.94;
+  color: var(--white);
 }
 
 .pricing-category-heading.memberships h1 {
