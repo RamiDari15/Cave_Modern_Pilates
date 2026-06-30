@@ -509,6 +509,23 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
+      // Prevent duplicate Mindbody clients — look up by email before creating
+      const signupEmail = (body.email || "").trim().toLowerCase();
+      if (signupEmail) {
+        const existing = await findMindbodyClientByEmail(signupEmail).catch((err) => {
+          if (err.status === 409) throw err;
+          return null;
+        });
+        if (existing) {
+          sendJson(response, 409, {
+            ok: false,
+            message: "A Mindbody client already exists with this email. Please sign in with your Mindbody account instead.",
+            clientExists: true
+          });
+          return true;
+        }
+      }
+
       const payload = clientPayload(body, waiver);
       const created = await addClient(payload);
       const session = sessionFromCreatedClient(created, payload);
@@ -1397,6 +1414,48 @@ export async function handleApiRequest(request, response) {
 
       console.log("[account/profile] success");
       sendJson(response, 200, { ok: true, data: updateResult });
+      return true;
+    }
+
+    if (path === "/api/debug/find-client" && request.method === "GET") {
+      const isDebugAllowed = process.env.NODE_ENV !== "production" || process.env.DEBUG_ENABLED === "true";
+      if (!isDebugAllowed) {
+        sendJson(response, 404, { message: "Not found." });
+        return true;
+      }
+
+      const urlObj = new URL(request.url, "http://localhost");
+      const emailParam = urlObj.searchParams.get("email") || "";
+      const normalizedEmail = emailParam.trim().toLowerCase();
+
+      if (!normalizedEmail) {
+        sendJson(response, 400, { message: "?email= query param is required" });
+        return true;
+      }
+
+      try {
+        const result = await findMindbodyClientByEmail(normalizedEmail);
+        sendJson(response, 200, {
+          searchedEmail: normalizedEmail,
+          endpoint: "/public/v6/client/clients",
+          totalReturned: null,
+          exactMatches: 1,
+          clientFound: true,
+          mindbodyClientId: result.clientId,
+          uniqueIdPresent: Boolean(result.uniqueId),
+          firstName: result.firstName,
+          lastName: result.lastName
+        });
+      } catch (err) {
+        sendJson(response, err.status || 500, {
+          searchedEmail: normalizedEmail,
+          endpoint: "/public/v6/client/clients",
+          clientFound: false,
+          exactMatches: 0,
+          count: err.count || 0,
+          error: err.message
+        });
+      }
       return true;
     }
 
@@ -2500,42 +2559,96 @@ async function hydrateOAuthSession(session) {
   };
 }
 
-async function findExistingMindbodyClient(session) {
-  const email = session.user?.email || session.user?.username || "";
-
-  if (!email) return "";
-
-  const config = getBookingConfig();
-
-  if (!config.actionTokenConfigured) {
-    console.error("[mindbody-auth] client search skipped: source credentials not configured");
-    return "";
+async function findMindbodyClientByEmail(email) {
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw httpError(400, "Email is required to search for a Mindbody client.");
   }
 
-  let staffToken;
+  const params = {
+    "request.searchText": normalizedEmail,
+    "request.includeInactive": "false",
+    "request.isProspect": "false",
+    "request.limit": "100",
+    "request.offset": "0"
+  };
+
+  let staffToken = null;
   try {
-    staffToken = await getMindbodyActionToken("client search");
+    staffToken = await getMindbodyActionToken("client email search");
   } catch (err) {
-    console.error("[mindbody-auth] source credentials failed:", err.message);
+    console.log(`[findMindbodyClientByEmail] staff token unavailable (${err.message}), trying source-level request`);
+  }
+
+  let result = null;
+  try {
+    result = await bookingRequest("/client/clients", {
+      ...(staffToken ? { token: staffToken } : {}),
+      params
+    });
+  } catch (err) {
+    if (staffToken && (err.status === 401 || err.status === 403)) {
+      console.log("[findMindbodyClientByEmail] auth request failed, retrying without token");
+      result = await bookingRequest("/client/clients", { params });
+    } else {
+      throw err;
+    }
+  }
+
+  const allClients = result?.Clients || [];
+  console.log(`[findMindbodyClientByEmail] search returned ${allClients.length} client(s) for ${normalizedEmail}`);
+
+  const exact = allClients.filter(
+    (c) => (c.Email || "").trim().toLowerCase() === normalizedEmail
+  );
+
+  if (exact.length === 0) {
+    const err = httpError(404, "No Mindbody client found for this email.");
+    err.searchedEmail = normalizedEmail;
+    err.totalReturned = allClients.length;
     throw err;
   }
 
-  const searchResult = await bookingRequest("/client/clients", {
-    token: staffToken,
-    params: { SearchText: email }
-  }).catch(() => null);
-
-  const searchProfile = extractClientProfile(searchResult, email);
-
-  if (searchProfile?.clientId) {
-    console.log("[mindbody-auth] client search succeeded:", searchProfile.clientId);
-    return searchProfile.clientId;
+  if (exact.length > 1) {
+    const active = exact.filter((c) => !c.IsProspect && (c.Status || "").toLowerCase() !== "inactive");
+    if (active.length === 1) {
+      const c = active[0];
+      console.log(`[findMindbodyClientByEmail] resolved ${exact.length} duplicates to single active client ${c.Id}`);
+      return buildClientResult(c);
+    }
+    const err = httpError(409, "Duplicate Mindbody clients found for this email.");
+    err.searchedEmail = normalizedEmail;
+    err.count = exact.length;
+    throw err;
   }
 
-  // Client not found — do NOT create a new client here.
-  // Client creation only happens through the intentional sign-up flow (/api/auth/sign-up).
-  console.log("[mindbody-auth] client search failed: no existing Mindbody client found for email");
-  return "";
+  const c = exact[0];
+  console.log(`[findMindbodyClientByEmail] found client ${c.Id} for ${normalizedEmail}`);
+  return buildClientResult(c);
+}
+
+function buildClientResult(c) {
+  return {
+    clientId: String(c.Id || c.UniqueId || ""),
+    uniqueId: c.UniqueId || "",
+    firstName: c.FirstName || "",
+    lastName: c.LastName || "",
+    email: c.Email || ""
+  };
+}
+
+async function findExistingMindbodyClient(session) {
+  const email = session.user?.email || session.user?.username || "";
+  if (!email) return "";
+
+  try {
+    const result = await findMindbodyClientByEmail(email);
+    return result.clientId;
+  } catch (err) {
+    if (err.status === 409) throw err;
+    console.log(`[mindbody-auth] client search: ${err.message}`);
+    return "";
+  }
 }
 
 function shouldHydrateOAuthSession(session) {
