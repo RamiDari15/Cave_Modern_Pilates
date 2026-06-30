@@ -1038,7 +1038,7 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      if (!session?.consumerIdentityToken && !session?.accessToken && session?.authMode !== "created-client") {
+      if (!session?.signedIn) {
         const returnTo = safeReturnTo(body.returnTo || `/pricing?purchase=${item.kind}-${item.id}`);
         sendJson(response, 401, {
           message: "Please sign in before buying.",
@@ -1048,7 +1048,7 @@ export async function handleApiRequest(request, response) {
       }
 
       const purchase = await purchaseStoreItem(session, item, body);
-      sendJson(response, 200, { purchase });
+      sendJson(response, 200, { ok: true, purchase });
       return true;
     }
 

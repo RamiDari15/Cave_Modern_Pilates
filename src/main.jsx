@@ -1553,6 +1553,10 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const openModal = () => {
     setBuyState({ type: "", message: "" });
     setSelectedCard(savedCards.length ? savedCards[0].lastFour : "");
+    setManualLastFour("");
+    setAcceptedTerms(false);
+    setShowTerms(false);
+    setShowCardForm(false);
     setShowModal(true);
   };
   const closeModal = () => { if (!isLoading) setShowModal(false); };
@@ -1691,7 +1695,11 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
                 {buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
 
                 <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={buyItem}>
-                  {isLoading ? (isContract ? "Processing..." : "Starting...") : (isContract ? "Buy Membership" : "Complete Purchase")}
+                  {isLoading
+                    ? (isContract ? "Processing..." : "Starting...")
+                    : buyState.type === "error"
+                      ? "Try Again"
+                      : (isContract ? "Buy Membership" : "Complete Purchase")}
                 </button>
               </>
             )}
@@ -1713,6 +1721,12 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   useEffect(() => {
     return () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); };
   }, []);
+
+  useEffect(() => {
+    if (cardsLoaded && savedCards.length > 0 && !selectedCard) {
+      setSelectedCard(savedCards[0].lastFour);
+    }
+  }, [cardsLoaded, savedCards, selectedCard]);
 
   const cartItemsKey = cart.items.map((i) => `${i.id}:${i.kind}:${i.quantity}`).join(",");
   useEffect(() => {
