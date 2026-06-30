@@ -3850,7 +3850,7 @@ async function fetchLiveClasses(locationId) {
   const params = {
     "request.startDateTime": formatApiDate(today),
     "request.endDateTime": formatApiDate(future),
-    "request.hideCanceledClasses": "false",
+    "request.hideCanceledClasses": "true",
     "request.schedulingWindow": "true",
     "request.limit": "200"
   };
@@ -3863,7 +3863,7 @@ async function fetchLiveClasses(locationId) {
   const classes = firstListByKey(data, "Classes");
 
   const normalized = classes
-    .filter((item) => item && typeof item === "object")
+    .filter((item) => item && typeof item === "object" && !item.IsCanceled)
     .map(normalizeClassFull)
     .filter(Boolean)
     .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
