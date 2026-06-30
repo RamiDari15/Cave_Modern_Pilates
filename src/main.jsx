@@ -915,6 +915,8 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 }
 
 function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading }) {
+  const cart = useCart();
+
   if (page === "pricing") {
     return <PricingLandingPage store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} />;
   }
@@ -922,7 +924,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   const pricingCategory = PRICING_CATEGORIES.find((category) => category.page === page);
 
   if (pricingCategory) {
-    return <PricingCategoryPage category={pricingCategory} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} />;
+    return <PricingCategoryPage category={pricingCategory} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
   }
 
   if (page === "schedule") {
@@ -1261,79 +1263,19 @@ const PRICING_TABS = [
 ];
 
 function PricingLandingPage({ store, memberships, clientSession }) {
-  const catalog = usePricingCatalog(store, memberships);
-  const cart = useCart();
-  const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
-  const [activeTab, setActiveTab] = useState("classPacks");
-
-  useEffect(() => {
-    if (!catalog.loading && catalog.newbie?.length > 0) setActiveTab("newbie");
-  }, [catalog.loading, catalog.newbie?.length]);
-
-  const tabItems = (catalog[activeTab] || []);
-  const totalQty = cart.items.reduce((n, i) => n + i.quantity, 0);
-
   return (
-    <div className="pricing-page">
-      <section className="pricing-hero page-section">
-        <div className="pricing-hero-copy">
-          <h1>Choose Your Plan</h1>
-          <p>Find the option that fits your practice — from a first-time intro to unlimited membership.</p>
-        </div>
-        {totalQty > 0 ? (
-          <button className="cart-toggle pill-button black" type="button" onClick={cart.open}>
-            Cart ({totalQty}) &middot; ${cart.total.toFixed(2)}
-          </button>
-        ) : null}
-      </section>
-
-      <div className="pricing-tabs-row page-section">
-        <div className="pricing-tabs" role="tablist">
-          {PRICING_TABS.filter((tab) => catalog.loading || (catalog[tab.key] || []).length > 0).map((tab) => (
-            <button
-              key={tab.key}
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              className={`pricing-tab${activeTab === tab.key ? " active" : ""}`}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-              {!catalog.loading && (catalog[tab.key] || []).length > 0 ? (
-                <span className="pricing-tab-count">{(catalog[tab.key] || []).length}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
+    <section className="pricing-choice section">
+      <div className="pricing-choice-grid">
+        {PRICING_CATEGORIES.map((category) => (
+          <a className={`pricing-choice-card ${category.key}`} href={category.href} key={category.key}>
+            <div className="pricing-choice-image" role="img" aria-label={category.title} />
+            <div className="pricing-choice-copy">
+              <strong>{category.title}</strong>
+            </div>
+          </a>
+        ))}
       </div>
-
-      <section className="pricing-store pricing-store-page section" aria-label="Pricing options">
-        {catalog.loading ? (
-          <p className="empty-schedule">Loading pricing...</p>
-        ) : tabItems.length === 0 ? (
-          <p className="empty-schedule">No options available in this category right now.</p>
-        ) : (
-          <div className={`pricing-card-grid ${activeTab}`}>
-            {tabItems.map((item) => (
-              <PricingCard
-                key={`${item.kind}-${item.id}`}
-                item={item}
-                category={PRICING_CATEGORIES.find((c) => c.key === activeTab) || { key: activeTab, href: "/pricing", title: activeTab }}
-                savedCards={savedCards}
-                cardsLoaded={cardsLoaded}
-                clientSession={clientSession}
-                onCardAdded={refreshCards}
-                onAddToCart={item.kind === "service" ? () => cart.addItem(item) : undefined}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {cart.isOpen ? (
-        <CartDrawer cart={cart} clientSession={clientSession} savedCards={savedCards} cardsLoaded={cardsLoaded} onCardAdded={refreshCards} />
-      ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -1507,10 +1449,11 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
   );
 }
 
-function PricingCategoryPage({ category, store, memberships, clientSession }) {
+function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
   const groups = pricingStoreGroups(store, memberships);
   const items = groups[category.key] || [];
   const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
+  const totalQty = cart ? cart.items.reduce((n, i) => n + i.quantity, 0) : 0;
 
   return (
     <>
@@ -1530,6 +1473,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
                 cardsLoaded={cardsLoaded}
                 clientSession={clientSession}
                 onCardAdded={refreshCards}
+                onAddToCart={cart && item.kind === "service" ? () => cart.addItem(item) : undefined}
               />
             ))}
           </div>
@@ -1537,6 +1481,17 @@ function PricingCategoryPage({ category, store, memberships, clientSession }) {
           <p className="empty-schedule">No online pricing options are available in this category right now.</p>
         )}
       </section>
+
+      {cart && totalQty > 0 ? (
+        <button className="cart-fab" type="button" onClick={cart.open} aria-label={`Open cart, ${totalQty} item${totalQty !== 1 ? "s" : ""}`}>
+          <span className="cart-fab-icon"><Plus size={16} strokeWidth={2.5} /></span>
+          <span>Cart ({totalQty}) &middot; ${cart.total.toFixed(2)}</span>
+        </button>
+      ) : null}
+
+      {cart?.isOpen ? (
+        <CartDrawer cart={cart} clientSession={clientSession} savedCards={savedCards} cardsLoaded={cardsLoaded} onCardAdded={refreshCards} />
+      ) : null}
     </>
   );
 }
@@ -1582,18 +1537,25 @@ function sortBySessionsAsc(items) {
 }
 
 function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart }) {
+  const [showModal, setShowModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showCardForm, setShowCardForm] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
   const [buyState, setBuyState] = useState({ type: "", message: "" });
 
   const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
   const titleLines = pricingTitleLines(item, category);
   const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
+
+  const openModal = () => {
+    setBuyState({ type: "", message: "" });
+    setSelectedCard(savedCards.length ? savedCards[0].lastFour : "");
+    setShowModal(true);
+  };
+  const closeModal = () => { if (!isLoading) setShowModal(false); };
 
   const buyItem = async () => {
     setBuyState({ type: "", message: "" });
@@ -1618,7 +1580,7 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
 
     try {
       await apiRequest(endpoint, { method: "POST", body: payload });
-      setBuyState({ type: "success", message: "Purchase complete. Check your account for confirmation." });
+      setBuyState({ type: "success", message: "Purchase complete! Check your account for confirmation." });
     } catch (err) {
       if (err.loginUrl) { window.location.href = err.loginUrl; return; }
       setBuyState({ type: "error", message: friendlyApiErrorMessage(err, "Purchase could not be completed.") });
@@ -1626,101 +1588,117 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   };
 
   return (
-    <article className={`pricing-card ${category.key}`}>
-      <div>
-        {item.isNewbiePromo ? <span className="pricing-badge">New Client</span> : null}
-        <p className="pricing-card-price">{item.price || "Ask studio"}</p>
-        <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
-        {item.description ? <p className="pricing-card-desc">{item.description}</p> : null}
-      </div>
+    <>
+      <article className={`pricing-card ${category.key}`}>
+        <div>
+          {item.isNewbiePromo ? <span className="pricing-badge">New Client</span> : null}
+          <p className="pricing-card-price">{item.price || "Ask studio"}</p>
+          <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
+          {item.description ? <p className="pricing-card-desc">{item.description}</p> : null}
+        </div>
 
-      <div className="pricing-card-actions">
-        {buyState.type === "success" ? (
-          <p className="form-status success">{buyState.message}</p>
-        ) : !clientSession?.signedIn ? (
-          <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/pricing")}`}>
-            Sign In to Buy
-          </a>
-        ) : (
-          <>
-            {onAddToCart && !showPayment ? (
-              <div className="pricing-card-ctas">
-                <button className="pill-button black" type="button" onClick={onAddToCart}>Add to Cart</button>
-                <button className="text-button" type="button" onClick={() => setShowPayment(true)}>Buy Now</button>
+        <div className="pricing-card-actions">
+          {!clientSession?.signedIn ? (
+            <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/pricing")}`}>
+              Sign In to Buy
+            </a>
+          ) : onAddToCart ? (
+            <div className="pricing-card-ctas">
+              <button className="pill-button black" type="button" onClick={onAddToCart}>Add to Cart</button>
+              <button className="text-button" type="button" onClick={openModal}>Buy Now</button>
+            </div>
+          ) : (
+            <button className="pill-button black" type="button" onClick={openModal}>
+              {isContract ? "Buy Membership" : "Purchase"}
+            </button>
+          )}
+        </div>
+      </article>
+
+      {showModal ? (
+        <div className="purchase-modal-overlay" role="dialog" aria-modal="true" aria-label={`Purchase ${item.name}`}>
+          <div className="purchase-modal-backdrop" onClick={closeModal} />
+          <div className="purchase-modal">
+            <div className="purchase-modal-header">
+              <div>
+                <p className="purchase-modal-price">{item.price || "Ask studio"}</p>
+                <h3 className="purchase-modal-name">{titleLines.join(" · ")}</h3>
               </div>
-            ) : null}
+              <button className="cart-close" type="button" onClick={closeModal} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
+            </div>
 
-            {(showPayment || isContract || !onAddToCart) ? (
-              <div className="payment-safe-box">
-                {cardsLoaded && savedCards.length > 0 ? (
-                  <>
-                    <label className="payment-safe-field">
-                      <span>Saved card</span>
-                      <select value={selectedCard} onChange={(e) => setSelectedCard(e.target.value)} aria-label="Select saved card">
-                        <option value="">Select a card</option>
-                        {savedCards.map((c) => (
-                          <option key={c.lastFour} value={c.lastFour}>
-                            {c.cardType ? `${c.cardType} ` : ""}ending in {c.lastFour}
-                            {c.expMonth && c.expYear ? ` (exp ${c.expMonth}/${c.expYear})` : ""}
-                          </option>
-                        ))}
-                        <option value="__manual__">Enter last 4 manually</option>
-                      </select>
-                    </label>
-                    {selectedCard === "__manual__" ? (
+            {buyState.type === "success" ? (
+              <div className="purchase-modal-success">
+                <p className="form-status success">{buyState.message}</p>
+                <button className="pill-button black" type="button" onClick={closeModal}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div className="payment-safe-box">
+                  {cardsLoaded && savedCards.length > 0 ? (
+                    <>
                       <label className="payment-safe-field">
-                        <span>Last 4 digits</span>
-                        <input type="text" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="1234"
-                          value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} aria-label="Last four digits of card" />
+                        <span>Saved card</span>
+                        <select value={selectedCard} onChange={(e) => setSelectedCard(e.target.value)} aria-label="Select saved card">
+                          <option value="">Select a card</option>
+                          {savedCards.map((c) => (
+                            <option key={c.lastFour} value={c.lastFour}>
+                              {c.cardType ? `${c.cardType} ` : ""}ending in {c.lastFour}
+                              {c.expMonth && c.expYear ? ` (exp ${c.expMonth}/${c.expYear})` : ""}
+                            </option>
+                          ))}
+                          <option value="__manual__">Enter last 4 manually</option>
+                        </select>
                       </label>
-                    ) : null}
-                  </>
-                ) : (
-                  <label className="payment-safe-field">
-                    <span>Card on file — last 4</span>
-                    <input type="text" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="Last 4"
-                      value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} aria-label={`Last four digits for ${item.name}`} />
-                  </label>
-                )}
-                <p className="payment-safe-note">Full card numbers never touch this site.</p>
-                {showCardForm ? (
-                  <AddCardForm clientSession={clientSession} onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }} onCancel={() => setShowCardForm(false)} />
-                ) : (
-                  <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
-                    {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
-                  </button>
-                )}
-              </div>
-            ) : null}
+                      {selectedCard === "__manual__" ? (
+                        <label className="payment-safe-field">
+                          <span>Last 4 digits</span>
+                          <input type="text" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="1234"
+                            value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
+                        </label>
+                      ) : null}
+                    </>
+                  ) : (
+                    <label className="payment-safe-field">
+                      <span>Card on file — last 4</span>
+                      <input type="text" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} placeholder="Last 4"
+                        value={manualLastFour} onChange={(e) => setManualLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))} />
+                    </label>
+                  )}
+                  <p className="payment-safe-note">Full card numbers never touch this site.</p>
+                  {showCardForm ? (
+                    <AddCardForm clientSession={clientSession} onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }} onCancel={() => setShowCardForm(false)} />
+                  ) : (
+                    <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
+                      {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
+                    </button>
+                  )}
+                </div>
 
-            {isContract && item.agreementTerms ? (
-              <div className="agreement-box">
-                <button className="agreement-toggle" type="button" onClick={() => setShowTerms((v) => !v)} aria-expanded={showTerms}>
-                  {showTerms ? "Hide" : "View"} Membership Agreement
+                {isContract && item.agreementTerms ? (
+                  <div className="agreement-box">
+                    <button className="agreement-toggle" type="button" onClick={() => setShowTerms((v) => !v)} aria-expanded={showTerms}>
+                      {showTerms ? "Hide" : "View"} Membership Agreement
+                    </button>
+                    {showTerms ? <div className="agreement-text">{item.agreementTerms}</div> : null}
+                    <label className="agreement-accept">
+                      <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} />
+                      <span>I have read and agree to the membership agreement</span>
+                    </label>
+                  </div>
+                ) : null}
+
+                {buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
+
+                <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={buyItem}>
+                  {isLoading ? (isContract ? "Processing..." : "Starting...") : (isContract ? "Buy Membership" : "Complete Purchase")}
                 </button>
-                {showTerms ? <div className="agreement-text">{item.agreementTerms}</div> : null}
-                <label className="agreement-accept">
-                  <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} />
-                  <span>I have read and agree to the membership agreement</span>
-                </label>
-              </div>
-            ) : null}
-
-            {buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
-
-            {(showPayment || isContract || !onAddToCart) ? (
-              <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={buyItem}>
-                {isLoading ? (isContract ? "Processing..." : "Starting...") : (isContract ? "Buy Membership" : "Complete Purchase")}
-              </button>
-            ) : null}
-
-            {showPayment && onAddToCart ? (
-              <button type="button" className="text-button" style={{ marginTop: "6px" }} onClick={() => setShowPayment(false)}>Cancel</button>
-            ) : null}
-          </>
-        )}
-      </div>
-    </article>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
