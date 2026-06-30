@@ -1834,8 +1834,65 @@ body.interior:has(.page-policies),
 }
 
 .book-class:disabled {
-  cursor: wait;
-  opacity: 0.65;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Book button states */
+.book-class.book-available {
+  background: var(--black);
+  color: var(--white);
+  border-color: var(--black);
+}
+
+.book-class.book-available:hover:not(:disabled) {
+  background: #333;
+  border-color: #333;
+}
+
+.book-class.book-unbook {
+  background: transparent;
+  color: var(--black);
+  border-color: var(--black);
+}
+
+.book-class.book-unbook:hover:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.book-class.book-full,
+.book-class.book-canceled {
+  background: transparent;
+  color: rgba(5, 5, 5, 0.4);
+  border-color: rgba(5, 5, 5, 0.15);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.book-class.book-signin {
+  background: var(--black);
+  color: var(--white);
+  border-color: var(--black);
+  text-decoration: none;
+}
+
+.book-class.book-waitlist {
+  background: transparent;
+  color: var(--black);
+  border-color: rgba(5, 5, 5, 0.4);
+}
+
+.book-class.book-credits {
+  background: transparent;
+  color: var(--black);
+  border-color: rgba(5, 5, 5, 0.4);
+  font-size: 0.78rem;
+  text-decoration: none;
+  min-width: 140px;
+}
+
+.book-class.book-credits:hover {
+  background: #f5f5f5;
 }
 
 .schedule-booking {

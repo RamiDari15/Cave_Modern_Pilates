@@ -850,6 +850,74 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
+    if (path === "/api/mindbody/unbook-class" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, {
+          ok: false,
+          message: "Please sign in before cancelling a booking.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/schedule")}`
+        });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const classId = Number(body.classId);
+      const visitId = body.visitId ? Number(body.visitId) : null;
+
+      if (!Number.isInteger(classId) || classId <= 0) {
+        sendJson(response, 400, { ok: false, message: "A valid class ID is required." });
+        return true;
+      }
+
+      let clientId = session.clientId || await resolveSessionClientId(session).catch(() => "");
+
+      if (!clientId) {
+        const sessionEmail = session.user?.email || session.user?.username || "";
+        if (sessionEmail) {
+          const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+          if (found) clientId = found.clientId;
+        }
+      }
+
+      if (!clientId) {
+        sendJson(response, 400, {
+          ok: false,
+          message: "Could not resolve your studio account ID. Please sign out and try again."
+        });
+        return true;
+      }
+
+      let staffToken = null;
+      try {
+        staffToken = await getMindbodyActionToken("class unbook");
+      } catch (_) {}
+
+      const unbookBody = compactObject({
+        ClientId: clientId,
+        ClassId: classId,
+        VisitId: visitId || undefined,
+        SendEmail: true,
+        LateCancel: false,
+        Test: process.env.BOOKING_TEST_MODE === "true" ? true : undefined
+      });
+
+      try {
+        const result = await bookingRequest("/class/removeclientfromclass", {
+          method: "POST",
+          ...(staffToken ? { token: staffToken } : {}),
+          body: unbookBody
+        });
+        liveClassesCache.expiresAt = 0;
+        sendJson(response, 200, { ok: true, data: result });
+      } catch (err) {
+        const message = err.data?.Error?.Message || err.data?.Message || err.message || "Could not cancel this booking.";
+        sendJson(response, err.status || 503, { ok: false, message });
+      }
+      return true;
+    }
+
     if (path === "/api/mindbody/join-waitlist" && request.method === "POST") {
       const session = await readHydratedSession(request, response);
 
@@ -1096,6 +1164,94 @@ export async function handleApiRequest(request, response) {
         sendJson(response, status, { ok: false, message: error.message || "Could not save card. Please try again." });
       }
 
+      return true;
+    }
+
+    if (path === "/api/client/schedule" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, { ok: false, message: "Please sign in." });
+        return true;
+      }
+
+      let clientId = session.clientId || "";
+      const sessionEmail = session.user?.email || session.user?.username || "";
+
+      if (!clientId && sessionEmail) {
+        const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+        if (found) clientId = found.clientId;
+      }
+
+      if (!clientId) {
+        sendJson(response, 200, { ok: true, data: { visits: [] } });
+        return true;
+      }
+
+      const today = formatApiDate(new Date());
+      const future = formatApiDate(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000));
+
+      let staffToken = null;
+      try { staffToken = await getMindbodyActionToken("client schedule"); } catch (_) {}
+
+      const scheduleData = await bookingRequest("/client/clientschedule", {
+        ...(staffToken ? { token: staffToken } : { consumerIdentityToken: session.consumerIdentityToken || session.accessToken }),
+        params: {
+          "request.clientId": clientId,
+          "request.startDate": today,
+          "request.endDate": future,
+          "request.includeWaitlistEntries": "true",
+          "request.limit": "200"
+        }
+      }).catch(() => null);
+
+      const raw = scheduleData?.ClientSchedule?.Visits
+        || scheduleData?.ClientSchedule
+        || scheduleData?.Visits
+        || scheduleData?.Classes
+        || [];
+      const visitsArray = Array.isArray(raw) ? raw : [];
+
+      const visits = visitsArray
+        .filter((v) => v && typeof v === "object")
+        .map((v) => ({
+          classId: Number(v.ClassId || v.Id || 0),
+          visitId: Number(v.Id || v.VisitId || 0),
+          startDateTime: v.StartDateTime || "",
+          status: v.VisitStatus || v.Status || "Confirmed"
+        }))
+        .filter((v) => v.classId > 0);
+
+      sendJson(response, 200, { ok: true, data: { visits } });
+      return true;
+    }
+
+    if (path === "/api/client/eligibility" && request.method === "GET") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, { ok: false, message: "Please sign in." });
+        return true;
+      }
+
+      let clientId = session.clientId || "";
+      const sessionEmail = session.user?.email || session.user?.username || "";
+
+      if (!clientId && sessionEmail) {
+        const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+        if (found) clientId = found.clientId;
+      }
+
+      if (!clientId) {
+        sendJson(response, 200, { ok: true, data: { hasUsablePricingOption: false, activeServices: [], activeMemberships: [] } });
+        return true;
+      }
+
+      const info = await fetchClientCompleteInfo(clientId, session).catch(() => null);
+      sendJson(response, 200, {
+        ok: true,
+        data: info || { hasUsablePricingOption: false, activeServices: [], activeMemberships: [] }
+      });
       return true;
     }
 
@@ -3839,7 +3995,11 @@ async function bookClassWithValidation(session, classId, clientServiceId) {
     console.warn("[book-class] Could not verify client services, proceeding:", serviceErr.message);
   }
 
-  const staffToken = await getMindbodyActionToken("Class booking");
+  let staffToken = null;
+  try {
+    staffToken = await getMindbodyActionToken("Class booking");
+  } catch (_) {}
+
   const bookingBody = {
     ClientId: clientId,
     ClassId: classId,
@@ -3857,7 +4017,7 @@ async function bookClassWithValidation(session, classId, clientServiceId) {
 
   return bookingRequest("/class/addclienttoclass", {
     method: "POST",
-    token: staffToken,
+    ...(staffToken ? { token: staffToken } : {}),
     body: bookingBody
   });
 }
