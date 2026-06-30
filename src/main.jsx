@@ -2587,7 +2587,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       <div className="account-header">
         <div>
           <p className="kicker">Account</p>
-          <h1>{user.firstName ? `Hi, ${user.firstName}.` : "Your Cave account."}</h1>
+          <h1>{user.firstName ? `Hi, ${user.firstName}.` : "Your Cave account. "}</h1>
           <p>{user.email || user.username}</p>
         </div>
         <div className="account-actions">
