@@ -355,11 +355,31 @@ export async function handleApiRequest(request, response) {
 
       let linkedClientId = session.clientId || "";
       let linkError = null;
-      const config = getBookingConfig();
 
-      // readHydratedSession above already tried clientcompleteinfo with the consumer token.
-      // If clientId is still empty, only source/staff credentials can search by email.
-      if (!linkedClientId && config.actionTokenConfigured) {
+      // 1. Try Platform API link — returns studio clientId directly if the platform profile
+      //    response includes it, otherwise creates the link so clientcompleteinfo can resolve it.
+      if (!linkedClientId) {
+        const accessToken = session.consumerIdentityToken || session.accessToken;
+        const platformResult = await linkPlatformProfile(accessToken).catch(() => null);
+        if (platformResult && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(platformResult)) {
+          linkedClientId = platformResult;
+        }
+      }
+
+      // 2. If Platform API gave us the clientId, no further lookup needed.
+      //    Otherwise retry clientcompleteinfo (the Platform link may now resolve it).
+      if (!linkedClientId) {
+        const consumerToken = session.consumerIdentityToken || session.accessToken;
+        const ccResult = await bookingRequest("/client/clientcompleteinfo", {
+          consumerIdentityToken: consumerToken,
+          params: {}
+        }).catch(() => null);
+        const ccProfile = extractClientProfile(ccResult, email);
+        if (ccProfile?.clientId) linkedClientId = ccProfile.clientId;
+      }
+
+      // 3. Fall back to source/staff credentials: search then create.
+      if (!linkedClientId) {
         const clientPayload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
         try {
           const staffToken = await getMindbodyActionToken("Account link");
@@ -1918,6 +1938,7 @@ async function linkPlatformProfile(accessToken) {
   if (!apiKey || !accessToken) return null;
 
   try {
+    // Get the consumer's Platform userId
     const meResp = await fetch(`${PLATFORM_API_BASE_URL}/account/v1/me`, {
       headers: {
         "Api-Key": apiKey,
@@ -1928,21 +1949,40 @@ async function linkPlatformProfile(accessToken) {
     if (!meResp.ok) return null;
 
     const me = await meResp.json();
-    const userId = me?.UserAccount?.id;
+    // Platform API uses camelCase; guard against PascalCase variants just in case
+    const userId = me?.userAccount?.id || me?.UserAccount?.id || me?.userId || me?.UserId;
     if (!userId) return null;
 
-    await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
+    // Create (or retrieve) the business profile linking this consumer identity to the studio.
+    // Mindbody Platform API uses SiteId header (not BusinessId).
+    const linkResp = await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
       method: "POST",
       headers: {
         "Api-Key": apiKey,
         "Authorization": `Bearer ${accessToken}`,
-        "BusinessId": String(siteId),
+        "SiteId": String(siteId),
         "Content-Type": "application/json",
         "Accept": "application/json"
       },
       body: JSON.stringify({ userId })
     });
 
+    if (!linkResp.ok) return null;
+
+    const linkData = await linkResp.json();
+
+    // Extract the studio clientId if the platform profile response includes it.
+    // The response may be { profile: { clientId, ... } } or { clientId, ... } depending on version.
+    const profileObj = linkData?.profile || linkData?.Profile || linkData;
+    const rawClientId = profileObj?.clientId || profileObj?.ClientId || profileObj?.client_id || profileObj?.studioClientId;
+
+    // Studio client IDs are never UUID-format (those are consumer identity IDs).
+    if (rawClientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(rawClientId))) {
+      return String(rawClientId);
+    }
+
+    // Link created but no clientId in response — return a truthy sentinel so the caller
+    // knows to retry clientcompleteinfo (the v6 endpoint will now resolve the studio client).
     return userId;
   } catch (_) {
     return null;
@@ -1956,12 +1996,27 @@ async function hydrateOAuthSession(session) {
 
   const hydratedAt = new Date().toISOString();
 
-  // Create the Platform API business profile link between this OAuth identity and the Cave
-  // studio. This is idempotent and makes subsequent clientcompleteinfo calls return the
-  // correct numeric studio client ID, including for clients registered via the sign-up form.
+  // Create the Platform API business profile link between this OAuth identity and the studio.
+  // When the platform response includes the studio clientId use it directly; otherwise the
+  // link creation makes the subsequent clientcompleteinfo call resolve the studio client.
+  let platformClientId = "";
   if (!session.clientId) {
     const accessToken = session.consumerIdentityToken || session.accessToken;
-    await linkPlatformProfile(accessToken).catch(() => null);
+    const linked = await linkPlatformProfile(accessToken).catch(() => null);
+    // A non-UUID, numeric-ish string is the studio clientId; a UUID (userId) is just a sentinel.
+    if (linked && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(linked)) {
+      platformClientId = linked;
+    }
+  }
+
+  // If the Platform API gave us a clientId directly, merge it and skip the v6 lookup.
+  if (platformClientId) {
+    return {
+      ...session,
+      clientId: platformClientId,
+      user: { ...(session.user || {}), id: platformClientId },
+      hydratedAt
+    };
   }
 
   const profile = await fetchOAuthClientProfile(session).catch(() => null);
@@ -2000,7 +2055,6 @@ async function hydrateOAuthSession(session) {
 }
 
 async function autoLinkOAuthClient(session) {
-  const consumerToken = session.consumerIdentityToken || session.accessToken || "";
   const email = session.user?.email || session.user?.username || "";
   const firstName = session.user?.firstName || "";
   const lastName = session.user?.lastName || "";
@@ -2010,38 +2064,32 @@ async function autoLinkOAuthClient(session) {
   const payload = compactObject({ Email: email, FirstName: firstName, LastName: lastName });
   const config = getBookingConfig();
 
-  if (config.actionTokenConfigured) {
-    try {
-      const staffToken = await getMindbodyActionToken("OAuth auto-link");
-
-      // Read-only search first to avoid creating duplicate clients.
-      const searchResult = await bookingRequest("/client/clients", {
-        token: staffToken,
-        params: { SearchText: email }
-      });
-      const searchProfile = extractClientProfile(searchResult, email);
-      if (searchProfile?.clientId) {
-        return searchProfile.clientId;
-      }
-
-      // Client not found by search; fall back to addorupdateclient which will create or match.
-      const upsertResult = await bookingRequest("/client/addorupdateclient", {
-        method: "POST",
-        token: staffToken,
-        body: { Client: payload }
-      });
-      const upsertProfile = extractClientProfile(upsertResult, email);
-      if (upsertProfile?.clientId) {
-        return upsertProfile.clientId;
-      }
-    } catch (_) { /* staff token unavailable */ }
+  if (!config.actionTokenConfigured) {
+    return "";
   }
 
-  // Consumer tokens cannot call addorupdateclient or client search — only clientcompleteinfo.
-  // If clientcompleteinfo (tried in fetchOAuthClientProfile) didn't return a studio client ID,
-  // there is nothing more to try without source/staff credentials.
+  const staffToken = await getMindbodyActionToken("OAuth auto-link");
 
-  return "";
+  // Search first to avoid creating duplicates.
+  const searchResult = await bookingRequest("/client/clients", {
+    token: staffToken,
+    params: { SearchText: email }
+  }).catch(() => null);
+
+  const searchProfile = extractClientProfile(searchResult, email);
+  if (searchProfile?.clientId) {
+    return searchProfile.clientId;
+  }
+
+  // Not found — create or merge via AddOrUpdateClient.
+  const upsertResult = await bookingRequest("/client/addorupdateclient", {
+    method: "POST",
+    token: staffToken,
+    body: { Client: payload }
+  });
+
+  const upsertProfile = extractClientProfile(upsertResult, email);
+  return upsertProfile?.clientId || "";
 }
 
 function shouldHydrateOAuthSession(session) {
