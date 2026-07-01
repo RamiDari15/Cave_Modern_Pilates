@@ -4711,7 +4711,7 @@ if (!classItem && classHint?.startDateTime) {
     "request.schedulingWindow": "true",
     "request.limit": "200"
   };
-
+ 
   if (classHint?.locationId) {
     fallbackParams["request.locationIds"] = String(classHint.locationId);
   }
