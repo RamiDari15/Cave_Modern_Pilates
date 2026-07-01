@@ -3699,9 +3699,9 @@ const bookClass = async (classItem) => {
             );
           } else if (hasNoCredits && !classItem.isFree) {
             actionButton = (
-              <a className="book-class book-credits" href={ROUTES.classPacks}>
-                Requires Class Credit
-              </a>
+              <a className="book-class book-credits" href={ROUTES.pricing}>
+                  Reserve
+                </a>
             );
           } else if (dataLoading) {
             actionButton = <button className="book-class" type="button" disabled>Checking\u2026</button>;

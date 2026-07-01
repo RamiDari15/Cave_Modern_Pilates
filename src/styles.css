@@ -5027,3 +5027,49 @@ body.interior:has(.page-policies),
     min-height: 40px;
   }
 }
+
+
+.book-class,
+.book-class:visited {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 150px;
+  min-height: 54px;
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: 1px solid #000;
+  background: #000;
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.book-class:hover {
+  background: #000;
+  color: #fff;
+  text-decoration: none;
+}
+
+.book-class:disabled,
+.book-class[disabled],
+.book-class.book-full,
+.book-class.book-canceled {
+  background: #000;
+  color: #fff;
+  border-color: #000;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.book-class.book-credits,
+.book-class.book-available,
+.book-class.book-signin,
+.book-class.book-waitlist,
+.book-class.book-unbook {
+  background: #000;
+  color: #fff;
+  border-color: #000;
+}
