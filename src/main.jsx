@@ -3644,7 +3644,7 @@ const bookClass = async (classItem) => {
 
           if (isDataLoading) {
             spotsClass = "spots-badge spots-loading";
-            spotsText = "Checking\u2026";
+            
           } else if (isBooked || (isThisSuccess && !isThisUnbook)) {
             spotsClass = "spots-badge spots-booked";
             spotsText = "Booked";
@@ -3704,7 +3704,7 @@ const bookClass = async (classItem) => {
                 </a>
             );
           } else if (dataLoading) {
-            actionButton = <button className="book-class" type="button" disabled>Checking\u2026</button>;
+            actionButton = <button className="book-class" type="button" disabled></button>;
           } else {
             actionButton = (
               <button
