@@ -2022,11 +2022,23 @@ const price = contractPriceValue(item, id);
           };
         }).filter((s) => s.id && s.sellOnline !== false);
 
+        const unlimitedServiceItems = services.filter((s) =>
+            !s.isNewbiePromo &&
+            /\bunlimited\b/i.test(String(s.name || ""))
+          );
         catalog = {
           newbie: services.filter((s) => s.isNewbiePromo),
-          classPacks: services.filter((s) => !s.isNewbiePromo && s.sessions && s.sessions > 1),
+          classPacks: services.filter((s) =>
+          !s.isNewbiePromo &&
+          !/\bunlimited\b/i.test(String(s.name || "")) &&
+          s.sessions &&
+          s.sessions > 1
+        ),
           dropIn: services.filter((s) => !s.isNewbiePromo && (!s.sessions || s.sessions <= 1)),
-          memberships: contractItems
+          memberships: [
+          ...unlimitedServiceItems,
+          ...contractItems
+        ]
         };
       } else {
         // Fall back to store cache
