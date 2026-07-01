@@ -1603,15 +1603,15 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showCardForm, setShowCardForm] = useState(false);
-  const [buyState, setBuyState] = useState({ type: "", message: "" });
+  const [buyState, setBuyState] = useState({ type: "idle", message: "" });
 
-  const isLoading = buyState.type === "";
+  const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
   const titleLines = pricingTitleLines(item, category);
   const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
 
   const openModal = () => {
-    setBuyState({ type: "", message: "" });
+    setBuyState({ type: "idle", message: "" });
     setSelectedCard(savedCards.length ? savedCards[0].lastFour : "");
     setManualLastFour("");
     setAcceptedTerms(false);
@@ -1622,7 +1622,7 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const closeModal = () => { if (!isLoading) setShowModal(false); };
 
   const buyItem = async () => {
-    setBuyState({ type: "", message: "" });
+    setBuyState({ type: "idle", message: "" });
     const storedCardLastFour = effectiveLastFour.replace(/\D/g, "");
 
     if (isContract && !acceptedTerms) {
@@ -1635,13 +1635,27 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
       return;
     }
 
-    setBuyState({ type: "", message: isContract ? "Processing membership..." : "Starting checkout..." });
-
-    const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/store/purchase";
+    setBuyState({ type: "loading", message: isContract ? "Processing membership..." : "Starting checkout..." });
+    const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/cart/checkout";    
     const payload = isContract
-      ? { contractId: item.id, storedCardLastFour, acceptTerms: true, acceptWaiver: true }
-      : { itemId: item.id, kind: item.kind, acceptWaiver: true, acceptTerms: true, storedCardLastFour, returnTo: category.href || "/pricing" };
-
+  ? {
+      contractId: item.id,
+      storedCardLastFour,
+      acceptTerms: true,
+      acceptWaiver: true
+    }
+  : {
+      items: [
+        {
+          id: item.id,
+          kind: item.kind || "service",
+          name: item.name,
+          price: item.price,
+          quantity: 1
+        }
+      ],
+      storedCardLastFour
+    };
     try {
       await apiRequest(endpoint, { method: "POST", body: payload });
       setBuyState({ type: "success", message: isContract ? "Membership activated!" : "Purchase complete!" });
@@ -1809,7 +1823,7 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
       setCheckoutState({ type: "error", message: savedCards.length ? "Please select a saved card." : "Enter the last 4 digits of your card." });
       return;
     }
-    setCheckoutState({ type: "", message: "Processing payment..." });
+    setCheckoutState({ type: "loading", message: "Processing payment..." });
     try {
       await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour } });
       setCheckoutState({ type: "success", message: "Purchase complete!" });

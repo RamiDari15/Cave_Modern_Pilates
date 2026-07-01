@@ -2045,21 +2045,28 @@ export async function handleApiRequest(request, response) {
         // Quote first to get the actual total
         let amount = 0;
         try {
-          const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
-            method: "POST",
-            token: staffToken,
-            body: {
-              Test: true,
-              ClientId: clientId,
-              LocationId: Number(locationId) || 1,
-              InStore: false,
-              CalculateTax: true,
-              Items: cartItems,
-              Payments: [{ Type: "StoredCard", Metadata: { Amount: 99999, LastFour: storedLastFour } }]
-            }
-          });
-          amount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
-        } catch (_) {}
+const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
+  method: "POST",
+  token: staffToken,
+  body: {
+    Test: true,
+    ClientId: clientId,
+    LocationId: Number(locationId) || 1,
+    InStore: false,
+    CalculateTax: true,
+    Items: cartItems,
+    Payments: []
+  }
+});
+amount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
+
+if (!amount) {
+  sendJson(response, 400, {
+    ok: false,
+    message: "Could not determine the checkout total."
+  });
+  return true;
+}        } catch (_) {}
 
         payments = [{ Type: "StoredCard", Metadata: { Amount: amount, LastFour: storedLastFour } }];
       } else if (body.cardNumber) {
