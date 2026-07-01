@@ -4491,7 +4491,7 @@ function isStudioConnectionApiMessage(value) {
 }
 
 // All classes are free during the launch week (through end of day July 6, 2026).
-const LAUNCH_FREE_WEEK_END = new Date("2026-07-07T00:00:00.000Z");
+const LAUNCH_FREE_WEEK_END = new Date("2026-07-06T05:00:00.000Z");
 
 function isLaunchFreeWeek() {
   return Date.now() < LAUNCH_FREE_WEEK_END.getTime();
