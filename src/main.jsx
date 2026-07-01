@@ -1608,11 +1608,13 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
   const titleLines = pricingTitleLines(item, category);
-  const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
+const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
+  ? manualLastFour
+  : selectedCard;
 
   const openModal = () => {
     setBuyState({ type: "idle", message: "" });
-    setSelectedCard(savedCards.length ? savedCards[0].lastFour : "");
+    setSelectedCard(savedCards.length ? savedCards[0].lastFour : "__manual__");
     setManualLastFour("");
     setAcceptedTerms(false);
     setShowTerms(false);
@@ -1636,8 +1638,9 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
     }
 
     setBuyState({ type: "loading", message: isContract ? "Processing membership..." : "Starting checkout..." });
-    const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/cart/checkout";    
-    const payload = isContract
+const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/cart/checkout";
+
+const payload = isContract
   ? {
       contractId: item.id,
       storedCardLastFour,
@@ -1815,8 +1818,9 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cartItemsKey, clientSession?.signedIn]);
 
-  const effectiveLastFour = selectedCard === "__manual__" ? manualLastFour : selectedCard;
-
+const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
+  ? manualLastFour
+  : selectedCard;
   const handleCheckout = async () => {
     const lastFour = effectiveLastFour.replace(/\D/g, "");
     if (!/^\d{4}$/.test(lastFour)) {
