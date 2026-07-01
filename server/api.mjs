@@ -1899,18 +1899,27 @@ try {
   console.warn("[pricing/catalog] Could not load live contracts:", err.message);
 }
 
-const isSoldOnline = (item) => {
+
+const isSoldOnlineValue = (item) => {
   const value =
     item.SellOnline ??
     item.SoldOnline ??
     item.IsSoldOnline ??
-    item.AvailableOnline;
+    item.AvailableOnline ??
+    item.SellOnlineFlag;
 
-  return value === true || value === "true" || value === 1 || value === "1";
+  // If Mindbody gives us a sold-online field, respect it.
+  if (value !== undefined && value !== null) {
+    return value === true || value === "true" || value === 1 || value === "1";
+  }
+
+  // If Mindbody does NOT return a sold-online field, trust the API query:
+  // request.sellOnline=true
+  return true;
 };
 
 const contractItems = liveContracts
-  .filter((item) => isSoldOnline(item))
+  .filter((item) => isSoldOnlineValue(item))
   .map((item) => {
     const id = String(item.Id || item.ContractId || "");
     const name = item.Name || item.ContractName || "";
@@ -1936,6 +1945,8 @@ const contractItems = liveContracts
     };
   })
   .filter((item) => item.id && item.name);
+
+
 
       const newbieIds = String(process.env.NEWBIE_SERVICE_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
       const newbieNameRe = /intro|new\s*client|first\s*time|starter|trial|welcome|newbie/i;

@@ -1224,8 +1224,7 @@ function usePricingCatalog(store, memberships) {
     newbie: catalog?.newbie?.length ? catalog.newbie : groups.newbie || [],
     classPacks: catalog?.classPacks?.length ? catalog.classPacks : groups.classPacks || [],
     dropIn: catalog?.dropIn?.length ? catalog.dropIn : groups.dropIn || [],
-    memberships: catalog?.memberships?.length ? catalog.memberships : groups.memberships || [],
-    loading
+memberships: catalog ? catalog.memberships || [] : groups.memberships || [],    loading
   };
 }
 
