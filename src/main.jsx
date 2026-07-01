@@ -3420,8 +3420,8 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
     }
   };
 
-  const bookClass = async (classItem) => {
-    const classId = classItem.id;
+const bookClass = async (classItem) => {
+  const classId = Number(classItem.classId || classItem.id);
 
     if (!classId) {
       setBookingState({ classId: null, operation: "book", type: "error", message: "This class is missing a booking ID." });
@@ -3444,7 +3444,13 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       const clientServiceId = eligibility?.activeServices?.[0]?.id;
       await apiRequest("/api/mindbody/book-class", {
         method: "POST",
-        body: { classId, clientServiceId: clientServiceId || undefined }
+       body: {
+              classId,
+              clientServiceId: clientServiceId || undefined,
+              startDateTime: classItem.startDateTime || classItem.startTime || undefined,
+              locationId: classItem.locationId || undefined,
+              classScheduleId: classItem.classScheduleId || undefined
+            }
       });
       setBookingState({ classId, operation: "book", type: "success", message: "Booked! Check your account for confirmation." });
       refreshAll();

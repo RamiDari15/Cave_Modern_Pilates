@@ -835,9 +835,17 @@ export async function handleApiRequest(request, response) {
       }
 
       try {
-        const result = await bookClassWithValidation(session, classId, body.clientServiceId ? Number(body.clientServiceId) : null);
-        sendJson(response, 200, { ok: true, data: result });
-      } catch (error) {
+        const result = await bookClassWithValidation(
+          session,
+          classId,
+          body.clientServiceId ? Number(body.clientServiceId) : null,
+          {
+            startDateTime: body.startDateTime,
+            locationId: body.locationId,
+            classScheduleId: body.classScheduleId
+          }
+        );        sendJson(response, 200, { ok: true, data: result });
+              } catch (error) {
         const code = error.bookingCode || "MINDBODY_API_ERROR";
         sendJson(response, error.status || 503, {
           ok: false,
@@ -4659,8 +4667,7 @@ async function fetchClientCompleteInfo(clientId, session) {
   };
 }
 
-async function bookClassWithValidation(session, classId, clientServiceId) {
-  const clientId = await resolveSessionClientId(session);
+async function bookClassWithValidation(session, classId, clientServiceId, classHint = {}) {  const clientId = await resolveSessionClientId(session);
 
   if (!clientId) {
     const err = httpError(400, "We could not match your login to a studio account. Please sign out and try again.");
@@ -4676,17 +4683,57 @@ async function bookClassWithValidation(session, classId, clientServiceId) {
     throw err;
   }
 
-  const classData = await bookingRequest("/class/classes", {
-    params: { "request.classIds": classId, "request.schedulingWindow": "true" }
-  });
-  const classes = firstListByKey(classData, "Classes");
-  const classItem = classes.find((c) => c.Id === classId) || classes[0];
-
-  if (!classItem) {
-    const err = httpError(404, "This class could not be found.");
-    err.bookingCode = "NO_CLASS_ID";
-    throw err;
+let classData = await bookingRequest("/class/classes", {
+  params: {
+    "request.classIds": String(classId),
+    "request.schedulingWindow": "true"
   }
+});
+
+let classes = firstListByKey(classData, "Classes");
+
+let classItem =
+  classes.find((c) => Number(c.Id) === Number(classId)) ||
+  classes.find((c) => Number(c.ClassId) === Number(classId)) ||
+  classes[0];
+
+if (!classItem && classHint?.startDateTime) {
+  const start = new Date(classHint.startDateTime);
+  const from = new Date(start);
+  const to = new Date(start);
+
+  from.setHours(0, 0, 0, 0);
+  to.setHours(23, 59, 59, 999);
+
+  const fallbackParams = {
+    "request.startDateTime": formatApiDate(from),
+    "request.endDateTime": formatApiDate(to),
+    "request.schedulingWindow": "true",
+    "request.limit": "200"
+  };
+
+  if (classHint?.locationId) {
+    fallbackParams["request.locationIds"] = String(classHint.locationId);
+  }
+
+  const fallbackData = await bookingRequest("/class/classes", {
+    params: fallbackParams
+  });
+
+  classes = firstListByKey(fallbackData, "Classes");
+
+  classItem =
+    classes.find((c) => Number(c.Id) === Number(classId)) ||
+    classes.find((c) => Number(c.ClassId) === Number(classId)) ||
+    classes.find((c) => Number(c.ClassScheduleId) === Number(classHint?.classScheduleId)) ||
+    null;
+}
+
+if (!classItem) {
+  const err = httpError(404, "This class could not be found.");
+  err.bookingCode = "NO_CLASS_ID";
+  throw err;
+}
 
   if (classItem.IsCanceled) {
     const err = httpError(400, "This class has been canceled.");
