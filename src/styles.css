@@ -5073,3 +5073,33 @@ body.interior:has(.page-policies),
   color: #fff;
   border-color: #000;
 }
+
+.book-class,
+.book-class:visited,
+.book-class:hover,
+.book-class:focus,
+.book-class:active,
+.book-class.book-credits,
+.book-class.book-credits:visited,
+.book-class.book-credits:hover,
+.book-class.book-credits:focus,
+.book-class.book-credits:active,
+.book-class.book-full,
+.book-class.book-full:hover,
+.book-class.book-full:focus,
+.book-class.book-full:active {
+  background: #000 !important;
+  color: #fff !important;
+  border: 1px solid #000 !important;
+  text-decoration: none !important;
+  opacity: 1 !important;
+}
+
+.book-class * {
+  color: #fff !important;
+}
+
+.book-class.book-credits:hover {
+  background: #000 !important;
+  color: #fff !important;
+}
