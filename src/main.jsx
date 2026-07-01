@@ -1508,7 +1508,7 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 }
 
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
-  const groups = pricingStoreGroups(store, memberships);
+  const groups = usePricingCatalog(store, memberships);
   const items = groups[category.key] || [];
   const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
   const totalQty = cart ? cart.items.reduce((n, i) => n + i.quantity, 0) : 0;
@@ -1520,7 +1520,9 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
-        {items.length ? (
+        {groups.loading ? (
+        <p className="empty-schedule">Loading pricing options...</p>
+      ) : items.length ? (
           <div className={`pricing-card-grid ${category.key}`}>
             {items.map((item) => (
               <PricingCard
