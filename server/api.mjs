@@ -2041,35 +2041,113 @@ export async function handleApiRequest(request, response) {
       let payments;
       const storedLastFour = String(body.storedCardLastFour || body.paymentLastFour || "").replace(/\D/g, "");
 
-      if (storedLastFour.length === 4) {
-        // Quote first to get the actual total
-        let amount = 0;
-        try {
-const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
-  method: "POST",
-  token: staffToken,
-  body: {
-    Test: true,
-    ClientId: clientId,
-    LocationId: Number(locationId) || 1,
-    InStore: false,
-    CalculateTax: true,
-    Items: cartItems,
-    Payments: []
+      const fallbackCartAmount = items.reduce((sum, item) => {
+  const price = Number(String(item.price || item.amount || item.onlinePrice || "0").replace(/[^0-9.]/g, ""));
+  const quantity = Number(item.quantity) || 1;
+  return sum + price * quantity;
+}, 0);
+
+const resolveCheckoutAmount = async () => {
+  let amount = 0;
+
+  try {
+    const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
+      method: "POST",
+      token: staffToken,
+      body: {
+        Test: true,
+        ClientId: clientId,
+        LocationId: Number(locationId) || 1,
+        InStore: false,
+        CalculateTax: true,
+        Items: cartItems,
+        Payments: []
+      }
+    });
+
+    const cart = quoteResult?.ShoppingCart || quoteResult?.Cart || quoteResult;
+
+    amount = Number(
+      cart?.GrandTotal ??
+      cart?.Total ??
+      cart?.TotalAmount ??
+      cart?.SubTotal ??
+      cart?.Subtotal ??
+      0
+    );
+  } catch (err) {
+    console.warn("[cart/checkout] quote failed, using item price fallback:", err.message);
   }
-});
-amount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
 
-if (!amount) {
-  sendJson(response, 400, {
-    ok: false,
-    message: "Could not determine the checkout total."
-  });
-  return true;
-}        } catch (_) {}
+  if (!Number.isFinite(amount) || amount <= 0) {
+    amount = fallbackCartAmount;
+  }
 
-        payments = [{ Type: "StoredCard", Metadata: { Amount: amount, LastFour: storedLastFour } }];
-      } else if (body.cardNumber) {
+  return Number(amount.toFixed(2));
+};
+
+if (storedLastFour.length === 4) {
+  const fallbackAmount = items.reduce((sum, item) => {
+    const price = Number(
+      String(item.price || item.amount || item.onlinePrice || "0").replace(/[^0-9.]/g, "")
+    );
+    const quantity = Number(item.quantity) || 1;
+    return sum + price * quantity;
+  }, 0);
+
+  let amount = 0;
+
+  try {
+    const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
+      method: "POST",
+      token: staffToken,
+      body: {
+        Test: true,
+        ClientId: clientId,
+        LocationId: Number(locationId) || 1,
+        InStore: false,
+        CalculateTax: true,
+        Items: cartItems,
+        Payments: []
+      }
+    });
+
+    const cart = quoteResult?.ShoppingCart || quoteResult?.Cart || quoteResult;
+
+    amount = Number(
+      cart?.GrandTotal ??
+      cart?.Total ??
+      cart?.TotalAmount ??
+      cart?.SubTotal ??
+      cart?.Subtotal ??
+      0
+    );
+  } catch (err) {
+    console.warn("[cart/checkout] Mindbody quote failed, using item price fallback:", err.message);
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    amount = fallbackAmount;
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    sendJson(response, 400, {
+      ok: false,
+      message: "Could not determine the checkout total."
+    });
+    return true;
+  }
+
+  payments = [
+    {
+      Type: "StoredCard",
+      Metadata: {
+        Amount: Number(amount.toFixed(2)),
+        LastFour: storedLastFour
+      }
+    }
+  ];
+}else if (body.cardNumber) {
         const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
         const expMonth = Number(String(body.expMonth || "").replace(/\D/g, ""));
         const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
