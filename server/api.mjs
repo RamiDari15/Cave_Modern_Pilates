@@ -2022,13 +2022,12 @@ const price = contractPriceValue(item, id);
           };
         }).filter((s) => s.id && s.sellOnline !== false);
         
-        const isUnlimitedService = (s) =>
+       const isUnlimitedService = (s) =>
   /\bunlimited\b/i.test(String(s.name || s.description || ""));
 
 catalog = {
   newbie: services.filter((s) => s.isNewbiePromo),
 
-  
   classPacks: services.filter((s) =>
     !s.isNewbiePromo &&
     (
