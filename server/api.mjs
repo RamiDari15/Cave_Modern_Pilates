@@ -1918,26 +1918,63 @@ const isSoldOnlineValue = (item) => {
   return true;
 };
 
+const CONTRACT_PRICE_BY_ID = {
+  "101": 150,
+  "102": 140,
+  "103": 128,
+  "104": 275,
+  "105": 260,
+  "106": 220,
+  "113": 325,
+  "114": 300,
+  "115": 275
+};
+
+const moneyString = (value) => {
+  const number = Number(String(value || "").replace(/[^0-9.]/g, ""));
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "";
+  }
+
+  return `$${number.toFixed(2)}`;
+};
+
+const contractPriceValue = (item, id) => {
+  return (
+    item.OnlinePrice ??
+    item.Price ??
+    item.Amount ??
+    item.RecurringPaymentAmount ??
+    item.FirstPaymentAmount ??
+    item.TotalContractAmount ??
+    item.MonthlyPayment ??
+    item.PaymentAmount ??
+    item.BillingAmount ??
+    item.Membership?.Amount ??
+    item.Membership?.Price ??
+    item.AutopaySchedule?.PaymentAmount ??
+    item.AutopaySchedule?.Amount ??
+    item.AutoPaySchedule?.PaymentAmount ??
+    item.AutoPaySchedule?.Amount ??
+    CONTRACT_PRICE_BY_ID[String(id)] ??
+    null
+  );
+};
+
 const contractItems = liveContracts
   .filter((item) => isSoldOnlineValue(item))
   .map((item) => {
-    const id = String(item.Id || item.ContractId || "");
-    const name = item.Name || item.ContractName || "";
 
-    const price =
-      item.OnlinePrice ??
-      item.Price ??
-      item.Amount ??
-      item.RecurringPaymentAmount ??
-      item.FirstPaymentAmount ??
-      item.TotalContractAmount ??
-      null;
+const id = String(item.Id || item.ContractId || "");
+const name = item.Name || item.ContractName || "";
+const price = contractPriceValue(item, id);
 
     return {
       id,
       kind: "contract",
       name,
-      price: price != null ? `$${Number(price).toFixed(2)}` : "",
+      price: moneyString(price),
       description: item.Description || "",
       sellOnline: true,
       requiresWaiver: true,
