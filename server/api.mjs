@@ -2022,34 +2022,32 @@ const price = contractPriceValue(item, id);
           };
         }).filter((s) => s.id && s.sellOnline !== false);
         
-       const isUnlimitedService = (s) =>
+
+        const isUnlimitedService = (s) =>
   /\bunlimited\b/i.test(String(s.name || s.description || ""));
+
+const regularServices = services.filter((s) =>
+  !s.isNewbiePromo && !isUnlimitedService(s)
+);
+
+const unlimitedServices = services.filter((s) =>
+  !s.isNewbiePromo && isUnlimitedService(s)
+);
 
 catalog = {
   newbie: services.filter((s) => s.isNewbiePromo),
 
-  classPacks: services.filter((s) =>
-    !s.isNewbiePromo &&
-    (
-      isUnlimitedService(s) ||
-      (s.sessions && s.sessions > 1)
-    )
-  ),
+  classPacks: [
+    ...regularServices.filter((s) => s.sessions && s.sessions > 1),
+    ...unlimitedServices
+  ],
 
-  dropIn: services.filter((s) =>
-    !s.isNewbiePromo &&
-    !isUnlimitedService(s) &&
-    (!s.sessions || s.sessions <= 1)
+  dropIn: regularServices.filter((s) =>
+    !s.sessions || s.sessions <= 1
   ),
 
   memberships: contractItems
 };
-        catalog = {
-          newbie: services.filter((s) => s.isNewbiePromo),
-          classPacks: services.filter((s) => !s.isNewbiePromo && s.sessions && s.sessions > 1),
-          dropIn: services.filter((s) => !s.isNewbiePromo && (!s.sessions || s.sessions <= 1)),
-          memberships: contractItems
-        };
       } else {
         // Fall back to store cache
         catalog = {
