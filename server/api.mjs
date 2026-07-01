@@ -2004,7 +2004,9 @@ const price = contractPriceValue(item, id);
           const name = item.Name || "";
           const price = item.OnlinePrice != null ? item.OnlinePrice : (item.Price != null ? item.Price : null);
           const priceStr = price != null ? `$${Number(price).toFixed(2)}` : "";
-          const sessions = item.Count || null;
+          const rawSessions = Number(item.Count || 0);
+          const isUnlimited = /\bunlimited\b/i.test(name) || rawSessions >= 9999;
+          const sessions = isUnlimited ? null : rawSessions || null;
           const isNewbie = newbieIds.includes(id) || newbieNameRe.test(name);
           return {
             id,
@@ -2012,7 +2014,7 @@ const price = contractPriceValue(item, id);
             name,
             price: priceStr,
             sessions,
-            description: item.Description || (sessions && sessions > 0 ? `${sessions} class${sessions !== 1 ? "es" : ""}` : ""),
+            description: item.Description || (isUnlimited ? "Unlimited classes" : (sessions && sessions > 0 ? `${sessions} class${sessions !== 1 ? "es" : ""}` : "")),
             isNewbiePromo: isNewbie,
             sellOnline: item.SellOnline !== false,
             requiresWaiver: true,
