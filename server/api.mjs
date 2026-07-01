@@ -4491,20 +4491,9 @@ function isStudioConnectionApiMessage(value) {
 }
 
 // All classes are free during the launch week (through end of day July 6, 2026).
-const LAUNCH_FREE_WEEK_END = new Date("2026-07-06T05:00:00.000Z");
-
-function isLaunchFreeWeek() {
-  return Date.now() < LAUNCH_FREE_WEEK_END.getTime();
+function isClassFree() {
+  return false;
 }
-
-function isFreeClassName(name) {
-  return /\b(free|complimentary)\b/i.test(String(name || ""));
-}
-
-function isClassFree(name) {
-  return isLaunchFreeWeek() || isFreeClassName(name);
-}
-
 function normalizeClassFull(item) {
   const startsAt = parseScheduleDate(item.StartDateTime);
   const endsAt = parseScheduleDate(item.EndDateTime);
@@ -4791,7 +4780,7 @@ if (!classItem) {
   const bookingBody = {
     ClientId: clientId,
     ClassId: classId,
-    RequirePayment: !classIsFree,
+    RequirePayment: true,
     SendEmail: true,
     Waitlist: false,
     Test: process.env.BOOKING_TEST_MODE === "true"
