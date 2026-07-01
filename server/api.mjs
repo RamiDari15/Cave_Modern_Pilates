@@ -2021,24 +2021,35 @@ const price = contractPriceValue(item, id);
             requiresTerms: false
           };
         }).filter((s) => s.id && s.sellOnline !== false);
+        
+        const isUnlimitedService = (s) =>
+  /\bunlimited\b/i.test(String(s.name || s.description || ""));
 
-        const unlimitedServiceItems = services.filter((s) =>
-            !s.isNewbiePromo &&
-            /\bunlimited\b/i.test(String(s.name || ""))
-          );
+catalog = {
+  newbie: services.filter((s) => s.isNewbiePromo),
+
+  
+  classPacks: services.filter((s) =>
+    !s.isNewbiePromo &&
+    (
+      isUnlimitedService(s) ||
+      (s.sessions && s.sessions > 1)
+    )
+  ),
+
+  dropIn: services.filter((s) =>
+    !s.isNewbiePromo &&
+    !isUnlimitedService(s) &&
+    (!s.sessions || s.sessions <= 1)
+  ),
+
+  memberships: contractItems
+};
         catalog = {
           newbie: services.filter((s) => s.isNewbiePromo),
-          classPacks: services.filter((s) =>
-          !s.isNewbiePromo &&
-          !/\bunlimited\b/i.test(String(s.name || "")) &&
-          s.sessions &&
-          s.sessions > 1
-        ),
+          classPacks: services.filter((s) => !s.isNewbiePromo && s.sessions && s.sessions > 1),
           dropIn: services.filter((s) => !s.isNewbiePromo && (!s.sessions || s.sessions <= 1)),
-          memberships: [
-          ...unlimitedServiceItems,
-          ...contractItems
-        ]
+          memberships: contractItems
         };
       } else {
         // Fall back to store cache
