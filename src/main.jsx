@@ -2164,7 +2164,7 @@ function FaqPage() {
         </div>
         <div className="faq-hero-card" aria-label="Policy highlights">
           <span>12-hour cancellation window</span>
-          <span>$28 no-show fee</span>
+          <span>$30 no-show fee</span>
           <span>30-day notice for non-renewals</span>
         </div>
       </section>

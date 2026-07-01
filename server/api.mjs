@@ -1879,6 +1879,64 @@ export async function handleApiRequest(request, response) {
         liveServices = firstListByKey(data, "Services");
       } catch (_) {}
 
+      let liveContracts = [];
+
+try {
+  const staffToken = await getMindbodyActionToken("Pricing contracts");
+
+  const contractData = await bookingRequest("/sale/contracts", {
+    token: staffToken,
+    params: {
+      "request.sellOnline": "true",
+      "request.limit": "100",
+      "request.offset": "0",
+      ...(locationId ? { "request.locationId": String(locationId) } : {})
+    }
+  });
+
+  liveContracts = firstListByKey(contractData, "Contracts");
+} catch (err) {
+  console.warn("[pricing/catalog] Could not load live contracts:", err.message);
+}
+
+const isSoldOnline = (item) => {
+  const value =
+    item.SellOnline ??
+    item.SoldOnline ??
+    item.IsSoldOnline ??
+    item.AvailableOnline;
+
+  return value === true || value === "true" || value === 1 || value === "1";
+};
+
+const contractItems = liveContracts
+  .filter((item) => isSoldOnline(item))
+  .map((item) => {
+    const id = String(item.Id || item.ContractId || "");
+    const name = item.Name || item.ContractName || "";
+
+    const price =
+      item.OnlinePrice ??
+      item.Price ??
+      item.Amount ??
+      item.RecurringPaymentAmount ??
+      item.FirstPaymentAmount ??
+      item.TotalContractAmount ??
+      null;
+
+    return {
+      id,
+      kind: "contract",
+      name,
+      price: price != null ? `$${Number(price).toFixed(2)}` : "",
+      description: item.Description || "",
+      sellOnline: true,
+      requiresWaiver: true,
+      requiresTerms: true
+    };
+  })
+  .filter((item) => item.id && item.name);
+
       const newbieIds = String(process.env.NEWBIE_SERVICE_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
       const newbieNameRe = /intro|new\s*client|first\s*time|starter|trial|welcome|newbie/i;
 
@@ -1910,7 +1968,7 @@ export async function handleApiRequest(request, response) {
           newbie: services.filter((s) => s.isNewbiePromo),
           classPacks: services.filter((s) => !s.isNewbiePromo && s.sessions && s.sessions > 1),
           dropIn: services.filter((s) => !s.isNewbiePromo && (!s.sessions || s.sessions <= 1)),
-          memberships: publicStoreItems(storeGroups.memberships || [])
+          memberships: contractItems
         };
       } else {
         // Fall back to store cache
@@ -1918,7 +1976,7 @@ export async function handleApiRequest(request, response) {
           newbie: publicStoreItems(storeGroups.newbie || []),
           classPacks: publicStoreItems(storeGroups.classPacks || []),
           dropIn: publicStoreItems(storeGroups.dropIn || []),
-          memberships: publicStoreItems(storeGroups.memberships || [])
+          memberships: contractItems
         };
       }
 
