@@ -1678,6 +1678,9 @@ const payload = isContract
           <p className="pricing-card-price">{item.price || "Ask studio"}</p>
           <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
           {item.description ? <p className="pricing-card-desc">{item.description}</p> : null}
+          {category.key === "classPacks" ? (
+  <p className="pricing-card-expiry">Expires 1 month after purchase</p>
+) : null}
         </div>
 
         <div className="pricing-card-actions">

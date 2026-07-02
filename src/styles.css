@@ -5103,3 +5103,11 @@ body.interior:has(.page-policies),
   background: #000 !important;
   color: #fff !important;
 }
+
+.pricing-card-expiry {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.55);
+  letter-spacing: 0.02em;
+}
