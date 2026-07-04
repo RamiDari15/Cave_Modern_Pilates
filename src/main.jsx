@@ -3100,17 +3100,25 @@ function normalizeAccountItems(data, type) {
       };
     }
 
-    if (type === "services") {
-      const title = firstText(item.Name, item.ServiceName, item.Program?.Name, item.SessionType?.Name, "Class credit");
-      const remaining = firstText(item.Remaining, item.RemainingClasses, item.Count, item.Current, item.Balance, item.VisitsRemaining);
-      const expiration = formatAccountDate(firstText(item.ExpirationDate, item.Expires, item.ExpiryDate));
+if (type === "services") {
+  const title = firstText(item.Name, item.ServiceName, item.Program?.Name, item.SessionType?.Name, "Class credit");
+  const remaining = firstText(item.Remaining, item.RemainingClasses, item.Count, item.Current, item.Balance, item.VisitsRemaining);
+  const expiration = formatAccountDate(firstText(item.ExpirationDate, item.Expires, item.ExpiryDate));
 
-      return {
-        title,
-        detail: remaining ? `${remaining} remaining` : "",
-        meta: ""
-      };
-    }
+  const remainingNumber = Number(remaining);
+  const remainingText =
+    Number.isFinite(remainingNumber) && remainingNumber > 1000
+      ? "Unlimited remaining"
+      : remaining
+        ? `${remaining} remaining`
+        : "";
+
+  return {
+    title,
+    detail: remainingText,
+    meta: ""
+  };
+}
 
     if (type === "rewards") {
       const name = firstText(item.Name, item.RewardType, item.ProgramName, "Reward Points");
