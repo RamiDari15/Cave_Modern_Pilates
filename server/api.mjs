@@ -4688,8 +4688,30 @@ async function fetchClientCompleteInfo(clientId, session) {
     return true;
   });
 
-  const hasUsablePricingOption = usableServices.length > 0 || rawMemberships.length > 0;
-  const defaultClientServiceId = usableServices.length > 0 ? usableServices[0].Id : null;
+let contractMemberships = [];
+
+try {
+  const staffToken = await getMindbodyActionToken("Eligibility memberships");
+  const contractData = await bookingRequest("/client/clientcontracts", {
+    token: staffToken,
+    params: {
+      "request.clientId": clientId,
+      "request.crossRegionalLookup": "true"
+    }
+  });
+
+  contractMemberships =
+    firstListByKey(contractData, "ClientContracts").length
+      ? firstListByKey(contractData, "ClientContracts")
+      : firstListByKey(contractData, "Contracts");
+} catch (err) {
+  console.warn("[eligibility] Could not load client contracts:", err.message);
+}
+
+const allMemberships = [...rawMemberships, ...contractMemberships].filter(Boolean);
+
+const hasUsablePricingOption = usableServices.length > 0 || allMemberships.length > 0;
+const defaultClientServiceId = usableServices.length > 0 ? usableServices[0].Id : null;
 
   return {
     clientId,
@@ -4699,9 +4721,9 @@ async function fetchClientCompleteInfo(clientId, session) {
       remaining: s.Remaining,
       expirationDate: s.ExpirationDate
     })),
-activeMemberships: rawMemberships.map((m) => ({
+activeMemberships: allMemberships.map((m) => ({
   id: m.Id || m.ContractId || m.ClientContractId,
-  name: m.Name || m.ContractName || m.MembershipName || "",
+  name: m.Name || m.ContractName || m.MembershipName || m.AgreementName || "",
   status: m.MembershipStatus || m.Status || m.ContractStatus || ""
 })),
     hasUsablePricingOption,
