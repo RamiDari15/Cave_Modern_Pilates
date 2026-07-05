@@ -2669,11 +2669,18 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       )}
 
       <div className="account-grid">
-        <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings. Head to the schedule to reserve a spot." />
-        <AccountCard title="Class Credits" type="services" data={dashboard?.services} loading={dashboardLoading} empty="No class credits on file. Visit Pricing to get started." />
-        <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
-        <AccountCard title="Rewards" type="rewards" data={dashboard?.rewards} loading={dashboardLoading} empty="No reward points on file." />
-      </div>
+       <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings. Head to the schedule to book a spot." />
+
+<AccountCard
+  title="Class Credits"
+  type="services"
+  data={dashboard?.services?.length ? dashboard.services : dashboard?.contracts}
+  loading={dashboardLoading}
+  empty="No active class credits or membership on file."
+/>
+
+<AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
+<AccountCard title="Rewards" type="rewards" data={dashboard?.rewards} loading={dashboardLoading} empty="No reward points on file." /></div>
 
       <a className="pill-button outline account-edit-toggle" href={bookingUrl}>View Schedule</a>
     </section>
@@ -3100,9 +3107,30 @@ function normalizeAccountItems(data, type) {
     }
 
 if (type === "services") {
-  const title = firstText(item.Name, item.ServiceName, item.Program?.Name, item.SessionType?.Name, "Class credit");
-  const remaining = firstText(item.Remaining, item.RemainingClasses, item.Count, item.Current, item.Balance, item.VisitsRemaining);
-  const expiration = formatAccountDate(firstText(item.ExpirationDate, item.Expires, item.ExpiryDate));
+  const title = firstText(
+    item.Name,
+    item.ServiceName,
+    item.ContractName,
+    item.MembershipName,
+    item.AgreementName,
+    item.Program?.Name,
+    item.SessionType?.Name,
+    "Class credit"
+  );
+
+  const remaining = firstText(
+    item.Remaining,
+    item.RemainingVisits,
+    item.RemainingClasses,
+    item.Count,
+    item.Current,
+    item.Balance,
+    item.VisitsRemaining
+  );
+
+  const expiration = formatAccountDate(
+    firstText(item.ExpirationDate, item.Expires, item.ExpiryDate, item.EndDate, item.EndDateTime)
+  );
 
   const remainingNumber = Number(remaining);
   const remainingText =
@@ -3110,12 +3138,14 @@ if (type === "services") {
       ? "Unlimited remaining"
       : remaining
         ? `${remaining} remaining`
-        : "";
+        : /unlimited/i.test(title)
+          ? "Unlimited remaining"
+          : "";
 
   return {
     title,
     detail: remainingText,
-    meta: ""
+    meta: expiration ? `Expires ${expiration}` : ""
   };
 }
 
