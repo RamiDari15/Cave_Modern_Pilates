@@ -4664,10 +4664,21 @@ async function fetchClientCompleteInfo(clientId, session) {
     : Array.isArray(data?.ClientServices)
     ? data.ClientServices
     : [];
-  const rawMemberships = Array.isArray(client.ClientMemberships)
+  const rawMemberships =
+  Array.isArray(client.ClientMemberships)
     ? client.ClientMemberships
     : Array.isArray(data?.ClientMemberships)
     ? data.ClientMemberships
+    : Array.isArray(client.ClientContracts)
+    ? client.ClientContracts
+    : Array.isArray(data?.ClientContracts)
+    ? data.ClientContracts
+    : Array.isArray(data?.Contracts)
+    ? data.Contracts
+    : Array.isArray(data?.ClientCompleteInfo?.ClientMemberships)
+    ? data.ClientCompleteInfo.ClientMemberships
+    : Array.isArray(data?.ClientCompleteInfo?.ClientContracts)
+    ? data.ClientCompleteInfo.ClientContracts
     : [];
 
   const usableServices = rawServices.filter((s) => {
@@ -4688,11 +4699,11 @@ async function fetchClientCompleteInfo(clientId, session) {
       remaining: s.Remaining,
       expirationDate: s.ExpirationDate
     })),
-    activeMemberships: rawMemberships.map((m) => ({
-      id: m.Id,
-      name: m.Name || "",
-      status: m.MembershipStatus || m.Status || ""
-    })),
+activeMemberships: rawMemberships.map((m) => ({
+  id: m.Id || m.ContractId || m.ClientContractId,
+  name: m.Name || m.ContractName || m.MembershipName || "",
+  status: m.MembershipStatus || m.Status || m.ContractStatus || ""
+})),
     hasUsablePricingOption,
     defaultClientServiceId
   };
