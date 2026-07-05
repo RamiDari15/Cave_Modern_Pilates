@@ -3473,10 +3473,15 @@ const bookClass = async (classItem) => {
       return;
     }
 
-    if (eligibility && !eligibility.hasUsablePricingOption && !classItem.isFree) {
-      setBookingState({ classId, operation: "book", type: "error", message: "You need an active class pack or membership to book. Visit the Pricing page to get started." });
-      return;
-    }
+if (
+  eligibility &&
+  eligibility.hasUsablePricingOption === false &&
+  !classItem.isFree &&
+  !eligibility.activeMemberships?.length &&
+  !eligibility.activeServices?.length
+) {
+  console.warn("[schedule] Eligibility says no credits/membership. Sending booking to backend for final validation.");
+}
 
     setBookingState({ classId, operation: "book", type: "loading", message: "Booking\u2026" });
 

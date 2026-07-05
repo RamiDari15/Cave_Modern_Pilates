@@ -4653,79 +4653,116 @@ async function fetchLiveClasses(locationId) {
 }
 
 async function fetchClientCompleteInfo(clientId, session) {
+  const consumerToken = session?.consumerIdentityToken || session?.accessToken || "";
+
   const data = await bookingRequest("/client/clientcompleteinfo", {
-    consumerIdentityToken: session?.consumerIdentityToken || session?.accessToken,
-    params: { clientId, showActiveOnly: "true" }
-  });
-
-  const client = data?.Client || {};
-  const rawServices = Array.isArray(client.ClientServices)
-    ? client.ClientServices
-    : Array.isArray(data?.ClientServices)
-    ? data.ClientServices
-    : [];
-  const rawMemberships =
-  Array.isArray(client.ClientMemberships)
-    ? client.ClientMemberships
-    : Array.isArray(data?.ClientMemberships)
-    ? data.ClientMemberships
-    : Array.isArray(client.ClientContracts)
-    ? client.ClientContracts
-    : Array.isArray(data?.ClientContracts)
-    ? data.ClientContracts
-    : Array.isArray(data?.Contracts)
-    ? data.Contracts
-    : Array.isArray(data?.ClientCompleteInfo?.ClientMemberships)
-    ? data.ClientCompleteInfo.ClientMemberships
-    : Array.isArray(data?.ClientCompleteInfo?.ClientContracts)
-    ? data.ClientCompleteInfo.ClientContracts
-    : [];
-
-  const usableServices = rawServices.filter((s) => {
-    if (!s) return false;
-    const remaining = s.Remaining;
-    if (remaining !== undefined && remaining !== null && Number(remaining) <= 0) return false;
-    return true;
-  });
-
-let contractMemberships = [];
-
-try {
-  const staffToken = await getMindbodyActionToken("Eligibility memberships");
-  const contractData = await bookingRequest("/client/clientcontracts", {
-    token: staffToken,
+    ...(consumerToken ? { consumerIdentityToken: consumerToken } : {}),
     params: {
       "request.clientId": clientId,
+      "request.showActiveOnly": "true",
       "request.crossRegionalLookup": "true"
     }
   });
 
-  contractMemberships =
-    firstListByKey(contractData, "ClientContracts").length
-      ? firstListByKey(contractData, "ClientContracts")
-      : firstListByKey(contractData, "Contracts");
-} catch (err) {
-  console.warn("[eligibility] Could not load client contracts:", err.message);
-}
+  const client = data?.ClientCompleteInfo?.Client || data?.Client || {};
 
-const allMemberships = [...rawMemberships, ...contractMemberships].filter(Boolean);
+  const rawServices =
+    firstListByKey(data, "ClientServices").length
+      ? firstListByKey(data, "ClientServices")
+      : Array.isArray(client.ClientServices)
+      ? client.ClientServices
+      : [];
 
-const hasUsablePricingOption = usableServices.length > 0 || allMemberships.length > 0;
-const defaultClientServiceId = usableServices.length > 0 ? usableServices[0].Id : null;
+  const rawMemberships =
+    firstListByKey(data, "ClientMemberships").length
+      ? firstListByKey(data, "ClientMemberships")
+      : firstListByKey(data, "ClientContracts").length
+      ? firstListByKey(data, "ClientContracts")
+      : firstListByKey(data, "Contracts").length
+      ? firstListByKey(data, "Contracts")
+      : Array.isArray(client.ClientMemberships)
+      ? client.ClientMemberships
+      : Array.isArray(client.ClientContracts)
+      ? client.ClientContracts
+      : [];
+
+  let contractMemberships = [];
+
+  try {
+    const staffToken = await getMindbodyActionToken("Eligibility memberships");
+    const contractData = await bookingRequest("/client/clientcontracts", {
+      token: staffToken,
+      params: {
+        "request.clientId": clientId,
+        "request.crossRegionalLookup": "true"
+      }
+    });
+
+    contractMemberships =
+      firstListByKey(contractData, "ClientContracts").length
+        ? firstListByKey(contractData, "ClientContracts")
+        : firstListByKey(contractData, "Contracts");
+  } catch (err) {
+    console.warn("[eligibility] Could not load client contracts:", err.message);
+  }
+
+  const usableServices = rawServices.filter((s) => {
+    if (!s) return false;
+
+    const remaining = Number(
+      s.Remaining ??
+      s.RemainingVisits ??
+      s.RemainingClasses ??
+      s.Count ??
+      s.Current ??
+      s.Balance ??
+      s.VisitsRemaining ??
+      1
+    );
+
+    return !Number.isFinite(remaining) || remaining > 0;
+  });
+
+  const allMemberships = [...rawMemberships, ...contractMemberships].filter(Boolean);
+
+  const activeMemberships = allMemberships.filter((m) => {
+    const name = String(m.Name || m.ContractName || m.MembershipName || m.AgreementName || "").toLowerCase();
+    const status = String(m.MembershipStatus || m.Status || m.ContractStatus || "").toLowerCase();
+
+    const remaining = Number(
+      m.Remaining ??
+      m.RemainingVisits ??
+      m.RemainingClasses ??
+      m.Count ??
+      m.Current ??
+      m.Balance ??
+      m.VisitsRemaining ??
+      1
+    );
+
+    const looksUnlimited = name.includes("unlimited") || remaining > 1000;
+    const notExpiredStatus = !/expired|cancelled|canceled|terminated|inactive/.test(status);
+
+    return notExpiredStatus && (looksUnlimited || !Number.isFinite(remaining) || remaining > 0 || name.length > 0);
+  });
+
+  const hasUsablePricingOption = usableServices.length > 0 || activeMemberships.length > 0;
+  const defaultClientServiceId = usableServices.length > 0 ? usableServices[0].Id || usableServices[0].id : null;
 
   return {
     clientId,
     activeServices: usableServices.map((s) => ({
-      id: s.Id,
-      name: s.Name || s.ProductName || "",
-      remaining: s.Remaining,
-      expirationDate: s.ExpirationDate
+      id: s.Id || s.ClientServiceId || s.id,
+      name: s.Name || s.ProductName || s.ServiceName || "",
+      remaining: s.Remaining ?? s.RemainingVisits ?? s.RemainingClasses ?? s.Count ?? s.VisitsRemaining,
+      expirationDate: s.ExpirationDate || s.Expires || s.ExpiryDate || ""
     })),
-activeMemberships: allMemberships.map((m) => ({
-  id: m.Id || m.ContractId || m.ClientContractId,
-  name: m.Name || m.ContractName || m.MembershipName || m.AgreementName || "",
-  status: m.MembershipStatus || m.Status || m.ContractStatus || ""
-})),
+    activeMemberships: activeMemberships.map((m) => ({
+      id: m.Id || m.ContractId || m.ClientContractId,
+      name: m.Name || m.ContractName || m.MembershipName || m.AgreementName || "",
+      status: m.MembershipStatus || m.Status || m.ContractStatus || "",
+      remaining: m.Remaining ?? m.RemainingVisits ?? m.RemainingClasses ?? m.Count ?? m.VisitsRemaining
+    })),
     hasUsablePricingOption,
     defaultClientServiceId
   };
