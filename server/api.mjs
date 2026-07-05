@@ -46,6 +46,12 @@ const liveClassesCache = {
   TTL_MS: 2 * 60 * 1000
 };
 
+const pricingCatalogCache = {
+  data: null,
+  expiresAt: 0,
+  TTL_MS: 15 * 60 * 1000
+};
+
 loadLocalEnv();
 
 function loadLocalEnv() {
@@ -1868,6 +1874,11 @@ export async function handleApiRequest(request, response) {
 
     // ── Pricing Catalog ────────────────────────────────────────────────────────
     if (path === "/api/pricing/catalog" && request.method === "GET") {
+
+      if (pricingCatalogCache.data && pricingCatalogCache.expiresAt > Date.now()) {
+  sendJson(response, 200, pricingCatalogCache.data);
+  return true;
+}
       const { locationId } = getBookingConfig();
       const cache = readStoreCache();
       const storeGroups = publicStoreGroups(cache.store || {});
@@ -2058,8 +2069,17 @@ catalog = {
         };
       }
 
-      sendJson(response, 200, { ok: true, catalog, source: liveServices ? "live" : "cache" });
-      return true;
+const responseBody = {
+  ok: true,
+  catalog,
+  source: liveServices ? "live" : "cache"
+};
+
+pricingCatalogCache.data = responseBody;
+pricingCatalogCache.expiresAt = Date.now() + pricingCatalogCache.TTL_MS;
+
+sendJson(response, 200, responseBody);
+return true;
     }
 
     // ── Cart Quote ─────────────────────────────────────────────────────────────
