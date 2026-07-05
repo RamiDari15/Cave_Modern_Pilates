@@ -18,8 +18,8 @@ const OAUTH_TTL_SECONDS = 10 * 60;
 const DEFAULT_OAUTH_SCOPE =
   "email openid profile offline_access Platform.Contacts.Api.Write Platform.Contacts.Api.Read Platform.Accounts.Api.Read Mindbody.Api.Public.v6 Platform.ProductInventory.Api.Read Platform.ProductInventory.Api.Write";
 const OAUTH_PROFILE_REFRESH_MS = 10 * 60 * 1000;
-const PUBLIC_SCHEDULE_REFRESH_TTL_MS = Math.max(Number(process.env.BOOKING_SCHEDULE_REFRESH_SECONDS || 120), 30) * 1000;
-const AUTH_RATE_LIMIT = { count: 20, windowMs: 15 * 60 * 1000 };
+const PUBLIC_SCHEDULE_REFRESH_TTL_MS = Math.max(Number(process.env.BOOKING_SCHEDULE_REFRESH_SECONDS || 600), 30) * 1000;
+const AUTH_RATE_LIMIT = { count: 300, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
 const pendingOAuthStates = new Map();
 const actionTokenCache = {

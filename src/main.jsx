@@ -78,7 +78,7 @@ const PAGE_DESCRIPTIONS = {
 };
 
 const SITE_URL = "https://www.cavemodernpilates.com";
-const STUDIO_CACHE_POLL_MS = 5 * 60 * 1000;
+const STUDIO_CACHE_POLL_MS = 60 * 60 * 1000;
 const CONTACT_EMAIL = "support@cavemodernpilates.com";
 const CONTACT_PHONE = "7085715730";
 const CONTACT_PHONE_DISPLAY = "(708) 571-5730";
@@ -645,7 +645,7 @@ function useStudioCache(activePage) {
     loadCache();
     pollTimer = window.setInterval(
       loadCache,
-      activePage === "schedule" ? Math.min(STUDIO_CACHE_POLL_MS, 2 * 60 * 1000) : STUDIO_CACHE_POLL_MS
+      activePage === "schedule" ? 10 * 60 * 1000 : STUDIO_CACHE_POLL_MS
     );
 
     return () => {
@@ -696,8 +696,7 @@ function useClientSession() {
     loadSession(true);
     window.addEventListener("focus", refreshOnFocus);
     document.addEventListener("visibilitychange", refreshWhenVisible);
-    const interval = setInterval(() => loadSession(false), 5 * 60 * 1000);
-
+    const interval = setInterval(() => loadSession(false), 30 * 60 * 1000);
     return () => {
       isMounted = false;
       window.removeEventListener("focus", refreshOnFocus);
