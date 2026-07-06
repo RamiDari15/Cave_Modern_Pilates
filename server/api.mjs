@@ -1819,6 +1819,14 @@ const clientPayload = compactObject({
   EmergencyContactInfoRelationship: body.emergencyContactRelationship
 });
 
+if (!clientPayload.FirstName || !clientPayload.LastName || !clientPayload.Email || !clientPayload.MobileNumber) {
+  sendJson(response, 400, {
+    ok: false,
+    message: "First name, last name, email, and mobile phone are required."
+  });
+  return true;
+}
+
       if (Object.keys(clientPayload).filter((k) => !["Id", "FirstName", "LastName", "Email"].includes(k)).length === 0) {
         sendJson(response, 400, { ok: false, message: "No editable fields provided." });
         return true;
