@@ -1838,7 +1838,7 @@ if (path === "/api/account/profile") {
       token,
       body: {
         Client: clientPayload,
-        CrossRegionalUpdate: true
+        CrossRegionalUpdate: false
       }
     });
   } catch (err) {
@@ -1877,7 +1877,7 @@ if (path === "/api/account/profile") {
       token,
       body: {
         Client: clientPayload,
-        CrossRegionalUpdate: true
+        CrossRegionalUpdate: false
       }
     });
   }
