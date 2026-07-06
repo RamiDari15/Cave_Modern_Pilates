@@ -2797,16 +2797,16 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
     setStatus({ type: "", message: "" });
 
     try {
-      const result = await apiRequest("/api/account/profile", {
-    method: "POST",
-    body: {
-      clientId: accountData?.clientId || clientSession?.clientId || clientSession?.user?.id || "",
-      firstName: accountData?.firstName || clientSession?.user?.firstName || "",
-      lastName: accountData?.lastName || clientSession?.user?.lastName || "",
-      email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
-      ...form
-    }
-  });
+        const result = await apiRequest("/api/account/profile", {
+        method: "POST",
+        body: {
+          clientId: accountData?.clientId || clientSession?.clientId || "",
+          firstName: accountData?.firstName || clientSession?.user?.firstName || "",
+          lastName: accountData?.lastName || clientSession?.user?.lastName || "",
+          email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
+          ...form
+        }
+});
 
         if (result.ok) {
           // Reload account data with updated profile

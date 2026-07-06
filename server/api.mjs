@@ -1604,8 +1604,19 @@ export async function handleApiRequest(request, response) {
 
       const body = await readJsonBody(request);
 
-let clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
+const cleanClientId = (value) => {
+  const text = String(value || "").trim();
 
+  // Reject OAuth/platform/custom IDs like 6a4579b0004309521d915633
+  // Mindbody Public v6 client IDs should not be long hex OAuth IDs.
+  if (/^[a-f0-9]{20,}$/i.test(text)) {
+    return "";
+  }
+
+  return text;
+};
+
+let clientId = cleanClientId(session.clientId) || cleanClientId(body.clientId) || cleanClientId(await resolveSessionClientId(session).catch(() => ""));
 // 1. Try resolving from the active Mindbody OAuth token.
 if (!clientId && (session.consumerIdentityToken || session.accessToken)) {
   const consumerToken = session.consumerIdentityToken || session.accessToken;
@@ -1652,19 +1663,21 @@ if (!clientId) {
       return null;
     });
 
+    
     if (found?.clientId) {
-      clientId = found.clientId;
+  clientId = String(found.clientId);
 
-      setSessionCookie(response, {
-        ...session,
-        clientId,
-        user: {
-          ...(session.user || {}),
-          id: clientId,
-          email: sessionEmail
-        }
-      });
+  setSessionCookie(response, {
+    ...session,
+    clientId,
+    uniqueClientId: found.uniqueId || session.uniqueClientId || "",
+    user: {
+      ...(session.user || {}),
+      id: clientId,
+      email: sessionEmail
     }
+  });
+}
   }
 }
 
