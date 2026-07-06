@@ -1588,169 +1588,43 @@ export async function handleApiRequest(request, response) {
       return true;
     }
 
-    if (path === "/api/account/profile") {
-      if (request.method !== "POST") {
-        response.setHeader("Allow", "POST");
-        sendJson(response, 405, { message: "Method not allowed. Use POST /api/account/profile." });
-        return true;
-      }
-
-      const session = await readHydratedSession(request, response);
-
-      if (!session) {
-        sendJson(response, 401, { ok: false, message: "Please sign in first." });
-        return true;
-      }
-
-      const body = await readJsonBody(request);
-
-const cleanClientId = (value) => {
-  const text = String(value || "").trim();
-
-  // Reject OAuth/platform/custom IDs like 6a4579b0004309521d915633
-  // Mindbody Public v6 client IDs should not be long hex OAuth IDs.
-  if (/^[a-f0-9]{20,}$/i.test(text)) {
-    return "";
-  }
-
-  return text;
-};
-
-let clientId = cleanClientId(session.clientId) || cleanClientId(body.clientId) || cleanClientId(await resolveSessionClientId(session).catch(() => ""));
-// 1. Try resolving from the active Mindbody OAuth token.
-if (!clientId && (session.consumerIdentityToken || session.accessToken)) {
-  const consumerToken = session.consumerIdentityToken || session.accessToken;
-
-  const ccFallback = await bookingRequest("/client/clientcompleteinfo", {
-    consumerIdentityToken: consumerToken,
-    params: {
-      "request.crossRegionalLookup": "true"
-    }
-  }).catch((err) => {
-    console.warn("[account/profile] clientcompleteinfo fallback failed:", err.message);
-    return null;
-  });
-
-  const foundId = ccFallback ? extractClientId(ccFallback) : "";
-
-  if (foundId) {
-    clientId = foundId;
-
-    setSessionCookie(response, {
-      ...session,
-      clientId,
-      user: {
-        ...(session.user || {}),
-        id: clientId
-      }
-    });
-  }
-}
-
-// 2. If token lookup fails, search Mindbody by email.
-if (!clientId) {
-  const sessionEmail = String(
-    body.email ||
-    session.user?.email ||
-    session.user?.username ||
-    session.email ||
-    ""
-  ).trim().toLowerCase();
-
-  if (sessionEmail) {
-    const found = await findMindbodyClientByEmail(sessionEmail).catch((err) => {
-      console.warn("[account/profile] email lookup failed:", err.message);
-      return null;
-    });
-
-    
-    if (found?.clientId) {
-  clientId = String(found.clientId);
-
-  setSessionCookie(response, {
-    ...session,
-    clientId,
-    uniqueClientId: found.uniqueId || session.uniqueClientId || "",
-    user: {
-      ...(session.user || {}),
-      id: clientId,
-      email: sessionEmail
-    }
-  });
-}
-  }
-}
-
-if (!clientId) {
-  const fallbackEmail = String(
-    body.email ||
-    session.user?.email ||
-    session.user?.username ||
-    ""
-  ).trim().toLowerCase();
-
-  const fallbackFirstName = String(
-    body.firstName ||
-    session.user?.firstName ||
-    ""
-  ).trim();
-
-  const fallbackLastName = String(
-    body.lastName ||
-    session.user?.lastName ||
-    ""
-  ).trim();
-
-  if (!fallbackEmail || !fallbackFirstName || !fallbackLastName) {
-    sendJson(response, 400, {
-      ok: false,
-      message: "First name, last name, and email are required."
-    });
+if (path === "/api/account/profile") {
+  if (request.method !== "POST") {
+    response.setHeader("Allow", "POST");
+    sendJson(response, 405, { message: "Method not allowed. Use POST /api/account/profile." });
     return true;
   }
 
-let existingClient = await findMindbodyClientByEmail(fallbackEmail).catch((err) => {
-  console.warn("[account/profile] findMindbodyClientByEmail failed:", err.message);
-  return null;
-});
+  const session = await readHydratedSession(request, response);
 
-// Backup lookup using the same SearchText format already used in /api/auth/link
-if (!existingClient?.clientId) {
-  try {
-    const staffToken = await getMindbodyActionToken("Account profile email backup lookup");
-
-    const searchResult = await bookingRequest("/client/clients", {
-      token: staffToken,
-      params: { SearchText: fallbackEmail }
-    });
-
-    const searchProfile = extractClientProfile(searchResult, fallbackEmail);
-
-    if (searchProfile?.clientId) {
-      existingClient = searchProfile;
-    }
-  } catch (err) {
-    console.warn("[account/profile] backup SearchText lookup failed:", err.message);
+  if (!session) {
+    sendJson(response, 401, { ok: false, message: "Please sign in first." });
+    return true;
   }
-}
 
-if (existingClient?.clientId) {
-  clientId = String(existingClient.clientId);
+  const body = await readJsonBody(request);
 
-  setSessionCookie(response, {
-    ...session,
-    clientId,
-    uniqueClientId: existingClient.uniqueId || session.uniqueClientId || "",
-    user: {
-      ...(session.user || {}),
-      id: clientId,
-      firstName: fallbackFirstName,
-      lastName: fallbackLastName,
-      email: fallbackEmail,
-      username: fallbackEmail
+  const cleanClientId = (value) => {
+    const text = String(value || "").trim();
+
+    // Reject OAuth/platform IDs like 6a4579b0004309521d915633
+    if (/^[a-f0-9]{20,}$/i.test(text)) {
+      return "";
     }
-  });
-} else {
+
+    return text;
+  };
+
+  const firstName = String(body.firstName || session.user?.firstName || "").trim();
+  const lastName = String(body.lastName || session.user?.lastName || "").trim();
+
+  const email = String(
+    body.email ||
+    session.user?.email ||
+    session.user?.username ||
+    ""
+  ).trim().toLowerCase();
+
   const phoneNumber = String(
     body.mobileNumber ||
     body.mobilePhone ||
@@ -1758,269 +1632,276 @@ if (existingClient?.clientId) {
     ""
   ).replace(/\D/g, "");
 
-  if (!phoneNumber) {
+  if (!firstName || !lastName || !email || !phoneNumber) {
     sendJson(response, 400, {
       ok: false,
-      message: "Mobile phone is required."
+      message: "First name, last name, email, and mobile phone are required."
     });
     return true;
   }
 
-let createdSession = null;
+  let clientId =
+    cleanClientId(session.clientId) ||
+    cleanClientId(body.clientId) ||
+    cleanClientId(await resolveSessionClientId(session).catch(() => ""));
 
-try {
-  const created = await addClient({
-    FirstName: fallbackFirstName,
-    LastName: fallbackLastName,
-    Email: fallbackEmail,
+  let staffToken = null;
+
+  const getStaffToken = async () => {
+    if (!staffToken) {
+      staffToken = await getMindbodyActionToken("Account profile");
+    }
+    return staffToken;
+  };
+
+  const searchClient = async () => {
+    const terms = [
+      email,
+      phoneNumber,
+      `${firstName} ${lastName}`.trim()
+    ].filter(Boolean);
+
+    const token = await getStaffToken();
+
+    for (const term of terms) {
+      const searchResult = await bookingRequest("/client/clients", {
+        token,
+        params: { SearchText: term }
+      }).catch((err) => {
+        console.warn("[account/profile] client search failed:", term, err.message);
+        return null;
+      });
+
+      const clientsRaw =
+        searchResult?.Clients ||
+        searchResult?.clients ||
+        searchResult?.Client ||
+        searchResult?.client ||
+        [];
+
+      const clients = Array.isArray(clientsRaw) ? clientsRaw : [clientsRaw];
+
+      const exactMatch = clients.find((client) => {
+        const clientEmail = String(
+          client.Email ||
+          client.EmailAddress ||
+          client.email ||
+          ""
+        ).trim().toLowerCase();
+
+        const clientPhone = String(
+          client.MobileNumber ||
+          client.MobilePhone ||
+          client.Phone ||
+          client.HomePhone ||
+          client.phone ||
+          ""
+        ).replace(/\D/g, "");
+
+        return (
+          clientEmail === email ||
+          (phoneNumber && clientPhone && clientPhone.endsWith(phoneNumber.slice(-10)))
+        );
+      });
+
+      const picked = exactMatch || (clients.length === 1 ? clients[0] : null);
+
+      if (picked) {
+        return {
+          clientId: cleanClientId(picked.Id || picked.ClientId || picked.UniqueId || picked.id),
+          uniqueId: picked.UniqueId || picked.UniqueID || "",
+          firstName: picked.FirstName || firstName,
+          lastName: picked.LastName || lastName,
+          email: picked.Email || email
+        };
+      }
+    }
+
+    return null;
+  };
+
+  // 1. If no valid Mindbody clientId in session, try to find an existing Mindbody client.
+  if (!clientId) {
+    const found = await findMindbodyClientByEmail(email).catch((err) => {
+      console.warn("[account/profile] findMindbodyClientByEmail failed:", err.message);
+      return null;
+    });
+
+    if (found?.clientId) {
+      clientId = cleanClientId(found.clientId);
+    }
+  }
+
+  if (!clientId) {
+    const foundBySearch = await searchClient();
+
+    if (foundBySearch?.clientId) {
+      clientId = cleanClientId(foundBySearch.clientId);
+    }
+  }
+
+  // 2. If no existing client is found, create one.
+  if (!clientId) {
+    try {
+      const created = await addClient({
+        FirstName: firstName,
+        LastName: lastName,
+        Email: email,
+        MobileNumber: phoneNumber,
+        MobilePhone: phoneNumber,
+        AddressLine1: body.addressLine1,
+        AddressLine2: body.addressLine2,
+        City: body.city,
+        State: body.state,
+        PostalCode: body.postalCode,
+        BirthDate: body.birthDate,
+        EmergencyContactInfoName: body.emergencyContactName,
+        EmergencyContactInfoPhone: body.emergencyContactPhone,
+        EmergencyContactInfoRelationship: body.emergencyContactRelationship,
+        ReferredBy: body.referredBy
+      });
+
+      const createdSession = sessionFromCreatedClient(created, {
+        FirstName: firstName,
+        LastName: lastName,
+        Email: email
+      });
+
+      clientId = cleanClientId(createdSession.clientId);
+    } catch (err) {
+      const duplicateMessage = String(
+        err?.data?.Error?.Message ||
+        err?.data?.Message ||
+        err?.message ||
+        ""
+      );
+
+      if (!/duplicate client records|duplicate/i.test(duplicateMessage)) {
+        throw err;
+      }
+
+      console.warn("[account/profile] duplicate on create, searching existing client:", duplicateMessage);
+
+      const recovered = await searchClient();
+
+      if (!recovered?.clientId) {
+        sendJson(response, 409, {
+          ok: false,
+          message: "This client already exists in Mindbody, but the website could not link it automatically. Search the client in Mindbody by phone/email and confirm the account."
+        });
+        return true;
+      }
+
+      clientId = cleanClientId(recovered.clientId);
+    }
+  }
+
+  if (!clientId) {
+    sendJson(response, 500, {
+      ok: false,
+      message: "Could not resolve or create the Mindbody client ID."
+    });
+    return true;
+  }
+
+  const clientPayload = compactObject({
+    Id: clientId,
+    FirstName: firstName,
+    LastName: lastName,
+    Email: email,
     MobileNumber: phoneNumber,
     MobilePhone: phoneNumber,
+    HomePhone: body.homePhone,
+    WorkPhone: body.workPhone,
+    MiddleName: body.middleName,
     AddressLine1: body.addressLine1,
     AddressLine2: body.addressLine2,
     City: body.city,
     State: body.state,
     PostalCode: body.postalCode,
+    Country: body.country,
     BirthDate: body.birthDate,
     EmergencyContactInfoName: body.emergencyContactName,
+    EmergencyContactInfoEmail: body.emergencyContactEmail,
     EmergencyContactInfoPhone: body.emergencyContactPhone,
-    EmergencyContactInfoRelationship: body.emergencyContactRelationship,
-    ReferredBy: body.referredBy
+    EmergencyContactInfoRelationship: body.emergencyContactRelationship
   });
 
-  createdSession = sessionFromCreatedClient(created, {
-    FirstName: fallbackFirstName,
-    LastName: fallbackLastName,
-    Email: fallbackEmail
-  });
+  // 3. Update the linked/created client.
+  let updateResult = null;
 
-  clientId = createdSession.clientId;
-} catch (err) {
-  const duplicateMessage = String(
-    err?.data?.Error?.Message ||
-    err?.data?.Message ||
-    err?.message ||
-    ""
-  );
-
-  if (!/duplicate client records|duplicate/i.test(duplicateMessage)) {
-    throw err;
-  }
-
-  console.warn("[account/profile] duplicate client, searching existing client:", duplicateMessage);
-
-  const staffToken = await getMindbodyActionToken("Duplicate client recovery");
-
-  const searchResult = await bookingRequest("/client/clients", {
-    token: staffToken,
-    params: {
-      SearchText: fallbackEmail
-    }
-  });
-
-  const recoveredClient = extractClientProfile(searchResult, fallbackEmail);
-
-  if (!recoveredClient?.clientId) {
-    sendJson(response, 409, {
-      ok: false,
-      message: "This email already exists in Mindbody, but the website could not link it automatically. Please contact Cave to link the account."
-    });
-    return true;
-  }
-
-  clientId = String(recoveredClient.clientId);
-}
-
-  if (!clientId) {
-    sendJson(response, 500, {
-      ok: false,
-      message: "Mindbody created the client but did not return a client ID."
-    });
-    return true;
-  }
-
-  setSessionCookie(response, {
-    ...session,
-    clientId,
-    user: {
-      ...(session.user || {}),
-      id: clientId,
-      firstName: fallbackFirstName,
-      lastName: fallbackLastName,
-      email: fallbackEmail,
-      username: fallbackEmail
-    }
-  });
-}
-// Backup lookup using the same SearchText format already used in /api/auth/link
-if (!existingClient?.clientId) {
   try {
-    const staffToken = await getMindbodyActionToken("Account profile email backup lookup");
+    const token = await getStaffToken();
 
-    const searchResult = await bookingRequest("/client/clients", {
-      token: staffToken,
-      params: { SearchText: fallbackEmail }
+    updateResult = await bookingRequest("/client/updateclient", {
+      method: "POST",
+      token,
+      body: {
+        Client: clientPayload,
+        CrossRegionalUpdate: true
+      }
     });
-
-    const searchProfile = extractClientProfile(searchResult, fallbackEmail);
-
-    if (searchProfile?.clientId) {
-      existingClient = searchProfile;
-    }
   } catch (err) {
-    console.warn("[account/profile] backup SearchText lookup failed:", err.message);
-  }
-}
+    const duplicateMessage = String(
+      err?.data?.Error?.Message ||
+      err?.data?.Message ||
+      err?.message ||
+      ""
+    );
 
-if (existingClient?.clientId) {
-  clientId = String(existingClient.clientId);
-
-  setSessionCookie(response, {
-    ...session,
-    clientId,
-    uniqueClientId: existingClient.uniqueId || session.uniqueClientId || "",
-    user: {
-      ...(session.user || {}),
-      id: clientId,
-      firstName: fallbackFirstName,
-      lastName: fallbackLastName,
-      email: fallbackEmail,
-      username: fallbackEmail
-    }
-  });
-} else {
-  sendJson(response, 404, {
-    ok: false,
-    message: "No existing Mindbody client was found for this email. Please create the client in Mindbody first, then sign in again."
-  });
-  return true;
-}
-
-  if (existingClient?.clientId) {
-    clientId = String(existingClient.clientId);
-
-    setSessionCookie(response, {
-      ...session,
-      clientId,
-      uniqueClientId: existingClient.uniqueId || session.uniqueClientId || "",
-      user: {
-        ...(session.user || {}),
-        id: clientId,
-        firstName: fallbackFirstName,
-        lastName: fallbackLastName,
-        email: fallbackEmail,
-        username: fallbackEmail
-      }
-    });
-  } else {
-    sendJson(response, 409, {
-      ok: false,
-      message: "A Mindbody account may already exist with this email. Please sign in with the same Mindbody email or contact Cave to link the account."
-    });
-    return true;
-  }
-}
-
-
-
-     const firstName = String(body.firstName || session.user?.firstName || "").trim();
-const lastName = String(body.lastName || session.user?.lastName || "").trim();
-
-const email = String(
-  body.email ||
-  session.user?.email ||
-  session.user?.username ||
-  ""
-).trim().toLowerCase();
-
-const phoneNumber = String(
-  body.mobileNumber ||
-  body.mobilePhone ||
-  body.phone ||
-  ""
-).replace(/\D/g, "");
-
-if (!firstName || !lastName || !email || !phoneNumber) {
-  sendJson(response, 400, {
-    ok: false,
-    message: "First name, last name, email, and mobile phone are required."
-  });
-  return true;
-}
-
-const clientPayload = compactObject({
-  Id: clientId,
-  FirstName: firstName,
-  LastName: lastName,
-  Email: email,
-  MobileNumber: phoneNumber,
-  MobilePhone: phoneNumber,
-  HomePhone: body.homePhone,
-  WorkPhone: body.workPhone,
-  MiddleName: body.middleName,
-  AddressLine1: body.addressLine1,
-  AddressLine2: body.addressLine2,
-  City: body.city,
-  State: body.state,
-  PostalCode: body.postalCode,
-  Country: body.country,
-  BirthDate: body.birthDate,
-  EmergencyContactInfoName: body.emergencyContactName,
-  EmergencyContactInfoEmail: body.emergencyContactEmail,
-  EmergencyContactInfoPhone: body.emergencyContactPhone,
-  EmergencyContactInfoRelationship: body.emergencyContactRelationship
-});
-
-      if (Object.keys(clientPayload).filter((k) => !["Id", "FirstName", "LastName", "Email"].includes(k)).length === 0) {
-        sendJson(response, 400, { ok: false, message: "No editable fields provided." });
-        return true;
-      }
-
-      let staffToken;
-      try {
-        staffToken = await getMindbodyActionToken("Profile update");
-      } catch (tokenErr) {
-        console.error(`[account/profile] getMindbodyActionToken failed: ${tokenErr.message}`);
-        sendJson(response, 500, { ok: false, message: "The studio booking service is not configured correctly. Please contact Cave." });
-        return true;
-      }
-
-      console.log(`[account/profile] POST /client/updateclient clientId=${clientId}`);
-
-      let updateResult = null;
-      let updateError = null;
-
-      try {
-        updateResult = await bookingRequest("/client/updateclient", {
-          method: "POST",
-          token: staffToken,
-          body: { Client: clientPayload, CrossRegionalUpdate: false }
-        });
-        console.log("[account/profile] updateclient success");
-      } catch (err) {
-        updateError = err;
-        console.error(`[account/profile] updateclient failed (${err.status || 0}): ${err.message}`);
-      }
-
-      if (!updateResult) {
-        const mbMessage = updateError?.data?.Error?.Message || updateError?.data?.Message || updateError?.message || "";
-        sendJson(response, updateError?.status || 500, { ok: false, message: mbMessage || "Profile update failed." });
-        return true;
-      }
-
-      const updatedClient = updateResult?.Client || updateResult?.Clients?.[0] || updateResult?.ClientResponse?.Client;
-      const returnedClientId = updatedClient?.Id || updatedClient?.ClientId;
-      if (returnedClientId && !isUUID(String(returnedClientId)) && returnedClientId !== session.clientId) {
-        setSessionCookie(response, {
-          ...session,
-          clientId: String(returnedClientId),
-          user: { ...session.user, id: String(returnedClientId) }
-        });
-      }
-
-      console.log("[account/profile] success");
-      sendJson(response, 200, { ok: true, data: updateResult });
+    if (!/duplicate client records|duplicate/i.test(duplicateMessage)) {
+      const mbMessage = err?.data?.Error?.Message || err?.data?.Message || err?.message || "Profile update failed.";
+      sendJson(response, err?.status || 500, { ok: false, message: mbMessage });
       return true;
     }
+
+    console.warn("[account/profile] duplicate on update, recovering real client:", duplicateMessage);
+
+    const recovered = await searchClient();
+
+    if (!recovered?.clientId) {
+      sendJson(response, 409, {
+        ok: false,
+        message: "This profile matches another Mindbody client, but the website could not link it automatically. Search this client in Mindbody by phone/email and confirm the account."
+      });
+      return true;
+    }
+
+    clientId = cleanClientId(recovered.clientId);
+    clientPayload.Id = clientId;
+
+    const token = await getStaffToken();
+
+    updateResult = await bookingRequest("/client/updateclient", {
+      method: "POST",
+      token,
+      body: {
+        Client: clientPayload,
+        CrossRegionalUpdate: true
+      }
+    });
+  }
+
+  setSessionCookie(response, {
+    ...session,
+    clientId,
+    user: {
+      ...(session.user || {}),
+      id: clientId,
+      firstName,
+      lastName,
+      email,
+      username: email
+    }
+  });
+
+  sendJson(response, 200, {
+    ok: true,
+    data: updateResult,
+    clientId
+  });
+  return true;
+}
 
     if (path === "/api/debug/mindbody-update-permission" && request.method === "GET") {
       const isDebugAllowed = process.env.NODE_ENV !== "production" || process.env.DEBUG_ENABLED === "true";
