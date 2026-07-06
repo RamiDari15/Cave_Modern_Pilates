@@ -1603,13 +1603,54 @@ export async function handleApiRequest(request, response) {
       }
 
       const body = await readJsonBody(request);
+
 let clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
 
+// 1. Try resolving from the active Mindbody OAuth token.
+if (!clientId && (session.consumerIdentityToken || session.accessToken)) {
+  const consumerToken = session.consumerIdentityToken || session.accessToken;
+
+  const ccFallback = await bookingRequest("/client/clientcompleteinfo", {
+    consumerIdentityToken: consumerToken,
+    params: {
+      "request.crossRegionalLookup": "true"
+    }
+  }).catch((err) => {
+    console.warn("[account/profile] clientcompleteinfo fallback failed:", err.message);
+    return null;
+  });
+
+  const foundId = ccFallback ? extractClientId(ccFallback) : "";
+
+  if (foundId) {
+    clientId = foundId;
+
+    setSessionCookie(response, {
+      ...session,
+      clientId,
+      user: {
+        ...(session.user || {}),
+        id: clientId
+      }
+    });
+  }
+}
+
+// 2. If token lookup fails, search Mindbody by email.
 if (!clientId) {
-  const sessionEmail = session.user?.email || session.user?.username || body.email || "";
+  const sessionEmail = String(
+    body.email ||
+    session.user?.email ||
+    session.user?.username ||
+    session.email ||
+    ""
+  ).trim().toLowerCase();
 
   if (sessionEmail) {
-    const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+    const found = await findMindbodyClientByEmail(sessionEmail).catch((err) => {
+      console.warn("[account/profile] email lookup failed:", err.message);
+      return null;
+    });
 
     if (found?.clientId) {
       clientId = found.clientId;
@@ -1619,17 +1660,21 @@ if (!clientId) {
         clientId,
         user: {
           ...(session.user || {}),
-          id: clientId
+          id: clientId,
+          email: sessionEmail
         }
       });
     }
   }
 }
-      if (!clientId) {
-        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
-        return true;
-      }
 
+if (!clientId) {
+  sendJson(response, 400, {
+    ok: false,
+    message: "Your studio account could not be found. Please sign out and sign back in with the same email used for your Cave/Mindbody account."
+  });
+  return true;
+}
       const firstName = String(body.firstName || session.user?.firstName || "").trim();
       const lastName = String(body.lastName || session.user?.lastName || "").trim();
 
