@@ -1758,20 +1758,8 @@ const created = await addClient({
     }
   });
 }
-      const firstName = String(body.firstName || session.user?.firstName || "").trim();
-      const lastName = String(body.lastName || session.user?.lastName || "").trim();
-
-      if (!firstName || !lastName) {
-        sendJson(response, 400, { ok: false, message: "First name and last name are required." });
-        return true;
-      }
-
-      const phoneNumber = String(
-  body.mobileNumber ||
-  body.mobilePhone ||
-  body.phone ||
-  ""
-).replace(/\D/g, "");
+     const firstName = String(body.firstName || session.user?.firstName || "").trim();
+const lastName = String(body.lastName || session.user?.lastName || "").trim();
 
 const email = String(
   body.email ||
@@ -1787,22 +1775,21 @@ const phoneNumber = String(
   ""
 ).replace(/\D/g, "");
 
-const email = String(
-  body.email ||
-  session.user?.email ||
-  session.user?.username ||
-  ""
-).trim().toLowerCase();
+if (!firstName || !lastName || !email || !phoneNumber) {
+  sendJson(response, 400, {
+    ok: false,
+    message: "First name, last name, email, and mobile phone are required."
+  });
+  return true;
+}
 
 const clientPayload = compactObject({
   Id: clientId,
   FirstName: firstName,
   LastName: lastName,
   Email: email,
-
   MobileNumber: phoneNumber,
   MobilePhone: phoneNumber,
-
   HomePhone: body.homePhone,
   WorkPhone: body.workPhone,
   MiddleName: body.middleName,
@@ -1818,14 +1805,6 @@ const clientPayload = compactObject({
   EmergencyContactInfoPhone: body.emergencyContactPhone,
   EmergencyContactInfoRelationship: body.emergencyContactRelationship
 });
-
-if (!clientPayload.FirstName || !clientPayload.LastName || !clientPayload.Email || !clientPayload.MobileNumber) {
-  sendJson(response, 400, {
-    ok: false,
-    message: "First name, last name, email, and mobile phone are required."
-  });
-  return true;
-}
 
       if (Object.keys(clientPayload).filter((k) => !["Id", "FirstName", "LastName", "Email"].includes(k)).length === 0) {
         sendJson(response, 400, { ok: false, message: "No editable fields provided." });
