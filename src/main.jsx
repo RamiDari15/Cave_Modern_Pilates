@@ -2770,19 +2770,23 @@ function AccountInfoField({ label, value, mono }) {
 function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
   const user = clientSession?.user || {};
   const [form, setForm] = useState({
-    phone: "",
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    birthDate: "",
-    emergencyContactName: "",
-    emergencyContactPhone: "",
-    emergencyContactRelationship: "",
-    gender: "",
-    referredBy: ""
-  });
+  firstName: accountData?.firstName || clientSession?.user?.firstName || "",
+  lastName: accountData?.lastName || clientSession?.user?.lastName || "",
+  email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
+  phone: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  birthDate: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+  emergencyContactRelationship: "",
+  gender: "",
+  referredBy: ""
+});
+
   const [status, setStatus] = useState({ type: "", message: "" });
   const [saving, setSaving] = useState(false);
 
