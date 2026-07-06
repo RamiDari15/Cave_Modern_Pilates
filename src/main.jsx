@@ -1760,18 +1760,42 @@ const payload = isContract
                   )}
                 </div>
 
-                {isContract && item.agreementTerms ? (
-                  <div className="agreement-box">
-                    <button className="agreement-toggle" type="button" onClick={() => setShowTerms((v) => !v)} aria-expanded={showTerms}>
-                      {showTerms ? "Hide" : "View"} Membership Agreement
-                    </button>
-                    {showTerms ? <div className="agreement-text">{item.agreementTerms}</div> : null}
-                    <label className="agreement-accept">
-                      <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} />
-                      <span>I have read and agree to the membership agreement</span>
-                    </label>
-                  </div>
-                ) : null}
+   {isContract ? (
+  <div className="agreement-box">
+    {item.agreementTerms ? (
+      <>
+        <button
+          className="agreement-toggle"
+          type="button"
+          onClick={() => setShowTerms((v) => !v)}
+          aria-expanded={showTerms}
+        >
+          {showTerms ? "Hide" : "View"} Membership Agreement
+        </button>
+
+        {showTerms ? (
+          <div className="agreement-text">{item.agreementTerms}</div>
+        ) : null}
+      </>
+    ) : (
+      <p className="payment-safe-note">
+        By continuing, I agree to the Cave Modern Pilates membership agreement, recurring billing terms, cancellation policy, and studio policies.
+      </p>
+    )}
+
+    <label className="agreement-accept">
+      <input
+        type="checkbox"
+        checked={acceptedTerms}
+        onChange={(e) => {
+          setAcceptedTerms(e.target.checked);
+          setBuyState({ type: "idle", message: "" });
+        }}
+      />
+      <span>I have read and agree to the membership agreement</span>
+    </label>
+  </div>
+) : null}
 
                 {buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
 
