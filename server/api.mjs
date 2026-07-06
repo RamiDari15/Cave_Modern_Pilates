@@ -1603,8 +1603,28 @@ export async function handleApiRequest(request, response) {
       }
 
       const body = await readJsonBody(request);
-      const clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
+let clientId = session.clientId || body.clientId || await resolveSessionClientId(session).catch(() => "");
 
+if (!clientId) {
+  const sessionEmail = session.user?.email || session.user?.username || body.email || "";
+
+  if (sessionEmail) {
+    const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+
+    if (found?.clientId) {
+      clientId = found.clientId;
+
+      setSessionCookie(response, {
+        ...session,
+        clientId,
+        user: {
+          ...(session.user || {}),
+          id: clientId
+        }
+      });
+    }
+  }
+}
       if (!clientId) {
         sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
         return true;
