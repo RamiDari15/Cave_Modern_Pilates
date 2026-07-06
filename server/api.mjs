@@ -3719,70 +3719,125 @@ async function hydrateOAuthSession(session) {
 }
 
 async function findMindbodyClientByEmail(email) {
-  const normalizedEmail = (email || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+
   if (!normalizedEmail) {
     throw httpError(400, "Email is required to search for a Mindbody client.");
   }
 
-  const params = {
-    "request.searchText": normalizedEmail,
-    "request.includeInactive": "false",
-    "request.isProspect": "false",
-    "request.limit": "100",
-    "request.offset": "0"
-  };
-
   let staffToken = null;
+
   try {
     staffToken = await getMindbodyActionToken("client email search");
   } catch (err) {
     console.log(`[findMindbodyClientByEmail] staff token unavailable (${err.message}), trying source-level request`);
   }
 
-  let result = null;
-  try {
-    result = await bookingRequest("/client/clients", {
-      ...(staffToken ? { token: staffToken } : {}),
-      params
-    });
-  } catch (err) {
-    if (staffToken && (err.status === 401 || err.status === 403)) {
-      console.log("[findMindbodyClientByEmail] auth request failed, retrying without token");
-      result = await bookingRequest("/client/clients", { params });
-    } else {
-      throw err;
+  const searchAttempts = [
+    {
+      "request.searchText": normalizedEmail,
+      "request.includeInactive": "false",
+      "request.isProspect": "false",
+      "request.limit": "100",
+      "request.offset": "0"
+    },
+    {
+      SearchText: normalizedEmail,
+      IncludeInactive: "false",
+      IsProspect: "false",
+      Limit: "100",
+      Offset: "0"
+    },
+    {
+      "request.email": normalizedEmail,
+      "request.includeInactive": "false",
+      "request.limit": "100"
+    },
+    {
+      Email: normalizedEmail,
+      Limit: "100"
+    }
+  ];
+
+  let allClients = [];
+  let lastError = null;
+
+  for (const params of searchAttempts) {
+    try {
+      const result = await bookingRequest("/client/clients", {
+        ...(staffToken ? { token: staffToken } : {}),
+        params
+      });
+
+      const clients =
+        result?.Clients ||
+        result?.clients ||
+        result?.Client ||
+        result?.client ||
+        [];
+
+      const list = Array.isArray(clients) ? clients : [clients];
+
+      if (list.length) {
+        allClients = list;
+        break;
+      }
+    } catch (err) {
+      lastError = err;
+
+      if (staffToken && (err.status === 401 || err.status === 403)) {
+        try {
+          const result = await bookingRequest("/client/clients", { params });
+          const clients = result?.Clients || result?.clients || [];
+          const list = Array.isArray(clients) ? clients : [clients];
+
+          if (list.length) {
+            allClients = list;
+            break;
+          }
+        } catch (retryErr) {
+          lastError = retryErr;
+        }
+      }
     }
   }
 
-  const allClients = result?.Clients || [];
   console.log(`[findMindbodyClientByEmail] search returned ${allClients.length} client(s) for ${normalizedEmail}`);
 
-  const exact = allClients.filter(
-    (c) => (c.Email || "").trim().toLowerCase() === normalizedEmail
-  );
+  const exact = allClients.filter((c) => {
+    const clientEmail = String(c.Email || c.EmailAddress || c.email || "").trim().toLowerCase();
+    return clientEmail === normalizedEmail;
+  });
 
   if (exact.length === 0) {
-    const err = httpError(404, "No Mindbody client found for this email.");
+    const err = httpError(
+      404,
+      lastError?.message || "No Mindbody client found for this email."
+    );
     err.searchedEmail = normalizedEmail;
     err.totalReturned = allClients.length;
     throw err;
   }
 
   if (exact.length > 1) {
-    const active = exact.filter((c) => !c.IsProspect && (c.Status || "").toLowerCase() !== "inactive");
-    if (active.length === 1) {
+    const active = exact.filter((c) => {
+      const status = String(c.Status || c.ClientStatus || "").toLowerCase();
+      return !c.IsProspect && !/inactive|deleted|archived/.test(status);
+    });
+
+    if (active.length >= 1) {
       const c = active[0];
-      console.log(`[findMindbodyClientByEmail] resolved ${exact.length} duplicates to single active client ${c.Id}`);
+      console.log(`[findMindbodyClientByEmail] resolved duplicate clients to active client ${c.Id || c.UniqueId}`);
       return buildClientResult(c);
     }
-    const err = httpError(409, "Duplicate Mindbody clients found for this email.");
-    err.searchedEmail = normalizedEmail;
-    err.count = exact.length;
-    throw err;
+
+    const c = exact[0];
+    console.log(`[findMindbodyClientByEmail] using first exact duplicate client ${c.Id || c.UniqueId}`);
+    return buildClientResult(c);
   }
 
   const c = exact[0];
-  console.log(`[findMindbodyClientByEmail] found client ${c.Id} for ${normalizedEmail}`);
+  console.log(`[findMindbodyClientByEmail] found client ${c.Id || c.UniqueId} for ${normalizedEmail}`);
   return buildClientResult(c);
 }
 
