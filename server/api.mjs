@@ -565,11 +565,22 @@ export async function handleApiRequest(request, response) {
         return true;
       }
 
-      const waiverSync = await attachClientWaiver(session, waiver);
-      session.waiver = publicWaiver(waiver);
-      setSessionCookie(response, session);
-      sendJson(response, 200, { waiver: waiverSync, session: publicSession(session) });
-      return true;
+     const waiverSync = await attachClientWaiver(session, waiver);
+
+session.waiver = publicWaiver(waiver);
+session.hasWaiver = true;
+session.waiverDate = waiver.signedDate || new Date().toISOString().slice(0, 10);
+
+setSessionCookie(response, session);
+
+sendJson(response, 200, {
+  ok: true,
+  waiver: waiverSync,
+  session: publicSession(session),
+  hasWaiver: true,
+  waiverDate: session.waiverDate
+});
+return true;
     }
 
     if (path === "/api/client/complete-profile" && request.method === "POST") {
@@ -1560,8 +1571,17 @@ export async function handleApiRequest(request, response) {
             emergencyContactPhone: client.EmergencyContactInfoPhone || undefined,
             emergencyContactRelationship: client.EmergencyContactInfoRelationship || undefined
           });
-          fullProfile.hasWaiver = Boolean(client.Liability?.IsReleased);
-          fullProfile.waiverDate = client.Liability?.AgreementDate || null;
+         fullProfile.hasWaiver = Boolean(
+  client.Liability?.IsReleased ||
+  activeSession?.hasWaiver ||
+  activeSession?.waiver?.signedDate
+);
+
+fullProfile.waiverDate =
+  client.Liability?.AgreementDate ||
+  activeSession?.waiverDate ||
+  activeSession?.waiver?.signedDate ||
+  null;
           console.log(`[account/me] clientcompleteinfo: hasWaiver=${fullProfile.hasWaiver} hasPhone=${Boolean(fullProfile.phone)}`);
         }
       }
@@ -5503,35 +5523,72 @@ async function attachClientWaiver(session, waiver) {
   }
 
   let liabilityStored = false;
+  const staffToken = await getMindbodyActionToken("Waiver liability sync");
 
-  // Use updateclient with staff token to set Liability.LiabilityRelease
-  try {
-    const staffToken = await getMindbodyActionToken("Waiver liability sync");
-    await bookingRequest("/client/updateclient", {
-      method: "POST",
-      token: staffToken,
-      body: {
-        Client: { Id: clientId, Liability: { LiabilityRelease: true } },
-        CrossRegionalUpdate: true
-      }
-    });
-    liabilityStored = true;
-  } catch (err) {
-    errors.push(`updateclient liability: ${err.message}`);
-    console.error(`[waiver] updateclient liability failed (${err.status || 0}): ${err.message}`);
+  const signedDate = waiver.signedDate || new Date().toISOString().slice(0, 10);
+
+  const liabilityPayloads = [
+    {
+      Client: {
+        Id: clientId,
+        Liability: {
+          IsReleased: true,
+          AgreementDate: signedDate
+        }
+      },
+      CrossRegionalUpdate: false
+    },
+    {
+      Client: {
+        Id: clientId,
+        Liability: {
+          LiabilityRelease: true,
+          AgreementDate: signedDate
+        }
+      },
+      CrossRegionalUpdate: false
+    },
+    {
+      Client: {
+        Id: clientId,
+        LiabilityRelease: true
+      },
+      CrossRegionalUpdate: false
+    }
+  ];
+
+  for (const payload of liabilityPayloads) {
+    try {
+      await bookingRequest("/client/updateclient", {
+        method: "POST",
+        token: staffToken,
+        body: payload
+      });
+
+      liabilityStored = true;
+      break;
+    } catch (err) {
+      errors.push(`updateclient liability: ${err.message}`);
+      console.error(`[waiver] updateclient liability attempt failed (${err.status || 0}): ${err.message}`);
+    }
   }
 
-  // Sync waiver text into custom fields when configured
   let customFieldsStored = false;
 
   if (customFields.length && clientId) {
     try {
-      const staffToken = await getMindbodyActionToken("Waiver custom fields sync");
       await bookingRequest("/client/updateclient", {
         method: "POST",
         token: staffToken,
-        body: { Client: { Id: clientId, CustomClientFields: customFields } }
+        body: {
+          Client: {
+            Id: clientId,
+            CustomClientFields: customFields
+          },
+          CrossRegionalUpdate: false
+        }
       });
+
       customFieldsStored = true;
     } catch (fieldsError) {
       errors.push(`Custom fields sync: ${fieldsError.message}`);
@@ -5542,6 +5599,7 @@ async function attachClientWaiver(session, waiver) {
     accepted: true,
     storedInMindbody: liabilityStored,
     customFieldsStored,
+    signedDate,
     errors: errors.length ? errors : undefined
   };
 }
