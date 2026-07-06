@@ -5143,65 +5143,69 @@ async function fetchClientCompleteInfo(clientId, session) {
     return !Number.isFinite(remainingNumber) || remainingNumber > 0;
   });
 
-  const activeMemberships = uniqueBy(rawMemberships, (membership) => {
-    const name = nameKey(membership);
-    const status = String(
-      membership.MembershipStatus ||
-      membership.Status ||
-      membership.ContractStatus ||
-      membership.status ||
-      ""
-    )
-      .toLowerCase()
-      .trim();
 
-    const expiration = getExpiration(membership);
+  const getTimeValue = (value) => {
+  const time = new Date(value || "").getTime();
+  return Number.isFinite(time) ? time : 0;
+};
 
-    return `${name}|${status}|${expiration}`;
-  }).filter((membership) => {
-    const name = nameKey(membership);
+const dedupeByNameKeepLatest = (items) => {
+  const map = new Map();
 
-    const status = String(
-      membership.MembershipStatus ||
-      membership.Status ||
-      membership.ContractStatus ||
-      membership.status ||
-      ""
-    ).toLowerCase();
+  items.forEach((item) => {
+    const key = nameKey(item);
+    if (!key) return;
 
-    const remaining = normalizeRemaining(membership);
-    const remainingNumber = Number(remaining);
+    const existing = map.get(key);
+    const currentDate = getTimeValue(getExpiration(item));
+    const existingDate = existing ? getTimeValue(getExpiration(existing)) : 0;
 
-const isClassPackOrDropIn =
-  /\b\d+\s*class\s*pack\b|class pack|drop in|drop-in|new client/i.test(name);
-
-const isUnlimitedMembership =
-  /unlimited|founding members|membership|members/i.test(name);
-
-const isRealMembership =
-  isUnlimitedMembership && !isClassPackOrDropIn;
-  
-    const notExpiredStatus =
-      !/expired|cancelled|canceled|terminated|inactive/.test(status);
-
-    if (!name) {
-      return false;
+    if (!existing || currentDate >= existingDate) {
+      map.set(key, item);
     }
-
-    // This is the main fix:
-    // class packs and drop-ins should NOT appear in the Memberships box.
-    if (isClassPackOrDropIn && !isRealMembership) {
-      return false;
-    }
-
-    return (
-      notExpiredStatus &&
-      (
-        isRealMembership ||
-        remainingNumber > 1000
-      )
-    );
   });
+
+  return [...map.values()];
+};
+
+const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((membership) => {
+  const name = nameKey(membership);
+
+  const status = String(
+    membership.MembershipStatus ||
+    membership.Status ||
+    membership.ContractStatus ||
+    membership.status ||
+    ""
+  ).toLowerCase();
+
+  const remaining = normalizeRemaining(membership);
+  const remainingNumber = Number(remaining);
+
+  const isContractPlan =
+    /contract|agreement|\d+\s*months?/i.test(name);
+
+  const isUnlimitedMembership =
+    /unlimited|founding members|membership|members/i.test(name);
+
+  const notExpiredStatus =
+    !/expired|cancelled|canceled|terminated|inactive/.test(status);
+
+  if (!name) {
+    return false;
+  }
+
+  return (
+    notExpiredStatus &&
+    (
+      isUnlimitedMembership ||
+      isContractPlan ||
+      remainingNumber > 1000
+    )
+  );
+});
+
+   
 
   return {
     clientId,
