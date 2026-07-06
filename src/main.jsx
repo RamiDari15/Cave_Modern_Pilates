@@ -2797,15 +2797,31 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
     setStatus({ type: "", message: "" });
 
     try {
-        const result = await apiRequest("/api/account/profile", {
-        method: "POST",
-        body: {
-          clientId: accountData?.clientId || clientSession?.clientId || "",
-          firstName: accountData?.firstName || clientSession?.user?.firstName || "",
-          lastName: accountData?.lastName || clientSession?.user?.lastName || "",
-          email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
-          ...form
-        }
+    const result = await apiRequest("/api/account/profile", {
+      method: "POST",
+body: {
+  clientId: accountData?.clientId || clientSession?.clientId || "",
+  firstName: accountData?.firstName || clientSession?.user?.firstName || "",
+  lastName: accountData?.lastName || clientSession?.user?.lastName || "",
+  email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
+
+  // send both names because Mindbody may require MobileNumber specifically
+  phone: form.phone,
+  mobilePhone: form.phone,
+  mobileNumber: form.phone,
+
+  addressLine1: form.addressLine1,
+  addressLine2: form.addressLine2,
+  city: form.city,
+  state: form.state,
+  postalCode: form.postalCode,
+  birthDate: form.birthDate,
+  emergencyContactName: form.emergencyContactName,
+  emergencyContactPhone: form.emergencyContactPhone,
+  emergencyContactRelationship: form.emergencyContactRelationship,
+  gender: form.gender,
+  referredBy: form.referredBy
+}
 });
 
         if (result.ok) {

@@ -1709,22 +1709,33 @@ if (!clientId) {
     return true;
   }
 
-  const created = await addClient({
-    FirstName: fallbackFirstName,
-    LastName: fallbackLastName,
-    Email: fallbackEmail,
-    MobilePhone: body.phone,
-    AddressLine1: body.addressLine1,
-    AddressLine2: body.addressLine2,
-    City: body.city,
-    State: body.state,
-    PostalCode: body.postalCode,
-    BirthDate: body.birthDate,
-    EmergencyContactInfoName: body.emergencyContactName,
-    EmergencyContactInfoPhone: body.emergencyContactPhone,
-    EmergencyContactInfoRelationship: body.emergencyContactRelationship,
-    ReferredBy: body.referredBy
-  });
+const phoneNumber = String(
+  body.phone ||
+  body.mobilePhone ||
+  body.mobileNumber ||
+  ""
+).replace(/\D/g, "");
+
+const created = await addClient({
+  FirstName: fallbackFirstName,
+  LastName: fallbackLastName,
+  Email: fallbackEmail,
+
+  // Mindbody may require MobileNumber, not only MobilePhone.
+  MobileNumber: phoneNumber,
+  MobilePhone: phoneNumber,
+
+  AddressLine1: body.addressLine1,
+  AddressLine2: body.addressLine2,
+  City: body.city,
+  State: body.state,
+  PostalCode: body.postalCode,
+  BirthDate: body.birthDate,
+  EmergencyContactInfoName: body.emergencyContactName,
+  EmergencyContactInfoPhone: body.emergencyContactPhone,
+  EmergencyContactInfoRelationship: body.emergencyContactRelationship,
+  ReferredBy: body.referredBy
+});
 
   const createdSession = sessionFromCreatedClient(created, {
     FirstName: fallbackFirstName,
