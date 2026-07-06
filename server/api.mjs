@@ -1710,10 +1710,54 @@ if (!clientId) {
   }
 
   // Do NOT create a new client here. First link to the existing Mindbody client.
-  const existingClient = await findMindbodyClientByEmail(fallbackEmail).catch((err) => {
-    console.warn("[account/profile] existing client lookup failed:", err.message);
-    return null;
+let existingClient = await findMindbodyClientByEmail(fallbackEmail).catch((err) => {
+  console.warn("[account/profile] findMindbodyClientByEmail failed:", err.message);
+  return null;
+});
+
+// Backup lookup using the same SearchText format already used in /api/auth/link
+if (!existingClient?.clientId) {
+  try {
+    const staffToken = await getMindbodyActionToken("Account profile email backup lookup");
+
+    const searchResult = await bookingRequest("/client/clients", {
+      token: staffToken,
+      params: { SearchText: fallbackEmail }
+    });
+
+    const searchProfile = extractClientProfile(searchResult, fallbackEmail);
+
+    if (searchProfile?.clientId) {
+      existingClient = searchProfile;
+    }
+  } catch (err) {
+    console.warn("[account/profile] backup SearchText lookup failed:", err.message);
+  }
+}
+
+if (existingClient?.clientId) {
+  clientId = String(existingClient.clientId);
+
+  setSessionCookie(response, {
+    ...session,
+    clientId,
+    uniqueClientId: existingClient.uniqueId || session.uniqueClientId || "",
+    user: {
+      ...(session.user || {}),
+      id: clientId,
+      firstName: fallbackFirstName,
+      lastName: fallbackLastName,
+      email: fallbackEmail,
+      username: fallbackEmail
+    }
   });
+} else {
+  sendJson(response, 404, {
+    ok: false,
+    message: "No existing Mindbody client was found for this email. Please create the client in Mindbody first, then sign in again."
+  });
+  return true;
+}
 
   if (existingClient?.clientId) {
     clientId = String(existingClient.clientId);
