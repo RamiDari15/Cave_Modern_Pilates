@@ -4974,6 +4974,7 @@ async function fetchLiveClasses(locationId) {
   return normalized;
 }
 
+
 async function fetchClientCompleteInfo(clientId, session) {
   const consumerToken = session?.consumerIdentityToken || session?.accessToken || "";
   let staffToken = null;
@@ -5048,6 +5049,36 @@ async function fetchClientCompleteInfo(clientId, session) {
     ...(Array.isArray(client.ClientContracts) ? client.ClientContracts : [])
   ].filter(Boolean);
 
+  const cleanName = (item) =>
+    String(
+      item.Name ||
+      item.ServiceName ||
+      item.ProductName ||
+      item.ContractName ||
+      item.MembershipName ||
+      item.AgreementName ||
+      item.SessionType?.Name ||
+      item.name ||
+      ""
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const nameKey = (item) => cleanName(item).toLowerCase();
+
+  const getExpiration = (item) =>
+    String(
+      item.ExpirationDate ||
+      item.Expires ||
+      item.ExpiryDate ||
+      item.EndDate ||
+      item.EndDateTime ||
+      item.expirationDate ||
+      ""
+    )
+      .slice(0, 10)
+      .trim();
+
   const normalizeRemaining = (item) => {
     const value =
       item.Remaining ??
@@ -5071,18 +5102,35 @@ async function fetchClientCompleteInfo(clientId, session) {
     return value;
   };
 
-  const usableServices = rawServices.filter((service) => {
-    const name = String(
-      service.Name ||
-      service.ServiceName ||
-      service.ProductName ||
-      service.SessionType?.Name ||
-      service.name ||
-      ""
-    );
+  const uniqueBy = (items, keyFn) => {
+    const seen = new Set();
 
+    return items.filter((item) => {
+      const key = keyFn(item);
+
+      if (!key || seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const usableServices = uniqueBy(rawServices, (service) => {
+    const name = nameKey(service);
+    const remaining = normalizeRemaining(service);
+    const expiration = getExpiration(service);
+
+    return `${name}|${remaining}|${expiration}`;
+  }).filter((service) => {
+    const name = nameKey(service);
     const remaining = normalizeRemaining(service);
     const remainingNumber = Number(remaining);
+
+    if (!name) {
+      return false;
+    }
 
     if (/unlimited/i.test(name)) {
       return true;
@@ -5095,15 +5143,23 @@ async function fetchClientCompleteInfo(clientId, session) {
     return !Number.isFinite(remainingNumber) || remainingNumber > 0;
   });
 
-  const activeMemberships = rawMemberships.filter((membership) => {
-    const name = String(
-      membership.Name ||
-      membership.ContractName ||
-      membership.MembershipName ||
-      membership.AgreementName ||
-      membership.name ||
+  const activeMemberships = uniqueBy(rawMemberships, (membership) => {
+    const name = nameKey(membership);
+    const status = String(
+      membership.MembershipStatus ||
+      membership.Status ||
+      membership.ContractStatus ||
+      membership.status ||
       ""
-    ).toLowerCase();
+    )
+      .toLowerCase()
+      .trim();
+
+    const expiration = getExpiration(membership);
+
+    return `${name}|${status}|${expiration}`;
+  }).filter((membership) => {
+    const name = nameKey(membership);
 
     const status = String(
       membership.MembershipStatus ||
@@ -5116,15 +5172,38 @@ async function fetchClientCompleteInfo(clientId, session) {
     const remaining = normalizeRemaining(membership);
     const remainingNumber = Number(remaining);
 
-    const looksUnlimited = name.includes("unlimited") || remainingNumber > 1000;
-    const notExpiredStatus = !/expired|cancelled|canceled|terminated|inactive/.test(status);
+    const isRealMembership =
+      /membership|members|member|contract|agreement/i.test(name);
 
-    return notExpiredStatus && (looksUnlimited || !Number.isFinite(remainingNumber) || remainingNumber > 0 || name.length > 0);
+    const isClassPackOrDropIn =
+      /class pack|drop in|drop-in|new client/i.test(name);
+
+    const notExpiredStatus =
+      !/expired|cancelled|canceled|terminated|inactive/.test(status);
+
+    if (!name) {
+      return false;
+    }
+
+    // This is the main fix:
+    // class packs and drop-ins should NOT appear in the Memberships box.
+    if (isClassPackOrDropIn && !isRealMembership) {
+      return false;
+    }
+
+    return (
+      notExpiredStatus &&
+      (
+        isRealMembership ||
+        remainingNumber > 1000
+      )
+    );
   });
 
   return {
     clientId,
     profile: client,
+
     activeServices: usableServices.map((service) => ({
       id: service.Id || service.ClientServiceId || service.id,
       name:
@@ -5143,6 +5222,7 @@ async function fetchClientCompleteInfo(clientId, session) {
         service.expirationDate ||
         ""
     })),
+
     activeMemberships: activeMemberships.map((membership) => ({
       id: membership.Id || membership.ContractId || membership.ClientContractId || membership.id,
       name:
@@ -5152,7 +5232,12 @@ async function fetchClientCompleteInfo(clientId, session) {
         membership.AgreementName ||
         membership.name ||
         "Membership",
-      status: membership.MembershipStatus || membership.Status || membership.ContractStatus || membership.status || "",
+      status:
+        membership.MembershipStatus ||
+        membership.Status ||
+        membership.ContractStatus ||
+        membership.status ||
+        "",
       remaining: normalizeRemaining(membership),
       expirationDate:
         membership.ExpirationDate ||
@@ -5163,7 +5248,9 @@ async function fetchClientCompleteInfo(clientId, session) {
         membership.expirationDate ||
         ""
     })),
+
     hasUsablePricingOption: usableServices.length > 0 || activeMemberships.length > 0,
+
     defaultClientServiceId: usableServices.length
       ? usableServices[0].Id || usableServices[0].ClientServiceId || usableServices[0].id
       : null
