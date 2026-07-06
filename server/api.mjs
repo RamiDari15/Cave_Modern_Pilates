@@ -1766,6 +1766,9 @@ if (existingClient?.clientId) {
     return true;
   }
 
+let createdSession = null;
+
+try {
   const created = await addClient({
     FirstName: fallbackFirstName,
     LastName: fallbackLastName,
@@ -1784,13 +1787,48 @@ if (existingClient?.clientId) {
     ReferredBy: body.referredBy
   });
 
-  const createdSession = sessionFromCreatedClient(created, {
+  createdSession = sessionFromCreatedClient(created, {
     FirstName: fallbackFirstName,
     LastName: fallbackLastName,
     Email: fallbackEmail
   });
 
   clientId = createdSession.clientId;
+} catch (err) {
+  const duplicateMessage = String(
+    err?.data?.Error?.Message ||
+    err?.data?.Message ||
+    err?.message ||
+    ""
+  );
+
+  if (!/duplicate client records|duplicate/i.test(duplicateMessage)) {
+    throw err;
+  }
+
+  console.warn("[account/profile] duplicate client, searching existing client:", duplicateMessage);
+
+  const staffToken = await getMindbodyActionToken("Duplicate client recovery");
+
+  const searchResult = await bookingRequest("/client/clients", {
+    token: staffToken,
+    params: {
+      SearchText: fallbackEmail
+    }
+  });
+
+  const recoveredClient = extractClientProfile(searchResult, fallbackEmail);
+
+  if (!recoveredClient?.clientId) {
+    sendJson(response, 409, {
+      ok: false,
+      message: "This email already exists in Mindbody, but the website could not link it automatically. Please contact Cave to link the account."
+    });
+    return true;
+  }
+
+  clientId = String(recoveredClient.clientId);
+}
 
   if (!clientId) {
     sendJson(response, 500, {
