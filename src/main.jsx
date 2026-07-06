@@ -2723,9 +2723,23 @@ function AccountWaiverSection({ accountData, onSigned }) {
         signedDate: new Date().toISOString().slice(0, 10),
         acceptedAt: new Date().toISOString()
       };
-      await apiRequest("/api/client/waiver", { method: "POST", body: { waiver } });
-      setStatus({ type: "success", message: "Liability waiver signed and saved." });
-      if (onSigned) onSigned({ hasWaiver: true, waiverDate: new Date().toISOString() });
+      const result = await apiRequest("/api/client/waiver", {
+  method: "POST",
+  body: { waiver }
+});
+
+if (!result?.ok || !result?.waiver?.storedInMindbody) {
+  throw new Error("Mindbody did not confirm the liability waiver was saved.");
+}
+
+setStatus({ type: "success", message: "Liability waiver signed and saved in Mindbody." });
+
+if (onSigned) {
+  onSigned({
+    hasWaiver: true,
+    waiverDate: result.waiverDate || new Date().toISOString()
+  });
+}
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Could not save waiver. Please try again." });
     } finally {

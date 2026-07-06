@@ -5511,96 +5511,32 @@ function waiverCustomClientFields(waiver) {
 
 async function attachClientWaiver(session, waiver) {
   const clientId = await resolveSessionClientId(session).catch(() => "");
-  const customFields = waiverCustomClientFields(waiver);
-  const errors = [];
 
   if (!clientId) {
-    return {
-      accepted: true,
-      storedInMindbody: false,
-      message: "Waiver captured by the site. Studio client account not yet linked."
-    };
+    throw httpError(400, "Studio client account is not linked yet. Please complete your profile first.");
   }
 
-  let liabilityStored = false;
   const staffToken = await getMindbodyActionToken("Waiver liability sync");
 
-  const signedDate = waiver.signedDate || new Date().toISOString().slice(0, 10);
-
-  const liabilityPayloads = [
-    {
+  const result = await bookingRequest("/client/updateclient", {
+    method: "POST",
+    token: staffToken,
+    body: {
       Client: {
         Id: clientId,
         Liability: {
-          IsReleased: true,
-          AgreementDate: signedDate
+          LiabilityRelease: true
         }
       },
       CrossRegionalUpdate: false
-    },
-    {
-      Client: {
-        Id: clientId,
-        Liability: {
-          LiabilityRelease: true,
-          AgreementDate: signedDate
-        }
-      },
-      CrossRegionalUpdate: false
-    },
-    {
-      Client: {
-        Id: clientId,
-        LiabilityRelease: true
-      },
-      CrossRegionalUpdate: false
     }
-  ];
-
-  for (const payload of liabilityPayloads) {
-    try {
-      await bookingRequest("/client/updateclient", {
-        method: "POST",
-        token: staffToken,
-        body: payload
-      });
-
-      liabilityStored = true;
-      break;
-    } catch (err) {
-      errors.push(`updateclient liability: ${err.message}`);
-      console.error(`[waiver] updateclient liability attempt failed (${err.status || 0}): ${err.message}`);
-    }
-  }
-
-  let customFieldsStored = false;
-
-  if (customFields.length && clientId) {
-    try {
-      await bookingRequest("/client/updateclient", {
-        method: "POST",
-        token: staffToken,
-        body: {
-          Client: {
-            Id: clientId,
-            CustomClientFields: customFields
-          },
-          CrossRegionalUpdate: false
-        }
-      });
-
-      customFieldsStored = true;
-    } catch (fieldsError) {
-      errors.push(`Custom fields sync: ${fieldsError.message}`);
-    }
-  }
+  });
 
   return {
     accepted: true,
-    storedInMindbody: liabilityStored,
-    customFieldsStored,
-    signedDate,
-    errors: errors.length ? errors : undefined
+    storedInMindbody: true,
+    clientId,
+    result
   };
 }
 
