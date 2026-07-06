@@ -1704,60 +1704,44 @@ if (!clientId) {
   if (!fallbackEmail || !fallbackFirstName || !fallbackLastName) {
     sendJson(response, 400, {
       ok: false,
-      message: "Your studio account could not be found because the account email/name was missing. Please sign out and sign back in."
+      message: "First name, last name, and email are required."
     });
     return true;
   }
 
-const phoneNumber = String(
-  body.phone ||
-  body.mobilePhone ||
-  body.mobileNumber ||
-  ""
-).replace(/\D/g, "");
-
-const created = await addClient({
-  FirstName: fallbackFirstName,
-  LastName: fallbackLastName,
-  Email: fallbackEmail,
-
-  // Mindbody may require MobileNumber, not only MobilePhone.
-  MobileNumber: phoneNumber,
-  MobilePhone: phoneNumber,
-
-  AddressLine1: body.addressLine1,
-  AddressLine2: body.addressLine2,
-  City: body.city,
-  State: body.state,
-  PostalCode: body.postalCode,
-  BirthDate: body.birthDate,
-  EmergencyContactInfoName: body.emergencyContactName,
-  EmergencyContactInfoPhone: body.emergencyContactPhone,
-  EmergencyContactInfoRelationship: body.emergencyContactRelationship,
-  ReferredBy: body.referredBy
-});
-
-  const createdSession = sessionFromCreatedClient(created, {
-    FirstName: fallbackFirstName,
-    LastName: fallbackLastName,
-    Email: fallbackEmail
+  // Do NOT create a new client here. First link to the existing Mindbody client.
+  const existingClient = await findMindbodyClientByEmail(fallbackEmail).catch((err) => {
+    console.warn("[account/profile] existing client lookup failed:", err.message);
+    return null;
   });
 
-  clientId = createdSession.clientId;
+  if (existingClient?.clientId) {
+    clientId = String(existingClient.clientId);
 
-  setSessionCookie(response, {
-    ...session,
-    clientId,
-    user: {
-      ...(session.user || {}),
-      id: clientId,
-      firstName: fallbackFirstName,
-      lastName: fallbackLastName,
-      email: fallbackEmail,
-      username: fallbackEmail
-    }
-  });
+    setSessionCookie(response, {
+      ...session,
+      clientId,
+      uniqueClientId: existingClient.uniqueId || session.uniqueClientId || "",
+      user: {
+        ...(session.user || {}),
+        id: clientId,
+        firstName: fallbackFirstName,
+        lastName: fallbackLastName,
+        email: fallbackEmail,
+        username: fallbackEmail
+      }
+    });
+  } else {
+    sendJson(response, 409, {
+      ok: false,
+      message: "A Mindbody account may already exist with this email. Please sign in with the same Mindbody email or contact Cave to link the account."
+    });
+    return true;
+  }
 }
+
+
+
      const firstName = String(body.firstName || session.user?.firstName || "").trim();
 const lastName = String(body.lastName || session.user?.lastName || "").trim();
 
