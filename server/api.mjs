@@ -1804,29 +1804,35 @@ if (path === "/api/account/profile") {
     return true;
   }
 
-  const clientPayload = compactObject({
-    Id: clientId,
-    FirstName: firstName,
-    LastName: lastName,
-    Email: email,
-    MobileNumber: phoneNumber,
-    MobilePhone: phoneNumber,
-    HomePhone: body.homePhone,
-    WorkPhone: body.workPhone,
-    MiddleName: body.middleName,
-    AddressLine1: body.addressLine1,
-    AddressLine2: body.addressLine2,
-    City: body.city,
-    State: body.state,
-    PostalCode: body.postalCode,
-    Country: body.country,
-    BirthDate: body.birthDate,
-    EmergencyContactInfoName: body.emergencyContactName,
-    EmergencyContactInfoEmail: body.emergencyContactEmail,
-    EmergencyContactInfoPhone: body.emergencyContactPhone,
-    EmergencyContactInfoRelationship: body.emergencyContactRelationship
-  });
+// Before updating, trust the client found by email/phone more than the session.
+// This prevents updating the wrong Mindbody client and causing duplicate errors.
+const confirmedClient = await searchClient().catch(() => null);
 
+if (confirmedClient?.clientId) {
+  clientId = cleanClientId(confirmedClient.clientId);
+}
+
+// Do NOT send Email/MobileNumber/MobilePhone in updateclient.
+// Mindbody treats those as duplicate-sensitive fields.
+const clientPayload = compactObject({
+  Id: clientId,
+  FirstName: firstName,
+  LastName: lastName,
+  HomePhone: body.homePhone,
+  WorkPhone: body.workPhone,
+  MiddleName: body.middleName,
+  AddressLine1: body.addressLine1,
+  AddressLine2: body.addressLine2,
+  City: body.city,
+  State: body.state,
+  PostalCode: body.postalCode,
+  Country: body.country,
+  BirthDate: body.birthDate,
+  EmergencyContactInfoName: body.emergencyContactName,
+  EmergencyContactInfoEmail: body.emergencyContactEmail,
+  EmergencyContactInfoPhone: body.emergencyContactPhone,
+  EmergencyContactInfoRelationship: body.emergencyContactRelationship
+});
   // 3. Update the linked/created client.
   let updateResult = null;
 
@@ -1866,9 +1872,13 @@ if (path === "/api/account/profile") {
       });
       return true;
     }
-
     clientId = cleanClientId(recovered.clientId);
     clientPayload.Id = clientId;
+
+    // Remove duplicate-sensitive fields again before retrying.
+    delete clientPayload.Email;
+    delete clientPayload.MobileNumber;
+    delete clientPayload.MobilePhone;
 
     const token = await getStaffToken();
 
