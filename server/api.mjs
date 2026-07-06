@@ -1669,11 +1669,70 @@ if (!clientId) {
 }
 
 if (!clientId) {
-  sendJson(response, 400, {
-    ok: false,
-    message: "Your studio account could not be found. Please sign out and sign back in with the same email used for your Cave/Mindbody account."
+  const fallbackEmail = String(
+    body.email ||
+    session.user?.email ||
+    session.user?.username ||
+    ""
+  ).trim().toLowerCase();
+
+  const fallbackFirstName = String(
+    body.firstName ||
+    session.user?.firstName ||
+    ""
+  ).trim();
+
+  const fallbackLastName = String(
+    body.lastName ||
+    session.user?.lastName ||
+    ""
+  ).trim();
+
+  if (!fallbackEmail || !fallbackFirstName || !fallbackLastName) {
+    sendJson(response, 400, {
+      ok: false,
+      message: "Your studio account could not be found because the account email/name was missing. Please sign out and sign back in."
+    });
+    return true;
+  }
+
+  const created = await addClient({
+    FirstName: fallbackFirstName,
+    LastName: fallbackLastName,
+    Email: fallbackEmail,
+    MobilePhone: body.phone,
+    AddressLine1: body.addressLine1,
+    AddressLine2: body.addressLine2,
+    City: body.city,
+    State: body.state,
+    PostalCode: body.postalCode,
+    BirthDate: body.birthDate,
+    EmergencyContactInfoName: body.emergencyContactName,
+    EmergencyContactInfoPhone: body.emergencyContactPhone,
+    EmergencyContactInfoRelationship: body.emergencyContactRelationship,
+    ReferredBy: body.referredBy
   });
-  return true;
+
+  const createdSession = sessionFromCreatedClient(created, {
+    FirstName: fallbackFirstName,
+    LastName: fallbackLastName,
+    Email: fallbackEmail
+  });
+
+  clientId = createdSession.clientId;
+
+  setSessionCookie(response, {
+    ...session,
+    clientId,
+    user: {
+      ...(session.user || {}),
+      id: clientId,
+      firstName: fallbackFirstName,
+      lastName: fallbackLastName,
+      email: fallbackEmail,
+      username: fallbackEmail
+    }
+  });
 }
       const firstName = String(body.firstName || session.user?.firstName || "").trim();
       const lastName = String(body.lastName || session.user?.lastName || "").trim();

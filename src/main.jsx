@@ -2798,22 +2798,25 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
 
     try {
       const result = await apiRequest("/api/account/profile", {
-        method: "POST",
-        body: {
-          clientId: accountData?.clientId,
-          ...form
-        }
-      });
+    method: "POST",
+    body: {
+      clientId: accountData?.clientId || clientSession?.clientId || clientSession?.user?.id || "",
+      firstName: accountData?.firstName || clientSession?.user?.firstName || "",
+      lastName: accountData?.lastName || clientSession?.user?.lastName || "",
+      email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
+      ...form
+    }
+  });
 
-      if (result.ok) {
-        // Reload account data with updated profile
-        const updated = await apiRequest("/api/account/me").catch(() => null);
-        if (updated?.data) {
-          onComplete(updated.data);
-        } else {
-          onComplete({ ...accountData, hasBusinessProfile: true, clientId: result.clientId || accountData?.clientId });
+        if (result.ok) {
+          // Reload account data with updated profile
+          const updated = await apiRequest("/api/account/me").catch(() => null);
+          if (updated?.data) {
+            onComplete(updated.data);
+          } else {
+            onComplete({ ...accountData, hasBusinessProfile: true, clientId: result.clientId || accountData?.clientId });
+          }
         }
-      }
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Profile could not be saved. Please try again." });
     } finally {
