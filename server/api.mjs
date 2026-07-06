@@ -1780,26 +1780,13 @@ const email = String(
   ""
 ).trim().toLowerCase();
 
-const phoneNumber = String(
-  body.mobileNumber ||
-  body.mobilePhone ||
-  body.phone ||
-  ""
-).replace(/\D/g, "");
-
-const email = String(
-  body.email ||
-  session.user?.email ||
-  session.user?.username ||
-  ""
-).trim().toLowerCase();
-
 const clientPayload = compactObject({
   Id: clientId,
   FirstName: firstName,
   LastName: lastName,
   Email: email,
 
+  // Mindbody is requiring MobileNumber specifically.
   MobileNumber: phoneNumber,
   MobilePhone: phoneNumber,
 
