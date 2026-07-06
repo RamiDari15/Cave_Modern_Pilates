@@ -1338,154 +1338,137 @@ return true;
       return true;
     }
 
-    if (path === "/api/client/dashboard") {
-      const session = await readHydratedSession(request, response);
+  if (path === "/api/client/dashboard") {
+  const session = await readHydratedSession(request, response);
 
-      if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
-        sendJson(response, 401, { message: "Please sign in first." });
-        return true;
-      }
+  if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
+    sendJson(response, 401, { message: "Please sign in first." });
+    return true;
+  }
 
-      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
-      const sessionEmail = session.user?.email || session.user?.username || "";
+  const sessionEmail = session.user?.email || session.user?.username || "";
 
-      // Resolve clientId — session first, then email lookup
-      let clientId = session.clientId || "";
-      let uniqueClientId = session.uniqueClientId || "";
+  let clientId = session.clientId || "";
 
-      if (!clientId && sessionEmail) {
-        const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
-        if (found) {
-          clientId = found.clientId;
-          uniqueClientId = found.uniqueId || "";
-          setSessionCookie(response, { ...session, clientId, user: { ...(session.user || {}), id: clientId } });
-        }
-      }
+  if (!clientId && sessionEmail) {
+    const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
 
-      if (!clientId && !consumerToken) {
-        sendJson(response, 200, {
-          clientLinked: false,
-          profile: null,
-          schedule: null,
-          services: null,
-          contracts: null,
-          rewards: null,
-          session: publicSession(session),
-          errors: ["Could not resolve Mindbody client ID."]
-        });
-        return true;
-      }
+    if (found?.clientId) {
+      clientId = found.clientId;
 
-      // Best available auth for staff-level calls
-      let staffToken = null;
-      try {
-        staffToken = await getMindbodyActionToken("dashboard");
-      } catch (_) {}
-
-      // Date range: today through 90 days out
-      const today = new Date().toISOString().split("T")[0];
-      const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-
-      // Param sets — prefer request.xxx format per Mindbody v6 API docs
-      const clientParams = compactObject({
-        "request.clientId": clientId || undefined,
-        "request.uniqueClientId": uniqueClientId || undefined
-      });
-
-      const staffAuth = staffToken ? { token: staffToken } : {};
-      const consumerAuth = consumerToken ? { consumerIdentityToken: consumerToken } : {};
-
-      // clientcompleteinfo: consumer token in consumer-identity-token header (no Authorization mismatch)
-      // staffToken is used as fallback if consumer token not present
-      const ccInfoAuth = consumerToken ? consumerAuth : staffAuth;
-
-    const [scheduleResult, ccInfoResult, contractsResult, rewardsResult] = await Promise.allSettled([
-      bookingRequest("/client/clientschedule", {
-        ...staffAuth,
-        params: {
-          ...clientParams,
-          "request.startDate": today,
-          "request.endDate": ninetyDaysOut,
-          "request.includeWaitlistEntries": "true",
-          "request.crossRegionalLookup": "true"
-        }
-      }),
-      bookingRequest("/client/clientcompleteinfo", {
-        ...ccInfoAuth,
-        params: {
-          ...clientParams,
-          "request.crossRegionalLookup": "true",
-          "request.showActiveOnly": "true"
-        }
-      }),
-      bookingRequest("/client/clientcontracts", {
-        ...staffAuth,
-        params: {
-          ...clientParams,
-          "request.crossRegionalLookup": "true"
-        }
-      }),
-      bookingRequest("/client/rewardpoints", {
-        ...staffAuth,
-        params: clientParams
-      }).catch(() => null)
-    ]);
-
-      const ccInfo = fulfilledValue(ccInfoResult);
-      const schedule = fulfilledValue(scheduleResult);
-      const contracts = fulfilledValue(contractsResult);
-      const rewards = fulfilledValue(rewardsResult);
-
-      // Extract services/class packs from clientcompleteinfo response
-// Extract services/class packs from every Mindbody shape we have seen
-const services =
-  ccInfo?.ClientServices ||
-  ccInfo?.Services ||
-  ccInfo?.Client?.ClientServices ||
-  ccInfo?.Client?.Services ||
-  ccInfo?.ClientCompleteInfo?.ClientServices ||
-  ccInfo?.ClientCompleteInfo?.Services ||
-  ccInfo?.ClientCompleteInfo?.Client?.ClientServices ||
-  ccInfo?.ClientCompleteInfo?.Client?.Services ||
-  [];
-
-// Extract memberships/contracts from every Mindbody shape
-const memberships =
-  contracts?.ClientContracts ||
-  contracts?.Contracts ||
-  contracts?.Client?.ClientContracts ||
-  ccInfo?.ClientContracts ||
-  ccInfo?.Contracts ||
-  ccInfo?.ClientMemberships ||
-  ccInfo?.Memberships ||
-  ccInfo?.Client?.ClientContracts ||
-  ccInfo?.Client?.ClientMemberships ||
-  ccInfo?.ClientCompleteInfo?.ClientContracts ||
-  ccInfo?.ClientCompleteInfo?.Contracts ||
-  ccInfo?.ClientCompleteInfo?.ClientMemberships ||
-  ccInfo?.ClientCompleteInfo?.Memberships ||
-  ccInfo?.ClientCompleteInfo?.Client?.ClientContracts ||
-  ccInfo?.ClientCompleteInfo?.Client?.ClientMemberships ||
-  [];
-
-      const errors = [scheduleResult, ccInfoResult, contractsResult]
-        .filter((r) => r.status === "rejected")
-        .map((r) => r.reason?.message)
-        .filter(Boolean);
-
-      sendJson(response, 200, {
-        clientLinked: true,
+      setSessionCookie(response, {
+        ...session,
         clientId,
-        profile: ccInfo?.Client || ccInfo?.ClientCompleteInfo?.Client || null,
-        schedule,
-        services,
-        contracts: memberships,
-        rewards,
-        session: publicSession(session),
-        errors
+        uniqueClientId: found.uniqueId || session.uniqueClientId || "",
+        user: {
+          ...(session.user || {}),
+          id: clientId
+        }
       });
-      return true;
     }
+  }
+
+  if (!clientId) {
+    sendJson(response, 200, {
+      clientLinked: false,
+      profile: null,
+      schedule: null,
+      services: [],
+      contracts: [],
+      rewards: null,
+      session: publicSession(session),
+      errors: ["Could not resolve Mindbody client ID."]
+    });
+    return true;
+  }
+
+  let staffToken = null;
+
+  try {
+    staffToken = await getMindbodyActionToken("dashboard");
+  } catch (_) {}
+
+  const today = new Date().toISOString().split("T")[0];
+  const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split("T")[0];
+
+  const staffAuth = staffToken
+    ? { token: staffToken }
+    : { consumerIdentityToken: session.consumerIdentityToken || session.accessToken };
+
+  const accountInfo = await fetchClientCompleteInfo(clientId, session).catch((err) => {
+    console.warn("[dashboard] Could not load client complete info:", err.message);
+
+    return {
+      hasUsablePricingOption: false,
+      activeServices: [],
+      activeMemberships: []
+    };
+  });
+
+  const [scheduleResult, rewardsResult] = await Promise.allSettled([
+    bookingRequest("/client/clientschedule", {
+      ...staffAuth,
+      params: {
+        "request.clientId": clientId,
+        "request.startDate": today,
+        "request.endDate": ninetyDaysOut,
+        "request.includeWaitlistEntries": "true",
+        "request.crossRegionalLookup": "true"
+      }
+    }),
+    bookingRequest("/client/rewardpoints", {
+      ...staffAuth,
+      params: {
+        "request.clientId": clientId
+      }
+    }).catch(() => null)
+  ]);
+
+  const schedule = fulfilledValue(scheduleResult);
+  const rewards = fulfilledValue(rewardsResult);
+
+  const services = Array.isArray(accountInfo?.activeServices)
+    ? accountInfo.activeServices.map((service) => ({
+        Id: service.id,
+        Name: service.name || "Class credit",
+        Remaining: service.remaining,
+        ExpirationDate: service.expirationDate || service.expires || "",
+        ...service
+      }))
+    : [];
+
+  const contracts = Array.isArray(accountInfo?.activeMemberships)
+    ? accountInfo.activeMemberships.map((membership) => ({
+        Id: membership.id,
+        Name: membership.name || "Membership",
+        Status: membership.status || "",
+        Remaining: membership.remaining,
+        ExpirationDate: membership.expirationDate || membership.endDate || "",
+        ...membership
+      }))
+    : [];
+
+  const errors = [scheduleResult, rewardsResult]
+    .filter((r) => r.status === "rejected")
+    .map((r) => r.reason?.message)
+    .filter(Boolean);
+
+  sendJson(response, 200, {
+    clientLinked: true,
+    clientId,
+    profile: accountInfo?.profile || null,
+    schedule,
+    services,
+    contracts,
+    rewards,
+    eligibility: accountInfo,
+    session: publicSession(session),
+    errors
+  });
+  return true;
+}
 
     if (path === "/api/account/me") {
       if (request.method !== "GET") {
@@ -1861,6 +1844,11 @@ if (confirmedClient?.clientId) {
 // Mindbody treats those as duplicate-sensitive fields.
 const clientPayload = compactObject({
   Id: clientId,
+
+  // Do not send Email, MobileNumber, or MobilePhone here.
+  // Mindbody treats those as duplicate-sensitive fields.
+  // The account is already linked by clientId.
+
   FirstName: firstName,
   LastName: lastName,
   HomePhone: body.homePhone,
@@ -1876,7 +1864,8 @@ const clientPayload = compactObject({
   EmergencyContactInfoName: body.emergencyContactName,
   EmergencyContactInfoEmail: body.emergencyContactEmail,
   EmergencyContactInfoPhone: body.emergencyContactPhone,
-  EmergencyContactInfoRelationship: body.emergencyContactRelationship
+  EmergencyContactInfoRelationship: body.emergencyContactRelationship,
+  ReferredBy: body.referredBy
 });
   // 3. Update the linked/created client.
   let updateResult = null;
@@ -4987,117 +4976,197 @@ async function fetchLiveClasses(locationId) {
 
 async function fetchClientCompleteInfo(clientId, session) {
   const consumerToken = session?.consumerIdentityToken || session?.accessToken || "";
+  let staffToken = null;
+
+  try {
+    staffToken = await getMindbodyActionToken("Client complete info");
+  } catch (_) {}
+
+  const auth = staffToken
+    ? { token: staffToken }
+    : consumerToken
+      ? { consumerIdentityToken: consumerToken }
+      : {};
 
   const data = await bookingRequest("/client/clientcompleteinfo", {
-    ...(consumerToken ? { consumerIdentityToken: consumerToken } : {}),
+    ...auth,
     params: {
       "request.clientId": clientId,
       "request.showActiveOnly": "true",
       "request.crossRegionalLookup": "true"
     }
-  });
+  }).catch(() => null);
 
   const client = data?.ClientCompleteInfo?.Client || data?.Client || {};
 
-  const rawServices =
-    firstListByKey(data, "ClientServices").length
-      ? firstListByKey(data, "ClientServices")
-      : Array.isArray(client.ClientServices)
-      ? client.ClientServices
-      : [];
-
-  const rawMemberships =
-    firstListByKey(data, "ClientMemberships").length
-      ? firstListByKey(data, "ClientMemberships")
-      : firstListByKey(data, "ClientContracts").length
-      ? firstListByKey(data, "ClientContracts")
-      : firstListByKey(data, "Contracts").length
-      ? firstListByKey(data, "Contracts")
-      : Array.isArray(client.ClientMemberships)
-      ? client.ClientMemberships
-      : Array.isArray(client.ClientContracts)
-      ? client.ClientContracts
-      : [];
-
-  let contractMemberships = [];
+  let serviceData = null;
 
   try {
-    const staffToken = await getMindbodyActionToken("Eligibility memberships");
-    const contractData = await bookingRequest("/client/clientcontracts", {
-      token: staffToken,
+    serviceData = await bookingRequest("/client/clientservices", {
+      ...auth,
+      params: {
+        "request.clientId": clientId,
+        "request.showActiveOnly": "true",
+        "request.crossRegionalLookup": "true"
+      }
+    });
+  } catch (err) {
+    console.warn("[client services] Could not load clientservices:", err.message);
+  }
+
+  let contractData = null;
+
+  try {
+    contractData = await bookingRequest("/client/clientcontracts", {
+      ...auth,
       params: {
         "request.clientId": clientId,
         "request.crossRegionalLookup": "true"
       }
     });
-
-    contractMemberships =
-      firstListByKey(contractData, "ClientContracts").length
-        ? firstListByKey(contractData, "ClientContracts")
-        : firstListByKey(contractData, "Contracts");
   } catch (err) {
-    console.warn("[eligibility] Could not load client contracts:", err.message);
+    console.warn("[client contracts] Could not load clientcontracts:", err.message);
   }
 
-  const usableServices = rawServices.filter((s) => {
-    if (!s) return false;
+  const rawServices = [
+    ...firstListByKey(data, "ClientServices"),
+    ...firstListByKey(data, "Services"),
+    ...firstListByKey(serviceData, "ClientServices"),
+    ...firstListByKey(serviceData, "Services"),
+    ...(Array.isArray(client.ClientServices) ? client.ClientServices : []),
+    ...(Array.isArray(client.Services) ? client.Services : [])
+  ].filter(Boolean);
 
-    const remaining = Number(
-      s.Remaining ??
-      s.RemainingVisits ??
-      s.RemainingClasses ??
-      s.Count ??
-      s.Current ??
-      s.Balance ??
-      s.VisitsRemaining ??
-      1
+  const rawMemberships = [
+    ...firstListByKey(data, "ClientMemberships"),
+    ...firstListByKey(data, "ClientContracts"),
+    ...firstListByKey(data, "Contracts"),
+    ...firstListByKey(contractData, "ClientMemberships"),
+    ...firstListByKey(contractData, "ClientContracts"),
+    ...firstListByKey(contractData, "Contracts"),
+    ...(Array.isArray(client.ClientMemberships) ? client.ClientMemberships : []),
+    ...(Array.isArray(client.ClientContracts) ? client.ClientContracts : [])
+  ].filter(Boolean);
+
+  const normalizeRemaining = (item) => {
+    const value =
+      item.Remaining ??
+      item.RemainingVisits ??
+      item.RemainingClasses ??
+      item.RemainingSessions ??
+      item.SessionsRemaining ??
+      item.Count ??
+      item.Current ??
+      item.Balance ??
+      item.VisitsRemaining ??
+      item.remaining ??
+      "";
+
+    const number = Number(value);
+
+    if (Number.isFinite(number)) {
+      return number;
+    }
+
+    return value;
+  };
+
+  const usableServices = rawServices.filter((service) => {
+    const name = String(
+      service.Name ||
+      service.ServiceName ||
+      service.ProductName ||
+      service.SessionType?.Name ||
+      service.name ||
+      ""
     );
 
-    return !Number.isFinite(remaining) || remaining > 0;
+    const remaining = normalizeRemaining(service);
+    const remainingNumber = Number(remaining);
+
+    if (/unlimited/i.test(name)) {
+      return true;
+    }
+
+    if (!String(remaining).trim()) {
+      return true;
+    }
+
+    return !Number.isFinite(remainingNumber) || remainingNumber > 0;
   });
 
-  const allMemberships = [...rawMemberships, ...contractMemberships].filter(Boolean);
+  const activeMemberships = rawMemberships.filter((membership) => {
+    const name = String(
+      membership.Name ||
+      membership.ContractName ||
+      membership.MembershipName ||
+      membership.AgreementName ||
+      membership.name ||
+      ""
+    ).toLowerCase();
 
-  const activeMemberships = allMemberships.filter((m) => {
-    const name = String(m.Name || m.ContractName || m.MembershipName || m.AgreementName || "").toLowerCase();
-    const status = String(m.MembershipStatus || m.Status || m.ContractStatus || "").toLowerCase();
+    const status = String(
+      membership.MembershipStatus ||
+      membership.Status ||
+      membership.ContractStatus ||
+      membership.status ||
+      ""
+    ).toLowerCase();
 
-    const remaining = Number(
-      m.Remaining ??
-      m.RemainingVisits ??
-      m.RemainingClasses ??
-      m.Count ??
-      m.Current ??
-      m.Balance ??
-      m.VisitsRemaining ??
-      1
-    );
+    const remaining = normalizeRemaining(membership);
+    const remainingNumber = Number(remaining);
 
-    const looksUnlimited = name.includes("unlimited") || remaining > 1000;
+    const looksUnlimited = name.includes("unlimited") || remainingNumber > 1000;
     const notExpiredStatus = !/expired|cancelled|canceled|terminated|inactive/.test(status);
 
-    return notExpiredStatus && (looksUnlimited || !Number.isFinite(remaining) || remaining > 0 || name.length > 0);
+    return notExpiredStatus && (looksUnlimited || !Number.isFinite(remainingNumber) || remainingNumber > 0 || name.length > 0);
   });
-
-  const hasUsablePricingOption = usableServices.length > 0 || activeMemberships.length > 0;
-  const defaultClientServiceId = usableServices.length > 0 ? usableServices[0].Id || usableServices[0].id : null;
 
   return {
     clientId,
-    activeServices: usableServices.map((s) => ({
-      id: s.Id || s.ClientServiceId || s.id,
-      name: s.Name || s.ProductName || s.ServiceName || "",
-      remaining: s.Remaining ?? s.RemainingVisits ?? s.RemainingClasses ?? s.Count ?? s.VisitsRemaining,
-      expirationDate: s.ExpirationDate || s.Expires || s.ExpiryDate || ""
+    profile: client,
+    activeServices: usableServices.map((service) => ({
+      id: service.Id || service.ClientServiceId || service.id,
+      name:
+        service.Name ||
+        service.ServiceName ||
+        service.ProductName ||
+        service.SessionType?.Name ||
+        service.name ||
+        "Class credit",
+      remaining: normalizeRemaining(service),
+      expirationDate:
+        service.ExpirationDate ||
+        service.Expires ||
+        service.ExpiryDate ||
+        service.EndDate ||
+        service.expirationDate ||
+        ""
     })),
-    activeMemberships: activeMemberships.map((m) => ({
-      id: m.Id || m.ContractId || m.ClientContractId,
-      name: m.Name || m.ContractName || m.MembershipName || m.AgreementName || "",
-      status: m.MembershipStatus || m.Status || m.ContractStatus || "",
-      remaining: m.Remaining ?? m.RemainingVisits ?? m.RemainingClasses ?? m.Count ?? m.VisitsRemaining
+    activeMemberships: activeMemberships.map((membership) => ({
+      id: membership.Id || membership.ContractId || membership.ClientContractId || membership.id,
+      name:
+        membership.Name ||
+        membership.ContractName ||
+        membership.MembershipName ||
+        membership.AgreementName ||
+        membership.name ||
+        "Membership",
+      status: membership.MembershipStatus || membership.Status || membership.ContractStatus || membership.status || "",
+      remaining: normalizeRemaining(membership),
+      expirationDate:
+        membership.ExpirationDate ||
+        membership.Expires ||
+        membership.ExpiryDate ||
+        membership.EndDate ||
+        membership.EndDateTime ||
+        membership.expirationDate ||
+        ""
     })),
-    hasUsablePricingOption,
-    defaultClientServiceId
+    hasUsablePricingOption: usableServices.length > 0 || activeMemberships.length > 0,
+    defaultClientServiceId: usableServices.length
+      ? usableServices[0].Id || usableServices[0].ClientServiceId || usableServices[0].id
+      : null
   };
 }
 
