@@ -5172,12 +5172,15 @@ async function fetchClientCompleteInfo(clientId, session) {
     const remaining = normalizeRemaining(membership);
     const remainingNumber = Number(remaining);
 
-    const isRealMembership =
-      /membership|members|member|contract|agreement/i.test(name);
+const isClassPackOrDropIn =
+  /\b\d+\s*class\s*pack\b|class pack|drop in|drop-in|new client/i.test(name);
 
-    const isClassPackOrDropIn =
-      /class pack|drop in|drop-in|new client/i.test(name);
+const isUnlimitedMembership =
+  /unlimited|founding members|membership|members/i.test(name);
 
+const isRealMembership =
+  isUnlimitedMembership && !isClassPackOrDropIn;
+  
     const notExpiredStatus =
       !/expired|cancelled|canceled|terminated|inactive/.test(status);
 
