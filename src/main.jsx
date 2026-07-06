@@ -2454,23 +2454,23 @@ function LiabilityWaiverForm({ form, onChange }) {
 }
 
 function StandaloneWaiverForm() {
-  const [form, setForm] = useState({
-    waiverParticipantName: "",
-    birthDate: "",
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    phone: "",
-    email: "",
-    waiverSignature: "",
-    waiverDate: defaultWaiverDate(),
-    guardianName: "",
-    guardianSignature: "",
-    mediaOptOut: false,
-    acceptWaiver: false
-  });
+const [form, setForm] = useState({
+  firstName: accountData?.firstName || clientSession?.user?.firstName || "",
+  lastName: accountData?.lastName || clientSession?.user?.lastName || "",
+  email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
+  phone: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  birthDate: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+  emergencyContactRelationship: "",
+  gender: "",
+  referredBy: ""
+});
   const [status, setStatus] = useState({ type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -2801,11 +2801,10 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
       method: "POST",
 body: {
   clientId: accountData?.clientId || clientSession?.clientId || "",
-  firstName: accountData?.firstName || clientSession?.user?.firstName || "",
-  lastName: accountData?.lastName || clientSession?.user?.lastName || "",
-  email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
+  firstName: form.firstName,
+  lastName: form.lastName,
+  email: form.email,
 
-  // send both names because Mindbody may require MobileNumber specifically
   phone: form.phone,
   mobilePhone: form.phone,
   mobileNumber: form.phone,
@@ -2846,6 +2845,11 @@ body: {
         <strong>Complete your Cave studio profile</strong>
       </div>
       <form onSubmit={submit}>
+        <div className="form-grid three">
+        <FormField label="First Name" name="firstName" value={form.firstName} onChange={updateField} autoComplete="given-name" required />
+        <FormField label="Last Name" name="lastName" value={form.lastName} onChange={updateField} autoComplete="family-name" required />
+        <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" required />
+      </div>
         <div className="form-grid two">
           <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
           <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
