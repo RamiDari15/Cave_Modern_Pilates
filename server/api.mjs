@@ -1766,27 +1766,45 @@ const created = await addClient({
         return true;
       }
 
-      const clientPayload = compactObject({
-        Id: clientId,
-        FirstName: firstName,
-        LastName: lastName,
-        Email: body.email || session.user?.email || undefined,
-        MobilePhone: body.phone,
-        HomePhone: body.homePhone,
-        WorkPhone: body.workPhone,
-        MiddleName: body.middleName,
-        AddressLine1: body.addressLine1,
-        AddressLine2: body.addressLine2,
-        City: body.city,
-        State: body.state,
-        PostalCode: body.postalCode,
-        Country: body.country,
-        BirthDate: body.birthDate,
-        EmergencyContactInfoName: body.emergencyContactName,
-        EmergencyContactInfoEmail: body.emergencyContactEmail,
-        EmergencyContactInfoPhone: body.emergencyContactPhone,
-        EmergencyContactInfoRelationship: body.emergencyContactRelationship
-      });
+      const phoneNumber = String(
+  body.mobileNumber ||
+  body.mobilePhone ||
+  body.phone ||
+  ""
+).replace(/\D/g, "");
+
+const email = String(
+  body.email ||
+  session.user?.email ||
+  session.user?.username ||
+  ""
+).trim().toLowerCase();
+
+const clientPayload = compactObject({
+  Id: clientId,
+  FirstName: firstName,
+  LastName: lastName,
+  Email: email,
+
+  // Mindbody is requiring MobileNumber specifically.
+  MobileNumber: phoneNumber,
+  MobilePhone: phoneNumber,
+
+  HomePhone: body.homePhone,
+  WorkPhone: body.workPhone,
+  MiddleName: body.middleName,
+  AddressLine1: body.addressLine1,
+  AddressLine2: body.addressLine2,
+  City: body.city,
+  State: body.state,
+  PostalCode: body.postalCode,
+  Country: body.country,
+  BirthDate: body.birthDate,
+  EmergencyContactInfoName: body.emergencyContactName,
+  EmergencyContactInfoEmail: body.emergencyContactEmail,
+  EmergencyContactInfoPhone: body.emergencyContactPhone,
+  EmergencyContactInfoRelationship: body.emergencyContactRelationship
+});
 
       if (Object.keys(clientPayload).filter((k) => !["Id", "FirstName", "LastName", "Email"].includes(k)).length === 0) {
         sendJson(response, 400, { ok: false, message: "No editable fields provided." });
