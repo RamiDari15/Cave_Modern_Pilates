@@ -3968,42 +3968,54 @@ function firstNonEmpty(...values) {
 }
 
 async function addClient(payload) {
-  // Try consumer mode with addclient first (original working path).
-  // "Omitting the token will create a client and respect Consumer Mode required fields."
-  try {
-    return await bookingRequest("/client/addclient", {
+  const cleanPayload = compactObject({
+    ...payload,
+    MobileNumber: payload.MobileNumber || payload.MobilePhone,
+    MobilePhone: payload.MobilePhone || payload.MobileNumber,
+    SendEmail: true
+  });
+
+  const config = getBookingConfig();
+
+  if (config.actionTokenConfigured) {
+    const staffToken = await getMindbodyActionToken("Client account creation");
+
+    // Use wrapped Client object first because Mindbody is requiring fields but not seeing top-level fields.
+    return bookingRequest("/client/addorupdateclient", {
       method: "POST",
-      body: { ...payload, SendEmail: true }
-    });
-  } catch (consumerError) {
-    const config = getBookingConfig();
-    if (!config.actionTokenConfigured || !(consumerError.status >= 400 && consumerError.status < 500)) {
-      throw consumerError;
-    }
-  }
-
-  // Staff token is available — use AddOrUpdateClient so an existing record with this
-  // email gets merged rather than a duplicate created.
-  const staffToken = await getMindbodyActionToken("Client account creation");
-
-  return bookingRequest("/client/addorupdateclient", {
-    method: "POST",
-    token: staffToken,
-    body: { Client: { ...payload, SendEmail: true } }
-  }).catch(async (error) => {
-    if (error.status && error.status >= 400 && error.status < 500) {
+      token: staffToken,
+      body: {
+        Client: cleanPayload,
+        CrossRegionalUpdate: false
+      }
+    }).catch(async () => {
       return bookingRequest("/client/addclient", {
         method: "POST",
         token: staffToken,
-        body: payload
-      }).catch(() => bookingRequest("/client/addclient", {
-        method: "POST",
-        token: staffToken,
-        body: { Client: payload }
-      }));
+        body: {
+          Client: cleanPayload
+        }
+      }).catch(() =>
+        bookingRequest("/client/addclient", {
+          method: "POST",
+          token: staffToken,
+          body: cleanPayload
+        })
+      );
+    });
+  }
+
+  return bookingRequest("/client/addclient", {
+    method: "POST",
+    body: {
+      Client: cleanPayload
     }
-    throw error;
-  });
+  }).catch(() =>
+    bookingRequest("/client/addclient", {
+      method: "POST",
+      body: cleanPayload
+    })
+  );
 }
 
 async function getMindbodyActionToken(actionName) {
