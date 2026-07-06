@@ -1399,37 +1399,37 @@ return true;
       // staffToken is used as fallback if consumer token not present
       const ccInfoAuth = consumerToken ? consumerAuth : staffAuth;
 
-      const [scheduleResult, ccInfoResult, contractsResult, rewardsResult] = await Promise.allSettled([
-        bookingRequest("/client/clientschedule", {
-          ...staffAuth,
-          params: {
-            ...clientParams,
-            "request.startDate": today,
-            "request.endDate": ninetyDaysOut,
-            "request.includeWaitlistEntries": "true",
-            "request.crossRegionalLookup": "true"
-          }
-        }),
-        bookingRequest("/client/clientcompleteinfo", {
-          ...ccInfoAuth,
-          params: {
-            ...clientParams,
-            "request.crossRegionalLookup": "true",
-            "request.showActiveOnly": "true"
-          }
-        }),
-        bookingRequest("/client/clientcontracts", {
-          ...staffAuth,
-          params: {
-            ...clientParams,
-            "request.crossRegionalLookup": "true"
-          }
-        }),
-        bookingRequest("/client/rewardpoints", {
-          ...staffAuth,
-          params: clientParams
-        }).catch(() => null)
-      ]);
+    const [scheduleResult, ccInfoResult, contractsResult, rewardsResult] = await Promise.allSettled([
+      bookingRequest("/client/clientschedule", {
+        ...staffAuth,
+        params: {
+          ...clientParams,
+          "request.startDate": today,
+          "request.endDate": ninetyDaysOut,
+          "request.includeWaitlistEntries": "true",
+          "request.crossRegionalLookup": "true"
+        }
+      }),
+      bookingRequest("/client/clientcompleteinfo", {
+        ...ccInfoAuth,
+        params: {
+          ...clientParams,
+          "request.crossRegionalLookup": "true",
+          "request.showActiveOnly": "true"
+        }
+      }),
+      bookingRequest("/client/clientcontracts", {
+        ...staffAuth,
+        params: {
+          ...clientParams,
+          "request.crossRegionalLookup": "true"
+        }
+      }),
+      bookingRequest("/client/rewardpoints", {
+        ...staffAuth,
+        params: clientParams
+      }).catch(() => null)
+    ]);
 
       const ccInfo = fulfilledValue(ccInfoResult);
       const schedule = fulfilledValue(scheduleResult);
