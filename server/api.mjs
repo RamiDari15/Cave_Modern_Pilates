@@ -1437,11 +1437,36 @@ return true;
       const rewards = fulfilledValue(rewardsResult);
 
       // Extract services/class packs from clientcompleteinfo response
-      const services = ccInfo?.ClientServices || ccInfo?.Services || ccInfo?.ClientCompleteInfo?.ClientServices || null;
-      // Extract memberships from contracts or clientcompleteinfo
-      const memberships = contracts?.ClientContracts || contracts?.Contracts
-        || ccInfo?.ClientMemberships || ccInfo?.Memberships
-        || ccInfo?.ClientCompleteInfo?.ClientMemberships || null;
+// Extract services/class packs from every Mindbody shape we have seen
+const services =
+  ccInfo?.ClientServices ||
+  ccInfo?.Services ||
+  ccInfo?.Client?.ClientServices ||
+  ccInfo?.Client?.Services ||
+  ccInfo?.ClientCompleteInfo?.ClientServices ||
+  ccInfo?.ClientCompleteInfo?.Services ||
+  ccInfo?.ClientCompleteInfo?.Client?.ClientServices ||
+  ccInfo?.ClientCompleteInfo?.Client?.Services ||
+  [];
+
+// Extract memberships/contracts from every Mindbody shape
+const memberships =
+  contracts?.ClientContracts ||
+  contracts?.Contracts ||
+  contracts?.Client?.ClientContracts ||
+  ccInfo?.ClientContracts ||
+  ccInfo?.Contracts ||
+  ccInfo?.ClientMemberships ||
+  ccInfo?.Memberships ||
+  ccInfo?.Client?.ClientContracts ||
+  ccInfo?.Client?.ClientMemberships ||
+  ccInfo?.ClientCompleteInfo?.ClientContracts ||
+  ccInfo?.ClientCompleteInfo?.Contracts ||
+  ccInfo?.ClientCompleteInfo?.ClientMemberships ||
+  ccInfo?.ClientCompleteInfo?.Memberships ||
+  ccInfo?.ClientCompleteInfo?.Client?.ClientContracts ||
+  ccInfo?.ClientCompleteInfo?.Client?.ClientMemberships ||
+  [];
 
       const errors = [scheduleResult, ccInfoResult, contractsResult]
         .filter((r) => r.status === "rejected")
