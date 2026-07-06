@@ -1709,12 +1709,110 @@ if (!clientId) {
     return true;
   }
 
-  // Do NOT create a new client here. First link to the existing Mindbody client.
 let existingClient = await findMindbodyClientByEmail(fallbackEmail).catch((err) => {
   console.warn("[account/profile] findMindbodyClientByEmail failed:", err.message);
   return null;
 });
 
+// Backup lookup using the same SearchText format already used in /api/auth/link
+if (!existingClient?.clientId) {
+  try {
+    const staffToken = await getMindbodyActionToken("Account profile email backup lookup");
+
+    const searchResult = await bookingRequest("/client/clients", {
+      token: staffToken,
+      params: { SearchText: fallbackEmail }
+    });
+
+    const searchProfile = extractClientProfile(searchResult, fallbackEmail);
+
+    if (searchProfile?.clientId) {
+      existingClient = searchProfile;
+    }
+  } catch (err) {
+    console.warn("[account/profile] backup SearchText lookup failed:", err.message);
+  }
+}
+
+if (existingClient?.clientId) {
+  clientId = String(existingClient.clientId);
+
+  setSessionCookie(response, {
+    ...session,
+    clientId,
+    uniqueClientId: existingClient.uniqueId || session.uniqueClientId || "",
+    user: {
+      ...(session.user || {}),
+      id: clientId,
+      firstName: fallbackFirstName,
+      lastName: fallbackLastName,
+      email: fallbackEmail,
+      username: fallbackEmail
+    }
+  });
+} else {
+  const phoneNumber = String(
+    body.mobileNumber ||
+    body.mobilePhone ||
+    body.phone ||
+    ""
+  ).replace(/\D/g, "");
+
+  if (!phoneNumber) {
+    sendJson(response, 400, {
+      ok: false,
+      message: "Mobile phone is required."
+    });
+    return true;
+  }
+
+  const created = await addClient({
+    FirstName: fallbackFirstName,
+    LastName: fallbackLastName,
+    Email: fallbackEmail,
+    MobileNumber: phoneNumber,
+    MobilePhone: phoneNumber,
+    AddressLine1: body.addressLine1,
+    AddressLine2: body.addressLine2,
+    City: body.city,
+    State: body.state,
+    PostalCode: body.postalCode,
+    BirthDate: body.birthDate,
+    EmergencyContactInfoName: body.emergencyContactName,
+    EmergencyContactInfoPhone: body.emergencyContactPhone,
+    EmergencyContactInfoRelationship: body.emergencyContactRelationship,
+    ReferredBy: body.referredBy
+  });
+
+  const createdSession = sessionFromCreatedClient(created, {
+    FirstName: fallbackFirstName,
+    LastName: fallbackLastName,
+    Email: fallbackEmail
+  });
+
+  clientId = createdSession.clientId;
+
+  if (!clientId) {
+    sendJson(response, 500, {
+      ok: false,
+      message: "Mindbody created the client but did not return a client ID."
+    });
+    return true;
+  }
+
+  setSessionCookie(response, {
+    ...session,
+    clientId,
+    user: {
+      ...(session.user || {}),
+      id: clientId,
+      firstName: fallbackFirstName,
+      lastName: fallbackLastName,
+      email: fallbackEmail,
+      username: fallbackEmail
+    }
+  });
+}
 // Backup lookup using the same SearchText format already used in /api/auth/link
 if (!existingClient?.clientId) {
   try {
