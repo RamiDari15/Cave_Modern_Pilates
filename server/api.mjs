@@ -1339,123 +1339,153 @@ return true;
     }
 
     if (path === "/api/client/dashboard") {
-  const session = await readHydratedSession(request, response);
+      const session = await readHydratedSession(request, response);
 
-  if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
-    sendJson(response, 401, { message: "Please sign in first." });
-    return true;
-  }
+      if (!session?.accessToken && !session?.consumerIdentityToken && session?.authMode !== "created-client") {
+        sendJson(response, 401, { message: "Please sign in first." });
+        return true;
+      }
 
-  const sessionEmail = session.user?.email || session.user?.username || "";
+      const consumerToken = session.consumerIdentityToken || session.accessToken || "";
+      const sessionEmail = session.user?.email || session.user?.username || "";
 
-  let clientId = session.clientId || "";
+      // Resolve clientId — session first, then email lookup
+      let clientId = session.clientId || "";
+      let uniqueClientId = session.uniqueClientId || "";
 
-  if (!clientId && sessionEmail) {
-    const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
-
-    if (found?.clientId) {
-      clientId = found.clientId;
-
-      setSessionCookie(response, {
-        ...session,
-        clientId,
-        uniqueClientId: found.uniqueId || session.uniqueClientId || "",
-        user: {
-          ...(session.user || {}),
-          id: clientId
+      if (!clientId && sessionEmail) {
+        const found = await findMindbodyClientByEmail(sessionEmail).catch(() => null);
+        if (found) {
+          clientId = found.clientId;
+          uniqueClientId = found.uniqueId || "";
+          setSessionCookie(response, { ...session, clientId, user: { ...(session.user || {}), id: clientId } });
         }
+      }
+
+      if (!clientId && !consumerToken) {
+        sendJson(response, 200, {
+          clientLinked: false,
+          profile: null,
+          schedule: null,
+          services: null,
+          contracts: null,
+          rewards: null,
+          session: publicSession(session),
+          errors: ["Could not resolve Mindbody client ID."]
+        });
+        return true;
+      }
+
+      // Best available auth for staff-level calls
+      let staffToken = null;
+      try {
+        staffToken = await getMindbodyActionToken("dashboard");
+      } catch (_) {}
+
+      // Date range: today through 90 days out
+      const today = new Date().toISOString().split("T")[0];
+      const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+      // Param sets — prefer request.xxx format per Mindbody v6 API docs
+      const clientParams = compactObject({
+        "request.clientId": clientId || undefined,
+        "request.uniqueClientId": uniqueClientId || undefined
       });
+
+      const staffAuth = staffToken ? { token: staffToken } : {};
+      const consumerAuth = consumerToken ? { consumerIdentityToken: consumerToken } : {};
+
+      // clientcompleteinfo: consumer token in consumer-identity-token header (no Authorization mismatch)
+      // staffToken is used as fallback if consumer token not present
+      const ccInfoAuth = consumerToken ? consumerAuth : staffAuth;
+
+    const [scheduleResult, ccInfoResult, contractsResult, rewardsResult] = await Promise.allSettled([
+      bookingRequest("/client/clientschedule", {
+        ...staffAuth,
+        params: {
+          ...clientParams,
+          "request.startDate": today,
+          "request.endDate": ninetyDaysOut,
+          "request.includeWaitlistEntries": "true",
+          "request.crossRegionalLookup": "true"
+        }
+      }),
+      bookingRequest("/client/clientcompleteinfo", {
+        ...ccInfoAuth,
+        params: {
+          ...clientParams,
+          "request.crossRegionalLookup": "true",
+          "request.showActiveOnly": "true"
+        }
+      }),
+      bookingRequest("/client/clientcontracts", {
+        ...staffAuth,
+        params: {
+          ...clientParams,
+          "request.crossRegionalLookup": "true"
+        }
+      }),
+      bookingRequest("/client/rewardpoints", {
+        ...staffAuth,
+        params: clientParams
+      }).catch(() => null)
+    ]);
+
+      const ccInfo = fulfilledValue(ccInfoResult);
+      const schedule = fulfilledValue(scheduleResult);
+      const contracts = fulfilledValue(contractsResult);
+      const rewards = fulfilledValue(rewardsResult);
+
+      // Extract services/class packs from clientcompleteinfo response
+// Extract services/class packs from every Mindbody shape we have seen
+const services =
+  ccInfo?.ClientServices ||
+  ccInfo?.Services ||
+  ccInfo?.Client?.ClientServices ||
+  ccInfo?.Client?.Services ||
+  ccInfo?.ClientCompleteInfo?.ClientServices ||
+  ccInfo?.ClientCompleteInfo?.Services ||
+  ccInfo?.ClientCompleteInfo?.Client?.ClientServices ||
+  ccInfo?.ClientCompleteInfo?.Client?.Services ||
+  [];
+
+// Extract memberships/contracts from every Mindbody shape
+const memberships =
+  contracts?.ClientContracts ||
+  contracts?.Contracts ||
+  contracts?.Client?.ClientContracts ||
+  ccInfo?.ClientContracts ||
+  ccInfo?.Contracts ||
+  ccInfo?.ClientMemberships ||
+  ccInfo?.Memberships ||
+  ccInfo?.Client?.ClientContracts ||
+  ccInfo?.Client?.ClientMemberships ||
+  ccInfo?.ClientCompleteInfo?.ClientContracts ||
+  ccInfo?.ClientCompleteInfo?.Contracts ||
+  ccInfo?.ClientCompleteInfo?.ClientMemberships ||
+  ccInfo?.ClientCompleteInfo?.Memberships ||
+  ccInfo?.ClientCompleteInfo?.Client?.ClientContracts ||
+  ccInfo?.ClientCompleteInfo?.Client?.ClientMemberships ||
+  [];
+
+      const errors = [scheduleResult, ccInfoResult, contractsResult]
+        .filter((r) => r.status === "rejected")
+        .map((r) => r.reason?.message)
+        .filter(Boolean);
+
+      sendJson(response, 200, {
+        clientLinked: true,
+        clientId,
+        profile: ccInfo?.Client || ccInfo?.ClientCompleteInfo?.Client || null,
+        schedule,
+        services,
+        contracts: memberships,
+        rewards,
+        session: publicSession(session),
+        errors
+      });
+      return true;
     }
-  }
-
-  if (!clientId) {
-    sendJson(response, 200, {
-      clientLinked: false,
-      profile: null,
-      schedule: null,
-      services: [],
-      contracts: [],
-      rewards: null,
-      session: publicSession(session),
-      errors: ["Could not resolve Mindbody client ID."]
-    });
-    return true;
-  }
-
-  let staffToken = null;
-
-  try {
-    staffToken = await getMindbodyActionToken("dashboard");
-  } catch (_) {}
-
-  const today = new Date().toISOString().split("T")[0];
-  const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
-
-  const staffAuth = staffToken
-    ? { token: staffToken }
-    : { consumerIdentityToken: session.consumerIdentityToken || session.accessToken };
-
-  const accountInfo = await fetchClientCompleteInfo(clientId, session).catch((err) => {
-    console.warn("[dashboard] Could not load client complete info:", err.message);
-
-    return {
-      hasUsablePricingOption: false,
-      activeServices: [],
-      activeMemberships: []
-    };
-  });
-
-  const [scheduleResult, rewardsResult] = await Promise.allSettled([
-    bookingRequest("/client/clientschedule", {
-      ...staffAuth,
-      params: {
-        "request.clientId": clientId,
-        "request.startDate": today,
-        "request.endDate": ninetyDaysOut,
-        "request.includeWaitlistEntries": "true",
-        "request.crossRegionalLookup": "true"
-      }
-    }),
-    bookingRequest("/client/rewardpoints", {
-      ...staffAuth,
-      params: {
-        "request.clientId": clientId
-      }
-    }).catch(() => null)
-  ]);
-
-  const schedule = fulfilledValue(scheduleResult);
-  const rewards = fulfilledValue(rewardsResult);
-
-  const services = Array.isArray(accountInfo?.activeServices)
-    ? accountInfo.activeServices
-    : [];
-
-  const contracts = Array.isArray(accountInfo?.activeMemberships)
-    ? accountInfo.activeMemberships
-    : [];
-
-  const errors = [scheduleResult, rewardsResult]
-    .filter((r) => r.status === "rejected")
-    .map((r) => r.reason?.message)
-    .filter(Boolean);
-
-  sendJson(response, 200, {
-    clientLinked: true,
-    clientId,
-    profile: null,
-    schedule,
-    services,
-    contracts,
-    rewards,
-    eligibility: accountInfo,
-    session: publicSession(session),
-    errors
-  });
-  return true;
-}
 
     if (path === "/api/account/me") {
       if (request.method !== "GET") {
