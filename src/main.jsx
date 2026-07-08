@@ -3797,17 +3797,29 @@ if (
                 Sign In to Book
               </a>
             );
-          } else if (liveStatus === "Full") {
-            actionButton = <button className="book-class book-full" type="button" disabled>Unavailable</button>;
-          } else if (liveStatus === "Unavailable") {
-            actionButton = <button className="book-class book-full" type="button" disabled>Unavailable</button>;
-          } else if (liveStatus === "Join Waitlist" || (bookingState.classId === classItem.id && bookingState.type === "error" && bookingState.operation === "book" && !isBooked && classItem.canWaitlist)) {
-            actionButton = (
-              <button className="book-class book-waitlist" type="button" disabled={isBusy} onClick={() => joinWaitlist(classItem)}>
-                {isBusy ? "Joining\u2026" : "Join Waitlist"}
-              </button>
-            );
-          } else if (hasNoCredits && !classItem.isFree) {
+      } else if (
+  liveStatus === "Full" ||
+  liveStatus === "Unavailable" ||
+  liveStatus === "Join Waitlist" ||
+  classItem.canWaitlist ||
+  (
+    bookingState.classId === classItem.id &&
+    bookingState.type === "error" &&
+    bookingState.operation === "book" &&
+    !isBooked
+  )
+) {
+  actionButton = (
+    <button
+      className="book-class book-waitlist"
+      type="button"
+      disabled={isBusy}
+      onClick={() => joinWaitlist(classItem)}
+    >
+      {isBusy ? "Joining…" : "Add to Waitlist"}
+    </button>
+  );
+}else if (hasNoCredits && !classItem.isFree) {
             actionButton = (
               <a className="book-class book-credits" href={ROUTES.pricing}>
                   Reserve
