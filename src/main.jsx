@@ -3825,29 +3825,52 @@ if (
           const isThisSuccess = bookingState.classId === classItem.id && bookingState.type === "success";
           const isThisUnbook = bookingState.classId === classItem.id && bookingState.operation === "unbook";
 
-          // Spots badge
-          const isDataLoading = isLiveDataLoading || (!liveClasses && spotsLoading);
-          const spotsNum = typeof classItem.spotsLeft === "number" ? classItem.spotsLeft : null;
-          let spotsClass = "spots-badge spots-open";
-          let spotsText = liveStatus || "Open";
+          
 
-          if (isDataLoading) {
-            spotsClass = "spots-badge spots-loading";
-            
-          } else if (isBooked || (isThisSuccess && !isThisUnbook)) {
-            spotsClass = "spots-badge spots-booked";
-            spotsText = "Booked";
-          } else if (isThisSuccess && isThisUnbook) {
-            spotsClass = "spots-badge spots-open";
-            spotsText = "Available";
-          } else if (liveStatus === "Full" || liveStatus === "Canceled" || liveStatus === "Unavailable") {
-            spotsClass = "spots-badge spots-full";
-          } else if (liveStatus === "Join Waitlist" || liveStatus?.startsWith("Only")) {
-            spotsClass = "spots-badge spots-low";
-          } else if (!liveStatus && spotsNum !== null) {
-            spotsText = spotsNum === 0 ? "Full" : `${spotsNum} left`;
-            spotsClass = spotsNum === 0 ? "spots-badge spots-full" : spotsNum <= 3 ? "spots-badge spots-low" : "spots-badge spots-open";
-          }
+          // Spots badge
+const isDataLoading = isLiveDataLoading || (!liveClasses && spotsLoading);
+const spotsNum = typeof classItem.spotsLeft === "number" ? classItem.spotsLeft : null;
+const hasClassSpots = spotsNum !== null && spotsNum > 0;
+const hasWaitlistSpots = Boolean(classItem.canWaitlist);
+const isFullyUnavailable =
+  !hasClassSpots &&
+  !hasWaitlistSpots &&
+  (liveStatus === "Full" || liveStatus === "Unavailable");
+
+let spotsClass = "spots-badge spots-open";
+let spotsText = liveStatus || "Open";
+
+if (isDataLoading) {
+  spotsClass = "spots-badge spots-loading";
+  spotsText = "Checking…";
+} else if (isWaitlisted) {
+  spotsClass = "spots-badge spots-low";
+  spotsText = "Waitlisted";
+} else if (isBooked || (isThisSuccess && !isThisUnbook)) {
+  spotsClass = "spots-badge spots-booked";
+  spotsText = "Booked";
+} else if (isThisSuccess && isThisUnbook) {
+  spotsClass = "spots-badge spots-open";
+  spotsText = "Available";
+} else if (liveStatus === "Canceled") {
+  spotsClass = "spots-badge spots-full";
+  spotsText = "Canceled";
+} else if (hasClassSpots) {
+  spotsClass = spotsNum <= 3 ? "spots-badge spots-low" : "spots-badge spots-open";
+  spotsText = "Available";
+} else if (hasWaitlistSpots) {
+  spotsClass = "spots-badge spots-open";
+  spotsText = "Available";
+} else if (isFullyUnavailable) {
+  spotsClass = "spots-badge spots-full";
+  spotsText = "Unavailable";
+} else if (liveStatus === "Join Waitlist" || liveStatus?.startsWith("Only")) {
+  spotsClass = "spots-badge spots-low";
+  spotsText = "Available";
+} else if (spotsNum !== null) {
+  spotsText = spotsNum === 0 ? "Unavailable" : "Available";
+  spotsClass = spotsNum === 0 ? "spots-badge spots-full" : "spots-badge spots-open";
+}
 
           // Action button
           let actionButton;
