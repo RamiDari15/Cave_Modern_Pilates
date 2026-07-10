@@ -3817,7 +3817,9 @@ if (
       <div className="schedule-list">
         {activeDay.classes.map((classItem, index) => {
           const classIdNum = Number(classItem.id);
-          const isBooked = clientSchedule.has(classIdNum);
+          const clientClassState = clientSchedule.get(classIdNum);
+          const isWaitlisted = clientClassState?.type === "waitlist";
+          const isBooked = Boolean(clientClassState) && !isWaitlisted;
           const liveStatus = classItem.status || "";
           const isThisLoading = bookingState.classId === classItem.id && bookingState.type === "loading";
           const isThisSuccess = bookingState.classId === classItem.id && bookingState.type === "success";
