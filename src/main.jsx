@@ -3405,13 +3405,22 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
         .then((r) => (r.ok ? r.json() : null)).catch(() => null)
     ]).then(([schedData, eligData]) => {
       if (cancelled) return;
-      if (schedData?.ok && Array.isArray(schedData.data?.visits)) {
-        const map = new Map();
-        schedData.data.visits.forEach((v) => {
-          if (v.classId) map.set(Number(v.classId), { visitId: v.visitId, status: v.status });
-        });
-        setClientSchedule(map);
-      }
+     if (schedData?.ok && Array.isArray(schedData.data?.visits)) {
+  const map = new Map();
+
+  schedData.data.visits.forEach((v) => {
+    if (!v.classId) return;
+
+    map.set(Number(v.classId), {
+      type: v.type || "booking",
+      visitId: v.visitId,
+      waitlistEntryId: v.waitlistEntryId,
+      status: v.status
+    });
+  });
+
+  setClientSchedule(map);
+}
       if (eligData?.ok) setEligibility(eligData.data);
     }).finally(() => { if (!cancelled) setDataLoading(false); });
 
@@ -3513,13 +3522,22 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
         fetch("/api/client/eligibility", { cache: "no-store", credentials: "include" })
           .then((r) => (r.ok ? r.json() : null)).catch(() => null)
       ]).then(([schedData, eligData]) => {
-        if (schedData?.ok && Array.isArray(schedData.data?.visits)) {
-          const map = new Map();
-          schedData.data.visits.forEach((v) => {
-            if (v.classId) map.set(Number(v.classId), { visitId: v.visitId, status: v.status });
-          });
-          setClientSchedule(map);
-        }
+     if (schedData?.ok && Array.isArray(schedData.data?.visits)) {
+  const map = new Map();
+
+  schedData.data.visits.forEach((v) => {
+    if (!v.classId) return;
+
+    map.set(Number(v.classId), {
+      type: v.type || "booking",
+      visitId: v.visitId,
+      waitlistEntryId: v.waitlistEntryId,
+      status: v.status
+    });
+  });
+
+  setClientSchedule(map);
+}
         if (eligData?.ok) setEligibility(eligData.data);
       });
     }
@@ -3624,6 +3642,65 @@ if (
       setBookingState({ classId, operation: "waitlist", type: "error", message: error.data?.message || error.message || "Could not join waitlist." });
     }
   };
+
+  const removeFromWaitlist = async (classItem) => {
+  const classId = Number(classItem.id);
+  const waitlistData = clientSchedule.get(classId);
+  const waitlistEntryId = waitlistData?.waitlistEntryId;
+
+  if (!clientSession?.signedIn) {
+    window.location.href = `/api/auth/start?returnTo=${encodeURIComponent(ROUTES.schedule)}`;
+    return;
+  }
+
+  if (!waitlistEntryId) {
+    setBookingState({
+      classId,
+      operation: "remove-waitlist",
+      type: "error",
+      message: "Could not find your waitlist entry."
+    });
+    return;
+  }
+
+  setBookingState({
+    classId,
+    operation: "remove-waitlist",
+    type: "loading",
+    message: "Removing from waitlist…"
+  });
+
+  try {
+    await apiRequest("/api/mindbody/remove-from-waitlist", {
+      method: "POST",
+      body: {
+        classId,
+        waitlistEntryId
+      }
+    });
+
+    setBookingState({
+      classId,
+      operation: "remove-waitlist",
+      type: "success",
+      message: "Removed from waitlist."
+    });
+
+    refreshAll();
+  } catch (error) {
+    if (error.loginUrl) {
+      window.location.href = error.loginUrl;
+      return;
+    }
+
+    setBookingState({
+      classId,
+      operation: "remove-waitlist",
+      type: "error",
+      message: error.data?.message || error.message || "Could not remove from waitlist."
+    });
+  }
+};
 
   const isLiveDataLoading = liveLoading && !liveClasses;
   const hasNoCredits = clientSession?.signedIn && eligibility !== null && !eligibility.hasUsablePricingOption;
@@ -3774,30 +3851,44 @@ if (
           let actionButton;
           const isBusy = isThisLoading;
           const effectiveBooked = isBooked && !(isThisSuccess && isThisUnbook);
-
           if (liveStatus === "Canceled") {
-            actionButton = <button className="book-class book-canceled" type="button" disabled>Canceled</button>;
-          } else if (effectiveBooked) {
-            actionButton = (
-              <button
-                className="book-class book-unbook"
-                type="button"
-                disabled={isBusy}
-                onClick={() => unbookClass(classItem)}
-              >
-                {isBusy && isThisUnbook ? "Cancelling\u2026" : "Unbook"}
-              </button>
-            );
-          } else if (!clientSession?.signedIn) {
-            actionButton = (
-              <a
-                className="book-class book-signin"
-                href={`/api/auth/start?returnTo=${encodeURIComponent(`${ROUTES.schedule}?classId=${classItem.id}`)}`}
-              >
-                Sign In to Book
-              </a>
-            );
-      } else if (
+  actionButton = (
+    <button className="book-class book-canceled" type="button" disabled>
+      Canceled
+    </button>
+  );
+} else if (effectiveBooked) {
+  actionButton = (
+    <button
+      className="book-class book-unbook"
+      type="button"
+      disabled={isBusy}
+      onClick={() => unbookClass(classItem)}
+    >
+      {isBusy && isThisUnbook ? "Cancelling…" : "Unbook"}
+    </button>
+  );
+} else if (isWaitlisted) {
+  actionButton = (
+    <button
+      className="book-class book-waitlist"
+      type="button"
+      disabled={isBusy}
+      onClick={() => removeFromWaitlist(classItem)}
+    >
+      {isBusy ? "Removing…" : "Remove Waitlist"}
+    </button>
+  );
+} else if (!clientSession?.signedIn) {
+  actionButton = (
+    <a
+      className="book-class book-signin"
+      href={`/api/auth/start?returnTo=${encodeURIComponent(`${ROUTES.schedule}?classId=${classItem.id}`)}`}
+    >
+      Sign In to Book
+    </a>
+  );
+} else if (
   liveStatus === "Full" ||
   liveStatus === "Unavailable" ||
   liveStatus === "Join Waitlist" ||
@@ -3819,26 +3910,31 @@ if (
       {isBusy ? "Joining…" : "Add to Waitlist"}
     </button>
   );
-}else if (hasNoCredits && !classItem.isFree) {
-            actionButton = (
-              <a className="book-class book-credits" href={ROUTES.pricing}>
-                  Reserve
-                </a>
-            );
-          } else if (dataLoading) {
-            actionButton = <button className="book-class" type="button" disabled></button>;
-          } else {
-            actionButton = (
-              <button
-                className="book-class book-available"
-                type="button"
-                disabled={isBusy}
-                onClick={() => bookClass(classItem)}
-              >
-                {isBusy && !isThisUnbook ? "Booking\u2026" : "Book"}
-              </button>
-            );
-          }
+} else if (hasNoCredits && !classItem.isFree) {
+  actionButton = (
+    <a className="book-class book-credits" href={ROUTES.pricing}>
+      Reserve
+    </a>
+  );
+} else if (dataLoading) {
+  actionButton = (
+    <button className="book-class" type="button" disabled>
+      Checking…
+    </button>
+  );
+} else {
+  actionButton = (
+    <button
+      className="book-class book-available"
+      type="button"
+      disabled={isBusy}
+      onClick={() => bookClass(classItem)}
+    >
+      {isBusy && !isThisUnbook ? "Booking…" : "Book"}
+    </button>
+  );
+}
+        
 
           return (
             <article className="schedule-row" key={`${classItem.id || classItem.classScheduleId || index}-${classItem.startDateTime || classItem.time}`}>

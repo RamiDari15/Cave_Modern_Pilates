@@ -943,81 +943,63 @@ return true;
       return true;
     }
 
-    if (path === "/api/mindbody/join-waitlist" && request.method === "POST") {
-      const session = await readHydratedSession(request, response);
+  if (path === "/api/mindbody/remove-from-waitlist" && request.method === "POST") {
+  const session = await readHydratedSession(request, response);
 
-      if (!session) {
-        sendJson(response, 401, {
-          ok: false,
-          code: "NO_CLIENT_ID",
-          message: "Please sign in first.",
-          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/schedule")}`
-        });
-        return true;
+  if (!session) {
+    sendJson(response, 401, {
+      ok: false,
+      message: "Please sign in first.",
+      loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/schedule")}`
+    });
+    return true;
+  }
+
+  const body = await readJsonBody(request);
+  const waitlistEntryId = Number(body.waitlistEntryId);
+
+  if (!Number.isInteger(waitlistEntryId) || waitlistEntryId <= 0) {
+    sendJson(response, 400, {
+      ok: false,
+      message: "Missing waitlist entry ID."
+    });
+    return true;
+  }
+
+  try {
+    const staffToken = await getMindbodyActionToken("Remove waitlist");
+
+    const result = await bookingRequest("/class/removefromwaitlist", {
+      method: "POST",
+      token: staffToken,
+      params: {
+        "request.waitlistEntryIds": [waitlistEntryId]
       }
+    });
 
-      const body = await readJsonBody(request);
-      const classId = Number(body.classId);
+    liveClassesCache.expiresAt = 0;
 
-      if (!Number.isInteger(classId) || classId <= 0) {
-        sendJson(response, 400, { ok: false, code: "NO_CLASS_ID", message: "A valid class ID is required." });
-        return true;
-      }
+    sendJson(response, 200, {
+      ok: true,
+      message: "Removed from waitlist.",
+      data: result
+    });
+  } catch (error) {
+    const message =
+      error.data?.Error?.Message ||
+      error.data?.Message ||
+      error.message ||
+      "Could not remove from waitlist.";
 
-      try {
-        const clientId = await resolveSessionClientId(session);
+    sendJson(response, error.status || 503, {
+      ok: false,
+      message
+    });
+  }
 
-        if (!clientId) {
-          sendJson(response, 400, { ok: false, code: "NO_CLIENT_ID", message: "Could not resolve your studio account." });
-          return true;
-        }
-
-        const classData = await bookingRequest("/class/classes", {
-          params: { "request.classIds": classId, "request.schedulingWindow": "true" }
-        });
-        const classes = firstListByKey(classData, "Classes");
-        const classItem = classes.find((c) => c.Id === classId) || classes[0];
-
-        if (!classItem) {
-          sendJson(response, 404, { ok: false, code: "NO_CLASS_ID", message: "Class not found." });
-          return true;
-        }
-
-        const maxWaitlist = Number(classItem.MaxWaitListSize || 0);
-        if (maxWaitlist <= 0) {
-          sendJson(response, 400, { ok: false, code: "WAITLIST_NOT_AVAILABLE", message: "This class does not have a waitlist." });
-          return true;
-        }
-
-        const waitlistCount = Number(classItem.TotalWaitlistedClients || 0);
-        if (waitlistCount >= maxWaitlist) {
-          sendJson(response, 409, { ok: false, code: "WAITLIST_NOT_AVAILABLE", message: "The waitlist for this class is also full." });
-          return true;
-        }
-
-        const staffToken = await getMindbodyActionToken("Waitlist booking");
-        const result = await bookingRequest("/class/addclienttoclass", {
-          method: "POST",
-          token: staffToken,
-          body: {
-            ClientId: clientId,
-            ClassId: classId,
-            Waitlist: true,
-            SendEmail: true,
-            Test: process.env.BOOKING_TEST_MODE === "true"
-          }
-        });
-
-        liveClassesCache.expiresAt = 0;
-        sendJson(response, 200, { ok: true, data: result });
-      } catch (error) {
-        const code = error.bookingCode || "MINDBODY_API_ERROR";
-        sendJson(response, error.status || 503, { ok: false, code, message: error.message || "Could not join waitlist." });
-      }
-
-      return true;
-    }
-
+  return true;
+}
+    
     if (path === "/api/mindbody/payment-types" && request.method === "GET") {
       const { apiKey } = getBookingConfig();
 
@@ -1288,25 +1270,49 @@ return true;
         }
       }).catch(() => null);
 
-      const raw = scheduleData?.ClientSchedule?.Visits
-        || scheduleData?.ClientSchedule
-        || scheduleData?.Visits
-        || scheduleData?.Classes
-        || [];
-      const visitsArray = Array.isArray(raw) ? raw : [];
+      const rawVisits =
+  scheduleData?.ClientSchedule?.Visits ||
+  scheduleData?.Visits ||
+  [];
 
-      const visits = visitsArray
-        .filter((v) => v && typeof v === "object")
-        .map((v) => ({
-          classId: Number(v.ClassId || v.Id || 0),
-          visitId: Number(v.Id || v.VisitId || 0),
-          startDateTime: v.StartDateTime || "",
-          status: v.VisitStatus || v.Status || "Confirmed"
-        }))
-        .filter((v) => v.classId > 0);
+const visitsArray = Array.isArray(rawVisits) ? rawVisits : [];
 
-      sendJson(response, 200, { ok: true, data: { visits } });
-      return true;
+const visits = visitsArray
+  .filter((v) => v && typeof v === "object")
+  .map((v) => ({
+    type: "booking",
+    classId: Number(v.ClassId || v.Class?.Id || v.Id || 0),
+    visitId: Number(v.Id || v.VisitId || 0),
+    startDateTime: v.StartDateTime || v.Class?.StartDateTime || "",
+    status: v.VisitStatus || v.Status || "Confirmed"
+  }))
+  .filter((v) => v.classId > 0);
+
+const rawWaitlist =
+  scheduleData?.ClientSchedule?.WaitlistEntries ||
+  scheduleData?.WaitlistEntries ||
+  [];
+
+const waitlistArray = Array.isArray(rawWaitlist) ? rawWaitlist : [];
+
+const waitlistEntries = waitlistArray
+  .filter((w) => w && typeof w === "object")
+  .map((w) => ({
+    type: "waitlist",
+    classId: Number(w.ClassId || w.Class?.Id || w.Id || 0),
+    waitlistEntryId: Number(w.Id || w.WaitlistEntryId || w.WaitListEntryId || 0),
+    startDateTime: w.StartDateTime || w.Class?.StartDateTime || "",
+    status: w.Status || "Waitlisted"
+  }))
+  .filter((w) => w.classId > 0 && w.waitlistEntryId > 0);
+
+sendJson(response, 200, {
+  ok: true,
+  data: {
+    visits: [...visits, ...waitlistEntries]
+  }
+});
+return true;
     }
 
     if (path === "/api/client/eligibility" && request.method === "GET") {
@@ -5743,13 +5749,21 @@ async function bookingRequest(path, { method = "GET", body, params, token, consu
 
   const url = new URL(`${BASE_URL}${path}`);
 
-  if (params) {
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null && value !== "") {
-        url.searchParams.set(key, value);
-      }
+if (params) {
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        if (entry !== undefined && entry !== null && entry !== "") {
+          url.searchParams.append(key, String(entry));
+        }
+      });
+    } else {
+      url.searchParams.set(key, String(value));
     }
   }
+}
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35_000);
