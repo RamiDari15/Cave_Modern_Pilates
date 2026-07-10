@@ -2777,7 +2777,81 @@ if (storedLastFour.length === 4) {
       }
       return true;
     }
+    if (path === "/api/mindbody/join-waitlist" && request.method === "POST") {
+  const session = await readHydratedSession(request, response);
 
+  if (!session) {
+    sendJson(response, 401, {
+      ok: false,
+      code: "NO_CLIENT_ID",
+      message: "Please sign in first.",
+      loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/schedule")}`
+    });
+    return true;
+  }
+
+  const body = await readJsonBody(request);
+  const classId = Number(body.classId);
+
+  if (!Number.isInteger(classId) || classId <= 0) {
+    sendJson(response, 400, {
+      ok: false,
+      code: "NO_CLASS_ID",
+      message: "A valid class ID is required."
+    });
+    return true;
+  }
+
+  try {
+    const clientId = await resolveSessionClientId(session);
+
+    if (!clientId) {
+      sendJson(response, 400, {
+        ok: false,
+        code: "NO_CLIENT_ID",
+        message: "Could not resolve your studio account."
+      });
+      return true;
+    }
+
+    const staffToken = await getMindbodyActionToken("Waitlist booking");
+
+    const result = await bookingRequest("/class/addclienttoclass", {
+      method: "POST",
+      token: staffToken,
+      body: {
+        ClientId: clientId,
+        ClassId: classId,
+        Waitlist: true,
+        RequirePayment: false,
+        SendEmail: true,
+        Test: process.env.BOOKING_TEST_MODE === "true"
+      }
+    });
+
+    liveClassesCache.expiresAt = 0;
+
+    sendJson(response, 200, {
+      ok: true,
+      message: "Added to waitlist.",
+      data: result
+    });
+  } catch (error) {
+    const message =
+      error.data?.Error?.Message ||
+      error.data?.Message ||
+      error.message ||
+      "Could not join waitlist.";
+
+    sendJson(response, error.status || 503, {
+      ok: false,
+      code: error.bookingCode || "MINDBODY_API_ERROR",
+      message
+    });
+  }
+
+  return true;
+}
     sendJson(response, 404, { message: "API route not found." });
     return true;
   } catch (error) {
