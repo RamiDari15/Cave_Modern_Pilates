@@ -4957,24 +4957,31 @@ function normalizeClassFull(item) {
   let canBook = true;
   let canWaitlist = false;
 
-  if (isCanceled) {
-    status = "Canceled";
-    canBook = false;
-  } else if (!isAvailable) {
-    status = "Unavailable";
-    canBook = false;
-  } else if (spotsRemaining !== null && spotsRemaining <= 0) {
-    canBook = false;
-    if (waitlistAvailable) {
-      status = "Join Waitlist";
-      canWaitlist = true;
-    } else {
-      status = "Full";
-    }
-  } else if (spotsRemaining !== null && spotsRemaining <= 5) {
-    status = `Only ${spotsRemaining} ${spotsRemaining === 1 ? "spot" : "spots"} left`;
-  }
 
+  if (isCanceled) {
+  status = "Canceled";
+  canBook = false;
+} else if (spotsRemaining !== null && spotsRemaining <= 0) {
+  canBook = false;
+
+  if (waitlistAvailable) {
+    status = "Join Waitlist";
+    canWaitlist = true;
+  } else {
+    status = "Unavailable";
+  }
+} else if (!isAvailable) {
+  canBook = false;
+
+  if (waitlistAvailable) {
+    status = "Join Waitlist";
+    canWaitlist = true;
+  } else {
+    status = "Unavailable";
+  }
+} else if (spotsRemaining !== null && spotsRemaining <= 5) {
+  status = `Only ${spotsRemaining} ${spotsRemaining === 1 ? "spot" : "spots"} left`;
+}
   const classDesc = item.ClassDescription || {};
   const staff = item.Staff;
   const instructor = staff

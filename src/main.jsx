@@ -3914,10 +3914,8 @@ if (isDataLoading) {
     </a>
   );
 } else if (
-  liveStatus === "Full" ||
-  liveStatus === "Unavailable" ||
-  liveStatus === "Join Waitlist" ||
-  classItem.canWaitlist ||
+liveStatus === "Join Waitlist" ||
+classItem.canWaitlist ||
   (
     bookingState.classId === classItem.id &&
     bookingState.type === "error" &&
