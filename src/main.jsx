@@ -1585,10 +1585,37 @@ function pricingStoreGroups(store, legacyMemberships) {
 
 function sortMembershipItems(items) {
   return [...items].sort((a, b) => {
+    const aUnlimited =
+      (a.name || "").toLowerCase().includes("unlimited");
+
+    const bUnlimited =
+      (b.name || "").toLowerCase().includes("unlimited");
+
+    // Put regular memberships first
+    if (aUnlimited !== bUnlimited) {
+      return aUnlimited ? 1 : -1;
+    }
+
+    // Unlimited memberships: sort by contract length
+    if (aUnlimited && bUnlimited) {
+      return (
+        (Number(a.commitmentMonths) || 0) -
+        (Number(b.commitmentMonths) || 0)
+      );
+    }
+
+    // Regular memberships: sort by class count then contract length
     const sessA = Number(a.sessions) || 9999;
     const sessB = Number(b.sessions) || 9999;
-    if (sessA !== sessB) return sessA - sessB;
-    return (Number(a.commitmentMonths) || 0) - (Number(b.commitmentMonths) || 0);
+
+    if (sessA !== sessB) {
+      return sessA - sessB;
+    }
+
+    return (
+      (Number(a.commitmentMonths) || 0) -
+      (Number(b.commitmentMonths) || 0)
+    );
   });
 }
 
