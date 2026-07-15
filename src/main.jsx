@@ -1211,26 +1211,51 @@ function usePricingCatalog(store, memberships) {
 
   useEffect(() => {
     let mounted = true;
+
     apiRequest("/api/pricing/catalog")
-      .then((data) => { if (mounted && data?.ok) setCatalog(data.catalog); })
+      .then((data) => {
+        if (mounted && data?.ok) {
+          setCatalog(data.catalog || {});
+        }
+      })
       .catch(() => {})
-      .finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const groups = pricingStoreGroups(store, memberships);
-  console.log(catalog.memberships);
-  return {
-  newbie: catalog?.newbie?.length ? catalog.newbie : groups.newbie || [],
-  classPacks: catalog?.classPacks?.length ? catalog.classPacks : groups.classPacks || [],
-  dropIn: catalog?.dropIn?.length ? catalog.dropIn : groups.dropIn || [],
-  memberships: catalog
-    ? sortMembershipItems(catalog.memberships || [])
-    : groups.memberships || [],
-  loading
-};
-}
 
+  const membershipItems = sortMembershipItems(
+    catalog
+      ? catalog.memberships || []
+      : groups.memberships || []
+  );
+
+  return {
+    newbie: catalog?.newbie?.length
+      ? catalog.newbie
+      : groups.newbie || [],
+
+    classPacks: catalog?.classPacks?.length
+      ? catalog.classPacks
+      : groups.classPacks || [],
+
+    dropIn: catalog?.dropIn?.length
+      ? catalog.dropIn
+      : groups.dropIn || [],
+
+    memberships: membershipItems,
+
+    loading
+  };
+}
 function useCart() {
   const [items, setItems] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -1587,38 +1612,82 @@ function pricingStoreGroups(store, legacyMemberships) {
   return groups;
 }
 
+function membershipSearchText(item) {
+  return [
+    item?.name,
+    item?.sourceName,
+    item?.description,
+    item?.agreementTerms
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function membershipCommitmentMonths(item) {
+  const directValue = Number(
+    item?.commitmentMonths ??
+    item?.contractLengthMonths ??
+    item?.termMonths
+  );
+
+  if (Number.isFinite(directValue) && directValue > 0) {
+    return directValue;
+  }
+
+  const text = membershipSearchText(item);
+  const monthMatch = text.match(/\b(3|6|12)\s*[- ]?\s*months?\b/i);
+
+  return monthMatch ? Number(monthMatch[1]) : 9999;
+}
+
+function membershipSessionCount(item) {
+  const directValue = Number(item?.sessions);
+
+  if (Number.isFinite(directValue) && directValue > 0) {
+    return directValue;
+  }
+
+  const text = membershipSearchText(item);
+  const classMatch = text.match(/\b(\d+)\s*classes?\b/i);
+
+  return classMatch ? Number(classMatch[1]) : 9999;
+}
+
 function sortMembershipItems(items) {
   return [...items].sort((a, b) => {
-    const aUnlimited =
-      (a.name || "").toLowerCase().includes("unlimited");
+    const aText = membershipSearchText(a);
+    const bText = membershipSearchText(b);
 
-    const bUnlimited =
-      (b.name || "").toLowerCase().includes("unlimited");
+    const aUnlimited = aText.includes("unlimited");
+    const bUnlimited = bText.includes("unlimited");
 
-    // Put regular memberships first
+    // Regular memberships first, unlimited memberships second
     if (aUnlimited !== bUnlimited) {
       return aUnlimited ? 1 : -1;
     }
 
-    // Unlimited memberships: sort by contract length
+    // Unlimited row: 3 months, 6 months, 12 months
     if (aUnlimited && bUnlimited) {
       return (
-        (Number(a.commitmentMonths) || 0) -
-        (Number(b.commitmentMonths) || 0)
+        membershipCommitmentMonths(a) -
+        membershipCommitmentMonths(b)
       );
     }
 
-    // Regular memberships: sort by class count then contract length
-    const sessA = Number(a.sessions) || 9999;
-    const sessB = Number(b.sessions) || 9999;
+    // Regular memberships: class count first, then 3, 6, 12 months
+    const sessionDifference =
+      membershipSessionCount(a) -
+      membershipSessionCount(b);
 
-    if (sessA !== sessB) {
-      return sessA - sessB;
+    if (sessionDifference !== 0) {
+      return sessionDifference;
     }
 
     return (
-      (Number(a.commitmentMonths) || 0) -
-      (Number(b.commitmentMonths) || 0)
+      membershipCommitmentMonths(a) -
+      membershipCommitmentMonths(b)
     );
   });
 }
