@@ -1219,6 +1219,7 @@ function usePricingCatalog(store, memberships) {
   }, []);
 
   const groups = pricingStoreGroups(store, memberships);
+  console.log(catalog.memberships);
   return {
   newbie: catalog?.newbie?.length ? catalog.newbie : groups.newbie || [],
   classPacks: catalog?.classPacks?.length ? catalog.classPacks : groups.classPacks || [],
