@@ -1220,11 +1220,14 @@ function usePricingCatalog(store, memberships) {
 
   const groups = pricingStoreGroups(store, memberships);
   return {
-    newbie: catalog?.newbie?.length ? catalog.newbie : groups.newbie || [],
-    classPacks: catalog?.classPacks?.length ? catalog.classPacks : groups.classPacks || [],
-    dropIn: catalog?.dropIn?.length ? catalog.dropIn : groups.dropIn || [],
-memberships: catalog ? catalog.memberships || [] : groups.memberships || [],    loading
-  };
+  newbie: catalog?.newbie?.length ? catalog.newbie : groups.newbie || [],
+  classPacks: catalog?.classPacks?.length ? catalog.classPacks : groups.classPacks || [],
+  dropIn: catalog?.dropIn?.length ? catalog.dropIn : groups.dropIn || [],
+  memberships: catalog
+    ? sortMembershipItems(catalog.memberships || [])
+    : groups.memberships || [],
+  loading
+};
 }
 
 function useCart() {
