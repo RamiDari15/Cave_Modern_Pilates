@@ -1612,91 +1612,82 @@ function pricingStoreGroups(store, legacyMemberships) {
   return groups;
 }
 
+
 function membershipSearchText(item) {
   return [
     item?.name,
+    item?.Name,
     item?.sourceName,
+    item?.SourceName,
     item?.description,
-    item?.agreementTerms
+    item?.Description,
+    item?.agreementTerms,
+    item?.AgreementTerms
   ]
     .filter(Boolean)
     .join(" ")
     .replace(/\s+/g, " ")
+    .trim()
     .toLowerCase();
 }
 
 function membershipCommitmentMonths(item) {
+  const text = membershipSearchText(item);
+
+  // Prefer the displayed text because Mindbody fields may be inconsistent.
+  const textMatch = text.match(/\b(3|6|12)\s*[- ]?\s*months?\b/i);
+
+  if (textMatch) {
+    return Number(textMatch[1]);
+  }
+
   const directValue = Number(
     item?.commitmentMonths ??
+    item?.CommitmentMonths ??
     item?.contractLengthMonths ??
-    item?.termMonths
+    item?.ContractLengthMonths ??
+    item?.termMonths ??
+    item?.TermMonths
   );
 
-  if (Number.isFinite(directValue) && directValue > 0) {
-    return directValue;
-  }
-
-  const text = membershipSearchText(item);
-  const monthMatch = text.match(/\b(3|6|12)\s*[- ]?\s*months?\b/i);
-
-  return monthMatch ? Number(monthMatch[1]) : 9999;
-}
-
-function membershipSessionCount(item) {
-  const directValue = Number(item?.sessions);
-
-  if (Number.isFinite(directValue) && directValue > 0) {
-    return directValue;
-  }
-
-  const text = membershipSearchText(item);
-  const classMatch = text.match(/\b(\d+)\s*classes?\b/i);
-
-  return classMatch ? Number(classMatch[1]) : 9999;
-}
-
-function sortMembershipItems(items = []) {
-  return [...items].sort((a, b) => {
-    const groupA = membershipGroup(a);
-    const groupB = membershipGroup(b);
-
-    // First group by membership type:
-    // 4 class, then 8 class, then unlimited.
-    if (groupA !== groupB) {
-      return groupA - groupB;
-    }
-
-    // Then sort each group by 3, 6, 12 months.
-    return membershipMonths(a) - membershipMonths(b);
-  });
+  return Number.isFinite(directValue) && directValue > 0
+    ? directValue
+    : 9999;
 }
 
 function membershipGroup(item) {
-  const text = [
-    item.name,
-    item.Name,
-    item.sourceName,
-    item.SourceName,
-    item.description,
-    item.Description
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  const text = membershipSearchText(item);
 
-  if (/unlimited/.test(text)) {
+  // Force each membership type into its own row.
+  if (/\bunlimited\b/i.test(text)) {
     return 3;
   }
 
-  if (/\b4\s*class/.test(text)) {
+  if (/\b4\s*class(?:es)?(?:\s*pack)?\b/i.test(text)) {
     return 1;
   }
 
-  if (/\b8\s*class/.test(text)) {
+  if (/\b8\s*class(?:es)?(?:\s*pack)?\b/i.test(text)) {
     return 2;
   }
 
   return 99;
+}
+
+function sortMembershipItems(items = []) {
+  return [...items].sort((a, b) => {
+    const groupDifference =
+      membershipGroup(a) - membershipGroup(b);
+
+    if (groupDifference !== 0) {
+      return groupDifference;
+    }
+
+    return (
+      membershipCommitmentMonths(a) -
+      membershipCommitmentMonths(b)
+    );
+  });
 }
 
 function sortBySessionsAsc(items) {
