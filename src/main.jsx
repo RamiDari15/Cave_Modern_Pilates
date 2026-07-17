@@ -1655,41 +1655,48 @@ function membershipSessionCount(item) {
   return classMatch ? Number(classMatch[1]) : 9999;
 }
 
-function sortMembershipItems(items) {
+function sortMembershipItems(items = []) {
   return [...items].sort((a, b) => {
-    const aText = membershipSearchText(a);
-    const bText = membershipSearchText(b);
+    const groupA = membershipGroup(a);
+    const groupB = membershipGroup(b);
 
-    const aUnlimited = aText.includes("unlimited");
-    const bUnlimited = bText.includes("unlimited");
-
-    // Regular memberships first, unlimited memberships second
-    if (aUnlimited !== bUnlimited) {
-      return aUnlimited ? 1 : -1;
+    // First group by membership type:
+    // 4 class, then 8 class, then unlimited.
+    if (groupA !== groupB) {
+      return groupA - groupB;
     }
 
-    // Unlimited row: 3 months, 6 months, 12 months
-    if (aUnlimited && bUnlimited) {
-      return (
-        membershipCommitmentMonths(a) -
-        membershipCommitmentMonths(b)
-      );
-    }
-
-    // Regular memberships: class count first, then 3, 6, 12 months
-    const sessionDifference =
-      membershipSessionCount(a) -
-      membershipSessionCount(b);
-
-    if (sessionDifference !== 0) {
-      return sessionDifference;
-    }
-
-    return (
-      membershipCommitmentMonths(a) -
-      membershipCommitmentMonths(b)
-    );
+    // Then sort each group by 3, 6, 12 months.
+    return membershipMonths(a) - membershipMonths(b);
   });
+}
+
+function membershipGroup(item) {
+  const text = [
+    item.name,
+    item.Name,
+    item.sourceName,
+    item.SourceName,
+    item.description,
+    item.Description
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/unlimited/.test(text)) {
+    return 3;
+  }
+
+  if (/\b4\s*class/.test(text)) {
+    return 1;
+  }
+
+  if (/\b8\s*class/.test(text)) {
+    return 2;
+  }
+
+  return 99;
 }
 
 function sortBySessionsAsc(items) {
