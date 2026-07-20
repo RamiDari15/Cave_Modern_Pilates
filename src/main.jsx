@@ -4012,13 +4012,10 @@ if (isDataLoading) {
     </a>
   );
 } else if (
-liveStatus === "Join Waitlist" ||
-classItem.canWaitlist ||
+  liveStatus === "Join Waitlist" ||
   (
-    bookingState.classId === classItem.id &&
-    bookingState.type === "error" &&
-    bookingState.operation === "book" &&
-    !isBooked
+    classItem.canWaitlist &&
+    !(typeof classItem.spotsLeft === "number" && classItem.spotsLeft > 0)
   )
 ) {
   actionButton = (
