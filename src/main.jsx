@@ -2452,7 +2452,7 @@ function LoginPage({ bookingUrl, clientSession, setClientSession }) {
         return;
       }
 
-      window.location.href = normalizeLocalReturnTo(event.data.returnTo);
+      window.location.replace(ROUTES.account);
     };
 
     window.addEventListener("message", onMessage);

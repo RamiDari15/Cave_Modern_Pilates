@@ -3370,15 +3370,15 @@ async function finishOAuthSignIn(request, response, form) {
     setSessionCookie(response, session);
     console.log(`[auth/callback] session cookie set`);
     if (oauthSession.popup) {
-      finishPopup({
-        ok: true,
-        returnTo: oauthSession.returnTo || "/account"
-      });
-      return;
-    }
+    finishPopup({
+      ok: true,
+      returnTo: "/account"
+    });
+    return;
+  }
 
-    clearOAuthCookie(response);
-    redirect(response, oauthSession.returnTo || "/account");
+  clearOAuthCookie(response);
+  redirect(response, "/account");
   } catch (error) {
     const message = oauthFailureMessage(error);
 
