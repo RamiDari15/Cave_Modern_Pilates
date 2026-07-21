@@ -3942,7 +3942,7 @@ const shouldWaitlist =
     classItem.canWaitlist ||
     classItem.canBook === false ||
     spotsNum === 0 ||
-    liveStatus === "Add to Waitlist" ||
+    liveStatus === "Waitlist" ||
     liveStatus === "Join Waitlist" ||
     liveStatus === "Full" ||
     liveStatus === "Unavailable"
@@ -3968,7 +3968,7 @@ if (isDataLoading) {
   spotsText = "Canceled";
 } else if (shouldWaitlist) {
   spotsClass = "spots-badge spots-low";
-  spotsText = "Add to Waitlist";
+  spotsText = "Waitlist";
 }
 
           // Action button
@@ -4030,7 +4030,7 @@ if (isDataLoading) {
       disabled={isBusy}
       onClick={() => joinWaitlist(classItem)}
     >
-      {isBusy ? "Joining…" : "Add to Waitlist"}
+      {isBusy ? "Joining…" : "Waitlist"}
     </button>
   );
 } else if (dataLoading) {
