@@ -4987,7 +4987,7 @@ if (isCanceled) {
   canBook = false;
   canWaitlist = false;
 } else if (shouldWaitlist) {
-  status = "Add to Waitlist";
+  status = "Waitlist";
   canBook = false;
   canWaitlist = true;
 }
