@@ -4946,42 +4946,40 @@ function normalizeClassFull(item) {
 
   const maxCapacity = Number(firstDefined(item.MaxCapacity, item.WebCapacity) || 0);
   const totalBooked = Number(firstDefined(item.TotalBooked, item.WebBooked) || 0);
-  const maxWaitlist = Number(item.MaxWaitListSize || 0);
-  const waitlistCount = Number(item.TotalWaitlistedClients || 0);
-  const spotsRemaining = maxCapacity > 0 ? Math.max(maxCapacity - totalBooked, 0) : null;
-  const waitlistAvailable = maxWaitlist > 0 && waitlistCount < maxWaitlist;
-  const isCanceled = Boolean(item.IsCanceled);
-  const isAvailable = item.IsAvailable !== false;
+const maxWaitlist = Number(item.MaxWaitListSize || 0);
+const waitlistCount = Number(item.TotalWaitlistedClients || 0);
 
-  let status = "Available";
-  let canBook = true;
-  let canWaitlist = false;
+const spotsRemaining =
+  maxCapacity > 0
+    ? Math.max(maxCapacity - totalBooked, 0)
+    : null;
 
+const isCanceled = Boolean(item.IsCanceled);
+const isAvailable = item.IsAvailable !== false;
 
-  if (isCanceled) {
+// Waitlist is unlimited, so every full/unavailable class
+// should allow joining the waitlist.
+const shouldWaitlist =
+  !isCanceled &&
+  (
+    (spotsRemaining !== null && spotsRemaining <= 0) ||
+    !isAvailable
+  );
+
+let status = "Available";
+let canBook = true;
+let canWaitlist = false;
+
+if (isCanceled) {
   status = "Canceled";
   canBook = false;
-} else if (spotsRemaining !== null && spotsRemaining <= 0) {
+  canWaitlist = false;
+} else if (shouldWaitlist) {
+  status = "Add to Waitlist";
   canBook = false;
-
-  if (waitlistAvailable) {
-    status = "Join Waitlist";
-    canWaitlist = true;
-  } else {
-    status = "Unavailable";
-  }
-} else if (!isAvailable) {
-  canBook = false;
-
-  if (waitlistAvailable) {
-    status = "Join Waitlist";
-    canWaitlist = true;
-  } else {
-    status = "Unavailable";
-  }
-} else if (spotsRemaining !== null && spotsRemaining <= 5) {
-  status = `Only ${spotsRemaining} ${spotsRemaining === 1 ? "spot" : "spots"} left`;
+  canWaitlist = true;
 }
+
   const classDesc = item.ClassDescription || {};
   const staff = item.Staff;
   const instructor = staff

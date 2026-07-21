@@ -3926,17 +3926,30 @@ if (
           
 
           // Spots badge
-const isDataLoading = isLiveDataLoading || (!liveClasses && spotsLoading);
-const spotsNum = typeof classItem.spotsLeft === "number" ? classItem.spotsLeft : null;
-const hasClassSpots = spotsNum !== null && spotsNum > 0;
-const hasWaitlistSpots = Boolean(classItem.canWaitlist);
-const isFullyUnavailable =
-  !hasClassSpots &&
-  !hasWaitlistSpots &&
-  (liveStatus === "Full" || liveStatus === "Unavailable");
+// Spots badge
+const isDataLoading =
+  isLiveDataLoading || (!liveClasses && spotsLoading);
+
+const spotsNum =
+  typeof classItem.spotsLeft === "number"
+    ? classItem.spotsLeft
+    : null;
+
+const shouldWaitlist =
+  !isDataLoading &&
+  liveStatus !== "Canceled" &&
+  (
+    classItem.canWaitlist ||
+    classItem.canBook === false ||
+    spotsNum === 0 ||
+    liveStatus === "Add to Waitlist" ||
+    liveStatus === "Join Waitlist" ||
+    liveStatus === "Full" ||
+    liveStatus === "Unavailable"
+  );
 
 let spotsClass = "spots-badge spots-open";
-let spotsText = liveStatus || "Open";
+let spotsText = "Available";
 
 if (isDataLoading) {
   spotsClass = "spots-badge spots-loading";
@@ -3953,21 +3966,9 @@ if (isDataLoading) {
 } else if (liveStatus === "Canceled") {
   spotsClass = "spots-badge spots-full";
   spotsText = "Canceled";
-} else if (hasClassSpots) {
-  spotsClass = spotsNum <= 3 ? "spots-badge spots-low" : "spots-badge spots-open";
-  spotsText = "Available";
-} else if (hasWaitlistSpots) {
-  spotsClass = "spots-badge spots-open";
-  spotsText = "Available";
-} else if (isFullyUnavailable) {
-  spotsClass = "spots-badge spots-full";
-  spotsText = "Unavailable";
-} else if (liveStatus === "Join Waitlist" || liveStatus?.startsWith("Only")) {
+} else if (shouldWaitlist) {
   spotsClass = "spots-badge spots-low";
-  spotsText = "Available";
-} else if (spotsNum !== null) {
-  spotsText = spotsNum === 0 ? "Unavailable" : "Available";
-  spotsClass = spotsNum === 0 ? "spots-badge spots-full" : "spots-badge spots-open";
+  spotsText = "Add to Waitlist";
 }
 
           // Action button
@@ -4006,18 +4007,16 @@ if (isDataLoading) {
   actionButton = (
     <a
       className="book-class book-signin"
-      href={`/api/auth/start?returnTo=${encodeURIComponent(`${ROUTES.schedule}?classId=${classItem.id}`)}`}
+      href={`/api/auth/start?returnTo=${encodeURIComponent(
+        `${ROUTES.schedule}?classId=${classItem.id}`
+      )}`}
     >
-      Sign In to Book
+      {shouldWaitlist
+        ? "Sign In to Join Waitlist"
+        : "Sign In to Book"}
     </a>
   );
-} else if (
-  liveStatus === "Join Waitlist" ||
-  (
-    classItem.canWaitlist &&
-    !(typeof classItem.spotsLeft === "number" && classItem.spotsLeft > 0)
-  )
-) {
+} else if (shouldWaitlist) {
   actionButton = (
     <button
       className="book-class book-waitlist"
