@@ -2814,7 +2814,19 @@ if (storedLastFour.length === 4) {
       return true;
     }
 
-    const staffToken = await getMindbodyActionToken("Waitlist booking");
+   const clientInfo = await fetchClientCompleteInfo(clientId, session);
+
+if (!clientInfo?.hasUsablePricingOption) {
+  const err = httpError(
+    402,
+    "You need an active class pack or membership before joining the waitlist. Visit the Pricing page to get started."
+  );
+
+  err.bookingCode = "NO_VALID_SERVICE";
+  throw err;
+}
+
+const staffToken = await getMindbodyActionToken("Waitlist booking");
 
     const result = await bookingRequest("/class/addclienttoclass", {
       method: "POST",

@@ -4016,6 +4016,12 @@ if (isDataLoading) {
         : "Sign In to Book"}
     </a>
   );
+} else if (hasNoCredits && !classItem.isFree) {
+  actionButton = (
+    <a className="book-class book-credits" href={ROUTES.pricing}>
+      Reserve
+    </a>
+  );
 } else if (shouldWaitlist) {
   actionButton = (
     <button
@@ -4026,12 +4032,6 @@ if (isDataLoading) {
     >
       {isBusy ? "Joining…" : "Add to Waitlist"}
     </button>
-  );
-} else if (hasNoCredits && !classItem.isFree) {
-  actionButton = (
-    <a className="book-class book-credits" href={ROUTES.pricing}>
-      Reserve
-    </a>
   );
 } else if (dataLoading) {
   actionButton = (
