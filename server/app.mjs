@@ -158,4 +158,3 @@ function runStudioCacheSync(reason) {
     console.warn(`Studio cache refresh could not start: ${error.message}`);
   });
 }
-r

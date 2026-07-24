@@ -237,12 +237,20 @@ export async function handleApiRequest(request, response) {
     return false;
   }
 
+  applyCorsHeaders(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.statusCode = 204;
+    response.end();
+    return true;
+  }
+
   try {
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method || "") && path !== "/api/auth/callback") {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -332,7 +340,9 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/auth/session") {
       const session = await readHydratedSession(request, response);
-      sendJson(response, 200, { signedIn: Boolean(session), session: publicSession(session) });
+      sendJson(response, 200, session
+        ? { signedIn: true, ...createAppAuthPayload(request, session) }
+        : { signedIn: false, session: null });
       return true;
     }
 
@@ -481,7 +491,9 @@ export async function handleApiRequest(request, response) {
         response,
         url.searchParams.get("returnTo"),
         url.searchParams.get("popup") === "1",
-        url.searchParams.get("force") === "1"
+        url.searchParams.get("force") === "1",
+        url.searchParams.get("mobile") === "1" ? url.searchParams.get("mobileReturnUrl") : "",
+        url.searchParams.get("appOrigin")
       );
       return true;
     }
@@ -543,7 +555,13 @@ export async function handleApiRequest(request, response) {
       }));
 
       setSessionCookie(response, session);
-      sendJson(response, 200, { created, session: publicSession(session), waiver: waiverSync });
+      sendJson(response, 200, {
+        ok: true,
+        created,
+        session: publicSession(session),
+        waiver: waiverSync,
+        ...createAppAuthPayload(request, session)
+      });
       return true;
     }
 
@@ -578,7 +596,8 @@ sendJson(response, 200, {
   waiver: waiverSync,
   session: publicSession(session),
   hasWaiver: true,
-  waiverDate: session.waiverDate
+  waiverDate: session.waiverDate,
+  ...createAppAuthPayload(request, session)
 });
 return true;
     }
@@ -634,7 +653,7 @@ return true;
       sendJson(response, 200, {
         updated,
         updateError,
-        session: publicSession(session)
+        ...createAppAuthPayload(request, session)
       });
       return true;
     }
@@ -1622,6 +1641,30 @@ fullProfile.waiverDate =
       return true;
     }
 
+    if (path === "/api/account/delete") {
+      if (request.method !== "POST") {
+        response.setHeader("Allow", "POST");
+        sendJson(response, 405, { message: "Method not allowed. Use POST /api/account/delete." });
+        return true;
+      }
+
+      const session = await readHydratedSession(request, response);
+
+      if (!session) {
+        sendJson(response, 401, { ok: false, message: "Please sign in first." });
+        return true;
+      }
+
+      const result = await deactivateMindbodyClientAccount(session);
+      clearSessionCookie(response);
+      sendJson(response, 200, {
+        ok: true,
+        message: "Your studio profile was deactivated.",
+        data: result
+      });
+      return true;
+    }
+
 if (path === "/api/account/profile") {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -1932,7 +1975,7 @@ const clientPayload = compactObject({
     });
   }
 
-  setSessionCookie(response, {
+  const updatedSession = {
     ...session,
     clientId,
     user: {
@@ -1943,12 +1986,15 @@ const clientPayload = compactObject({
       email,
       username: email
     }
-  });
+  };
+
+  setSessionCookie(response, updatedSession);
 
   sendJson(response, 200, {
     ok: true,
     data: updateResult,
-    clientId
+    clientId,
+    ...createAppAuthPayload(request, updatedSession)
   });
   return true;
 }
@@ -2198,17 +2244,6 @@ const isSoldOnlineValue = (item) => {
   return true;
 };
 
-const CONTRACT_PRICE_BY_ID = {
-  "101": 150,
-  "102": 140,
-  "103": 128,
-  "104": 275,
-  "105": 260,
-  "106": 220,
-  "113": 325,
-  "114": 300,
-  "115": 275
-};
 
 const moneyString = (value) => {
   const number = Number(String(value || "").replace(/[^0-9.]/g, ""));
@@ -2220,7 +2255,7 @@ const moneyString = (value) => {
   return `$${number.toFixed(2)}`;
 };
 
-const contractPriceValue = (item, id) => {
+const contractPriceValue = (item) => {
   return (
     item.OnlinePrice ??
     item.Price ??
@@ -2237,7 +2272,6 @@ const contractPriceValue = (item, id) => {
     item.AutopaySchedule?.Amount ??
     item.AutoPaySchedule?.PaymentAmount ??
     item.AutoPaySchedule?.Amount ??
-    CONTRACT_PRICE_BY_ID[String(id)] ??
     null
   );
 };
@@ -2248,7 +2282,7 @@ const contractItems = liveContracts
 
 const id = String(item.Id || item.ContractId || "");
 const name = item.Name || item.ContractName || "";
-const price = contractPriceValue(item, id);
+const price = contractPriceValue(item);
 
     return {
       id,
@@ -3260,7 +3294,7 @@ function isMindbodyErrorRedirect(location) {
   }
 }
 
-function startOAuthSignIn(request, response, requestedReturnTo, popup = false, forceLogin = false) {
+function startOAuthSignIn(request, response, requestedReturnTo, popup = false, forceLogin = false, mobileReturnUrl = "", appOrigin = "") {
   const {
     oauthAuthorizeUrl,
     oauthClientId,
@@ -3282,7 +3316,14 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
   const nonce = randomBytes(24).toString("base64url");
   const codeVerifier = oauthUsePkce ? randomBytes(32).toString("base64url") : "";
   const returnTo = safeReturnTo(requestedReturnTo);
-  const statePayload = createOAuthState({ nonce, returnTo, popup, codeVerifier });
+  const statePayload = createOAuthState({
+    nonce,
+    returnTo,
+    popup,
+    codeVerifier,
+    mobileReturnUrl: safeMobileReturnUrl(mobileReturnUrl),
+    appOrigin: safeAppOrigin(appOrigin, request)
+  });
   const state = seal(statePayload);
   const authorizeUrl = new URL(oauthAuthorizeUrl);
 
@@ -3381,16 +3422,24 @@ async function finishOAuthSignIn(request, response, form) {
     console.log(`[auth/callback] session hydrated — platformUserId: ${session.platformUserId ? "present" : "missing"} clientId: ${session.clientId ? "present" : "missing"} email: ${session.user?.email ? "present" : "missing"}`);
     setSessionCookie(response, session);
     console.log(`[auth/callback] session cookie set`);
-    if (oauthSession.popup) {
-    finishPopup({
-      ok: true,
-      returnTo: "/account"
+    const authPayload = createAppAuthPayload(request, session, {
+      returnTo: oauthSession.returnTo || "/account",
+      targetOrigin: oauthSession.appOrigin || ""
     });
-    return;
-  }
 
-  clearOAuthCookie(response);
-  redirect(response, "/account");
+    if (oauthSession.popup) {
+      finishPopup(authPayload);
+      return;
+    }
+
+    clearOAuthCookie(response);
+
+    if (oauthSession.mobileReturnUrl) {
+      redirect(response, authRedirectUrl(oauthSession.mobileReturnUrl, authPayload));
+      return;
+    }
+
+    redirect(response, oauthSession.returnTo || "/account");
   } catch (error) {
     const message = oauthFailureMessage(error);
 
@@ -3434,13 +3483,15 @@ function oauthStateFailureMessage(formState) {
   return "We could not verify the sign-in session. Please try again.";
 }
 
-function createOAuthState({ nonce, returnTo, popup, codeVerifier }) {
+function createOAuthState({ nonce, returnTo, popup, codeVerifier, mobileReturnUrl, appOrigin }) {
   return {
     stateId: randomBytes(16).toString("base64url"),
     nonce,
     returnTo,
     popup: Boolean(popup),
     codeVerifier,
+    mobileReturnUrl: mobileReturnUrl || "",
+    appOrigin: appOrigin || "",
     exp: Math.floor(Date.now() / 1000) + OAUTH_TTL_SECONDS
   };
 }
@@ -3493,10 +3544,13 @@ function sendOAuthPopupResponse(response, payload) {
     type: "cave:auth:complete",
     ok: Boolean(payload.ok),
     returnTo: safeReturnTo(payload.returnTo || "/account"),
+    appSessionToken: payload.appSessionToken || "",
+    apiBaseUrl: payload.apiBaseUrl || "",
     error: payload.error || "",
     message: payload.message || ""
   };
   const scriptPayload = JSON.stringify(message).replace(/</g, "\\u003c");
+  const targetOrigin = payload.targetOrigin || "window.location.origin";
   const fallbackUrl = message.ok
     ? message.returnTo
     : `/login?auth=${encodeURIComponent(message.error || "error")}&message=${encodeURIComponent(message.message || "")}`;
@@ -3545,7 +3599,7 @@ function sendOAuthPopupResponse(response, payload) {
       (function () {
         var payload = ${scriptPayload};
         if (window.opener && !window.opener.closed) {
-          window.opener.postMessage(payload, window.location.origin);
+          window.opener.postMessage(payload, ${targetOrigin === "window.location.origin" ? "window.location.origin" : JSON.stringify(targetOrigin)});
           window.close();
         }
         window.setTimeout(function () {
@@ -4818,6 +4872,68 @@ function luhnCheck(digits) {
   return sum > 0 && sum % 10 === 0;
 }
 
+async function deactivateMindbodyClientAccount(session) {
+  const clientId = await resolveSessionClientId(session).catch(() => "");
+
+  if (!clientId) {
+    throw httpError(400, "Studio client account is not linked yet. Please complete your profile first.");
+  }
+
+  const staffToken = await getMindbodyActionToken("Delete account");
+  const current = await bookingRequest("/client/clientcompleteinfo", {
+    token: staffToken,
+    params: {
+      "request.clientId": clientId,
+      "request.crossRegionalLookup": "true"
+    }
+  }).catch(() => null);
+  const client = current?.ClientCompleteInfo?.Client || current?.Client || {};
+  const firstName = client.FirstName || session.user?.firstName || "Cave";
+  const lastName = client.LastName || session.user?.lastName || "Client";
+  const existingNotes = String(client.Notes || "").trim();
+  const deleteNote = `Account deletion requested from Cave app on ${new Date().toISOString()}.`;
+  const baseClient = compactObject({
+    Id: clientId,
+    FirstName: firstName,
+    LastName: lastName,
+    Active: false,
+    SendAccountEmails: false,
+    SendPromotionalEmails: false,
+    SendScheduleEmails: false
+  });
+  const clientPayload = {
+    ...baseClient,
+    Status: "Terminated",
+    Notes: existingNotes ? `${existingNotes}\n${deleteNote}` : deleteNote
+  };
+
+  try {
+    return await bookingRequest("/client/updateclient", {
+      method: "POST",
+      token: staffToken,
+      body: {
+        Client: clientPayload,
+        CrossRegionalUpdate: false
+      }
+    });
+  } catch (error) {
+    const message = String(error?.data?.Error?.Message || error?.data?.Message || error?.message || "");
+
+    if (!/status|notes|required field|validation/i.test(message)) {
+      throw error;
+    }
+
+    return bookingRequest("/client/updateclient", {
+      method: "POST",
+      token: staffToken,
+      body: {
+        Client: baseClient,
+        CrossRegionalUpdate: false
+      }
+    });
+  }
+}
+
 async function resolveSessionClientId(session) {
   if (session.clientId) {
     return session.clientId;
@@ -5445,12 +5561,9 @@ if (!classItem) {
   const totalBooked = Number(firstDefined(classItem.TotalBooked, classItem.WebBooked) || 0);
 
   if (maxCapacity > 0 && maxCapacity - totalBooked <= 0) {
-    const maxWaitlist = Number(classItem.MaxWaitListSize || 0);
-    const waitlistCount = Number(classItem.TotalWaitlistedClients || 0);
-    const canWaitlist = maxWaitlist > 0 && waitlistCount < maxWaitlist;
     const err = httpError(409, "This class is full.");
     err.bookingCode = "CLASS_FULL";
-    err.canWaitlist = canWaitlist;
+    err.canWaitlist = true;
     throw err;
   }
 
@@ -5921,6 +6034,52 @@ function publicSession(session) {
   };
 }
 
+function createAppAuthPayload(request, session, options = {}) {
+  return {
+    ok: true,
+    returnTo: safeReturnTo(options.returnTo || "/account"),
+    targetOrigin: options.targetOrigin || "",
+    appSessionToken: createSessionToken(session),
+    apiBaseUrl: requestBaseUrl(request),
+    session: publicSession(session)
+  };
+}
+
+function requestBaseUrl(request) {
+  const forwardedHost = String(request.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  const host = forwardedHost || String(request.headers.host || "").split(",")[0].trim();
+
+  if (!host) {
+    return getBookingConfig().publicBaseUrl;
+  }
+
+  const forwardedProto = String(request.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || (request.socket?.encrypted ? "https" : "http");
+
+  return `${protocol}://${host}`.replace(/\/$/, "");
+}
+
+function authRedirectUrl(baseUrl, payload) {
+  const redirectUrl = new URL(baseUrl);
+
+  redirectUrl.searchParams.set("auth", payload.ok ? "success" : "error");
+  redirectUrl.searchParams.set("returnTo", safeReturnTo(payload.returnTo || "/account"));
+
+  if (payload.appSessionToken) {
+    redirectUrl.searchParams.set("appSessionToken", payload.appSessionToken);
+  }
+
+  if (payload.apiBaseUrl) {
+    redirectUrl.searchParams.set("apiBaseUrl", payload.apiBaseUrl);
+  }
+
+  if (!payload.ok && payload.message) {
+    redirectUrl.searchParams.set("message", payload.message);
+  }
+
+  return redirectUrl.toString();
+}
+
 function parseJwtClaims(token) {
   const [, payload] = String(token || "").split(".");
 
@@ -5976,11 +6135,26 @@ function readSession(request) {
   const value = readChunkedCookie(cookies, SESSION_COOKIE);
 
   if (!value) {
-    return null;
+    return readBearerSession(request);
   }
 
   try {
     return unseal(value);
+  } catch (error) {
+    return readBearerSession(request);
+  }
+}
+
+function readBearerSession(request) {
+  const authorization = String(request.headers.authorization || "");
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+
+  if (!match?.[1]) {
+    return null;
+  }
+
+  try {
+    return unseal(match[1].trim());
   } catch (error) {
     return null;
   }
@@ -6037,14 +6211,20 @@ function cleanupPendingOAuthStates() {
 }
 
 function setSessionCookie(response, session) {
-  const value = seal({
-    ...session,
-    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
-  });
+  const value = createSessionToken(session);
 
   setChunkedCookie(response, SESSION_COOKIE, value, {
     path: "/",
     maxAge: SESSION_TTL_SECONDS
+  });
+
+  return value;
+}
+
+function createSessionToken(session) {
+  return seal({
+    ...session,
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
   });
 }
 
@@ -6187,6 +6367,45 @@ function safeReturnTo(value) {
   return clean.startsWith("/") ? clean : `/${clean}`;
 }
 
+function safeMobileReturnUrl(value) {
+  const text = String(value || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(text);
+
+    if (["cavemodernpilates:"].includes(parsed.protocol)) {
+      return parsed.toString();
+    }
+  } catch (_) {}
+
+  return "";
+}
+
+function safeAppOrigin(value, request) {
+  const text = String(value || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(text);
+    const origin = parsed.origin;
+
+    if (isAllowedOrigin(origin, request)) {
+      return origin;
+    }
+  } catch (_) {
+    return "";
+  }
+
+  return "";
+}
+
 function seal(payload) {
   const { sessionSecret } = getBookingConfig();
 
@@ -6248,24 +6467,82 @@ function enforceSameOrigin(request) {
     return;
   }
 
-  let originHost;
-  try {
-    originHost = new URL(origin).hostname.toLowerCase().replace(/^www\./, "");
-  } catch (_) {
+  if (!isAllowedOrigin(origin, request)) {
     throw httpError(403, "Cross-origin request blocked.");
   }
+}
 
+function applyCorsHeaders(request, response) {
+  const origin = String(request.headers.origin || "").trim();
+
+  if (!origin || !isAllowedOrigin(origin, request)) {
+    return;
+  }
+
+  response.setHeader("Access-Control-Allow-Origin", origin);
+  response.setHeader("Access-Control-Allow-Credentials", "true");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type");
+  appendVaryHeader(response, "Origin");
+}
+
+function isAllowedOrigin(origin, request) {
+  let originUrl;
+
+  try {
+    originUrl = new URL(origin);
+  } catch (_) {
+    return false;
+  }
+
+  if (!["http:", "https:"].includes(originUrl.protocol)) {
+    return false;
+  }
+
+  const originHost = originUrl.hostname.toLowerCase().replace(/^www\./, "");
   const rawHost = String(request.headers.host || "").toLowerCase().split(":")[0].replace(/^www\./, "");
   const forwardedHost = String(request.headers["x-forwarded-host"] || "").toLowerCase().split(":")[0].replace(/^www\./, "");
-  const config = getBookingConfig();
-  let allowedHost = "";
+  const sameServerHosts = [rawHost, forwardedHost].filter(Boolean);
+
+  if (isExpoDevOrigin(originUrl)) {
+    return true;
+  }
+
+  if (sameServerHosts.includes(originHost)) {
+    return true;
+  }
+
+  if (["localhost", "127.0.0.1"].includes(originHost) && ["localhost", "127.0.0.1"].some((host) => sameServerHosts.includes(host))) {
+    return true;
+  }
+
+  let publicHost = "";
   try {
-    allowedHost = new URL(config.publicBaseUrl).hostname.toLowerCase().replace(/^www\./, "");
+    publicHost = new URL(getBookingConfig().publicBaseUrl).hostname.toLowerCase().replace(/^www\./, "");
   } catch (_) {}
 
-  const hosts = [rawHost, forwardedHost, allowedHost].filter(Boolean);
-  if (!hosts.some((h) => h === originHost)) {
-    throw httpError(403, "Cross-origin request blocked.");
+  return Boolean(publicHost && publicHost === originHost);
+}
+
+function isExpoDevOrigin(originUrl) {
+  return (
+    ["localhost", "127.0.0.1"].includes(originUrl.hostname) &&
+    ["19006", "8081"].includes(originUrl.port)
+  );
+}
+
+function appendVaryHeader(response, value) {
+  const current = String(response.getHeader("Vary") || "").trim();
+
+  if (!current) {
+    response.setHeader("Vary", value);
+    return;
+  }
+
+  const parts = current.split(",").map((part) => part.trim().toLowerCase());
+
+  if (!parts.includes(value.toLowerCase())) {
+    response.setHeader("Vary", `${current}, ${value}`);
   }
 }
 
