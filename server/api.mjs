@@ -2244,6 +2244,17 @@ const isSoldOnlineValue = (item) => {
   return true;
 };
 
+const CONTRACT_PRICE_BY_ID = {
+  "101": 150,
+  "102": 140,
+  "103": 128,
+  "104": 250,
+  "105": 235,
+  "106": 220,
+  "113": 325,
+  "114": 300,
+  "115": 275
+};
 
 const moneyString = (value) => {
   const number = Number(String(value || "").replace(/[^0-9.]/g, ""));
@@ -2255,7 +2266,7 @@ const moneyString = (value) => {
   return `$${number.toFixed(2)}`;
 };
 
-const contractPriceValue = (item) => {
+const contractPriceValue = (item, id) => {
   return (
     item.OnlinePrice ??
     item.Price ??
@@ -2272,6 +2283,7 @@ const contractPriceValue = (item) => {
     item.AutopaySchedule?.Amount ??
     item.AutoPaySchedule?.PaymentAmount ??
     item.AutoPaySchedule?.Amount ??
+    CONTRACT_PRICE_BY_ID[String(id)] ??
     null
   );
 };
@@ -2282,7 +2294,7 @@ const contractItems = liveContracts
 
 const id = String(item.Id || item.ContractId || "");
 const name = item.Name || item.ContractName || "";
-const price = contractPriceValue(item);
+const price = contractPriceValue(item, id);
 
     return {
       id,
