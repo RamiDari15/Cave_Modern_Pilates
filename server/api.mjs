@@ -52,6 +52,55 @@ const pricingCatalogCache = {
   TTL_MS: 15 * 60 * 1000
 };
 
+const CLASS_PACK_PROMOTIONS = Object.freeze({
+  LILA15: 15,
+  SAMAH15: 15,
+  IMUNIQUE15: 15,
+  KRYSTAL15: 15,
+  ANGELINE15: 15,
+  TARA15: 15
+});
+
+const PROMO_ELIGIBLE_CLASS_PACKS = new Set([
+  "5 class pack",
+  "10 class pack"
+]);
+
+function normalizePromoCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function normalizePromoItemName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function promoEligibleItems(items) {
+  return (Array.isArray(items) ? items : []).filter((item) =>
+    PROMO_ELIGIBLE_CLASS_PACKS.has(normalizePromoItemName(item?.name || item?.sourceName))
+  );
+}
+
+function validateClassPackPromotion(rawCode, items) {
+  const code = normalizePromoCode(rawCode);
+
+  if (!code) return null;
+
+  const percentOff = CLASS_PACK_PROMOTIONS[code];
+  if (!percentOff) {
+    throw httpError(400, "That promo code is invalid.");
+  }
+
+  if (!promoEligibleItems(items).length) {
+    throw httpError(400, "This promo code only applies to the 5 Class Pack and 10 Class Pack.");
+  }
+
+  return { code, percentOff };
+}
+
 loadLocalEnv();
 
 function loadLocalEnv() {
@@ -2400,6 +2449,7 @@ return true;
         return true;
       }
 
+      const promotion = validateClassPackPromotion(body.promoCode, items);
       const clientId = session?.clientId || (session ? await resolveSessionClientId(session).catch(() => "") : "");
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart quote").catch(() => null);
@@ -2410,7 +2460,20 @@ return true;
           const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
           return sum + price * (Number(item.quantity) || 1);
         }, 0);
-        sendJson(response, 200, { ok: true, quoted: false, grandTotal: subtotal, subTotal: subtotal, taxTotal: 0, discountTotal: 0 });
+        const eligibleSubtotal = promoEligibleItems(items).reduce((sum, item) => {
+          const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
+          return sum + price * (Number(item.quantity) || 1);
+        }, 0);
+        const discountTotal = promotion ? eligibleSubtotal * (promotion.percentOff / 100) : 0;
+        sendJson(response, 200, {
+          ok: true,
+          quoted: false,
+          promotion,
+          grandTotal: Number((subtotal - discountTotal).toFixed(2)),
+          subTotal: subtotal,
+          taxTotal: 0,
+          discountTotal: Number(discountTotal.toFixed(2))
+        });
         return true;
       }
 
@@ -2437,6 +2500,7 @@ return true;
             LocationId: Number(locationId) || 1,
             InStore: false,
             CalculateTax: true,
+            ...(promotion ? { PromotionCode: promotion.code } : {}),
             Items: cartItems,
             Payments: []
           }
@@ -2448,14 +2512,28 @@ return true;
           grandTotal: cart?.GrandTotal ?? 0,
           subTotal: cart?.SubTotal ?? 0,
           taxTotal: cart?.TaxTotal ?? 0,
-          discountTotal: cart?.DiscountTotal ?? 0
+          discountTotal: cart?.DiscountTotal ?? 0,
+          promotion
         });
       } catch (err) {
         const subtotal = items.reduce((sum, item) => {
           const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
           return sum + price * (Number(item.quantity) || 1);
         }, 0);
-        sendJson(response, 200, { ok: true, quoted: false, grandTotal: subtotal, subTotal: subtotal, taxTotal: 0, discountTotal: 0 });
+        const eligibleSubtotal = promoEligibleItems(items).reduce((sum, item) => {
+          const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
+          return sum + price * (Number(item.quantity) || 1);
+        }, 0);
+        const discountTotal = promotion ? eligibleSubtotal * (promotion.percentOff / 100) : 0;
+        sendJson(response, 200, {
+          ok: true,
+          quoted: false,
+          promotion,
+          grandTotal: Number((subtotal - discountTotal).toFixed(2)),
+          subTotal: subtotal,
+          taxTotal: 0,
+          discountTotal: Number(discountTotal.toFixed(2))
+        });
       }
       return true;
     }
@@ -2484,6 +2562,7 @@ return true;
         return true;
       }
 
+      const promotion = validateClassPackPromotion(body.promoCode, items);
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart checkout");
 
@@ -2523,6 +2602,7 @@ const resolveCheckoutAmount = async () => {
         LocationId: Number(locationId) || 1,
         InStore: false,
         CalculateTax: true,
+        ...(promotion ? { PromotionCode: promotion.code } : {}),
         Items: cartItems,
         Payments: []
       }
@@ -2570,6 +2650,7 @@ if (storedLastFour.length === 4) {
         LocationId: Number(locationId) || 1,
         InStore: false,
         CalculateTax: true,
+        ...(promotion ? { PromotionCode: promotion.code } : {}),
         Items: cartItems,
         Payments: []
       }
@@ -2637,6 +2718,7 @@ if (storedLastFour.length === 4) {
               LocationId: Number(locationId) || 1,
               InStore: false,
               CalculateTax: true,
+              ...(promotion ? { PromotionCode: promotion.code } : {}),
               Items: cartItems,
               Payments: []
             }
@@ -2675,12 +2757,13 @@ if (storedLastFour.length === 4) {
             LocationId: Number(locationId) || 1,
             InStore: false,
             CalculateTax: true,
+            ...(promotion ? { PromotionCode: promotion.code } : {}),
             SendEmail: true,
             Items: cartItems,
             Payments: payments
           }
         });
-        sendJson(response, 200, { ok: true, purchase: result });
+        sendJson(response, 200, { ok: true, purchase: result, promotion });
       } catch (err) {
         const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Checkout could not be completed.";
         sendJson(response, err.status || 503, { ok: false, message: msg });

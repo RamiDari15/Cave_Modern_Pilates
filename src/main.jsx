@@ -1694,6 +1694,33 @@ function sortBySessionsAsc(items) {
   return [...items].sort((a, b) => (Number(a.sessions) || 0) - (Number(b.sessions) || 0));
 }
 
+const CLASS_PACK_PROMO_CODES = new Set([
+  "LILA15",
+  "SAMAH15",
+  "IMUNIQUE15",
+  "KRYSTAL15",
+  "ANGELINE15",
+  "TARA15"
+]);
+
+function normalizePromoCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function isPromoEligibleClassPack(item) {
+  const name = String(item?.name || item?.sourceName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name === "5 class pack" || name === "10 class pack";
+}
+
+function moneyValue(value) {
+  const amount = Number(String(value || "0").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess }) {
   const [showModal, setShowModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState("");
@@ -1702,9 +1729,15 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const [showTerms, setShowTerms] = useState(false);
   const [showCardForm, setShowCardForm] = useState(false);
   const [buyState, setBuyState] = useState({ type: "idle", message: "" });
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState("");
+  const [promoState, setPromoState] = useState({ type: "", message: "" });
 
   const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
+  const promoEligible = !isContract && isPromoEligibleClassPack(item);
+  const itemAmount = moneyValue(item.price);
+  const discountedAmount = appliedPromo && promoEligible ? itemAmount * 0.85 : itemAmount;
   const titleLines = pricingTitleLines(item, category);
 const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
   ? manualLastFour
@@ -1717,9 +1750,29 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     setAcceptedTerms(false);
     setShowTerms(false);
     setShowCardForm(false);
+    setPromoInput("");
+    setAppliedPromo("");
+    setPromoState({ type: "", message: "" });
     setShowModal(true);
   };
   const closeModal = () => { if (!isLoading) setShowModal(false); };
+
+  const applyPromo = () => {
+    const code = normalizePromoCode(promoInput);
+    if (!CLASS_PACK_PROMO_CODES.has(code)) {
+      setAppliedPromo("");
+      setPromoState({ type: "error", message: "That promo code is invalid." });
+      return;
+    }
+    if (!promoEligible) {
+      setAppliedPromo("");
+      setPromoState({ type: "error", message: "This promo code only applies to the 5 Class Pack and 10 Class Pack." });
+      return;
+    }
+    setAppliedPromo(code);
+    setPromoInput(code);
+    setPromoState({ type: "success", message: "15% discount applied." });
+  };
 
   const buyItem = async () => {
     setBuyState({ type: "idle", message: "" });
@@ -1755,7 +1808,8 @@ const payload = isContract
           quantity: 1
         }
       ],
-      storedCardLastFour
+      storedCardLastFour,
+      ...(appliedPromo ? { promoCode: appliedPromo } : {})
     };
     try {
       await apiRequest(endpoint, { method: "POST", body: payload });
@@ -1804,7 +1858,11 @@ const payload = isContract
           <div className="purchase-modal">
             <div className="purchase-modal-header">
               <div>
-                <p className="purchase-modal-price">{item.price || "Ask studio"}</p>
+                <p className="purchase-modal-price">
+                  {appliedPromo && promoEligible && itemAmount > 0
+                    ? `$${discountedAmount.toFixed(2)}`
+                    : (item.price || "Ask studio")}
+                </p>
                 <h3 className="purchase-modal-name">{titleLines.join(" · ")}</h3>
               </div>
               <button className="cart-close" type="button" onClick={closeModal} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
@@ -1857,6 +1915,30 @@ const payload = isContract
                     </button>
                   )}
                 </div>
+
+                {promoEligible ? (
+                  <div className="payment-safe-box">
+                    <label className="payment-safe-field">
+                      <span>Promo code</span>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          placeholder="Enter promo code"
+                          value={promoInput}
+                          onChange={(e) => {
+                            setPromoInput(e.target.value.toUpperCase());
+                            setAppliedPromo("");
+                            setPromoState({ type: "", message: "" });
+                          }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyPromo(); } }}
+                        />
+                        <button className="payment-add-card" type="button" onClick={applyPromo} disabled={isLoading}>Apply</button>
+                      </div>
+                    </label>
+                    {promoState.message ? <p className={`form-status ${promoState.type}`}>{promoState.message}</p> : null}
+                  </div>
+                ) : null}
 
    {isContract ? (
   <div className="agreement-box">
@@ -1919,6 +2001,9 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
   const [showAddCard, setShowAddCard] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState("");
+  const [promoState, setPromoState] = useState({ type: "", message: "" });
   const closeTimerRef = React.useRef(null);
 
   useEffect(() => {
@@ -1932,20 +2017,38 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   }, [cardsLoaded, savedCards, selectedCard]);
 
   const cartItemsKey = cart.items.map((i) => `${i.id}:${i.kind}:${i.quantity}`).join(",");
+  const hasPromoEligibleItem = cart.items.some(isPromoEligibleClassPack);
   useEffect(() => {
     if (!cart.items.length || !clientSession?.signedIn) return;
     let mounted = true;
     setQuoteState((s) => ({ ...s, loading: true }));
-    apiRequest("/api/cart/quote", { method: "POST", body: { items: cart.items } })
+    apiRequest("/api/cart/quote", { method: "POST", body: { items: cart.items, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } })
       .then((data) => { if (mounted) setQuoteState({ grandTotal: data.grandTotal ?? cart.total, loading: false }); })
       .catch(() => { if (mounted) setQuoteState((s) => ({ ...s, loading: false })); });
     return () => { mounted = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartItemsKey, clientSession?.signedIn]);
+  }, [cartItemsKey, clientSession?.signedIn, appliedPromo]);
 
 const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
   ? manualLastFour
   : selectedCard;
+  const applyCartPromo = () => {
+    const code = normalizePromoCode(promoInput);
+    if (!CLASS_PACK_PROMO_CODES.has(code)) {
+      setAppliedPromo("");
+      setPromoState({ type: "error", message: "That promo code is invalid." });
+      return;
+    }
+    if (!hasPromoEligibleItem) {
+      setAppliedPromo("");
+      setPromoState({ type: "error", message: "This promo code only applies to the 5 Class Pack and 10 Class Pack." });
+      return;
+    }
+    setAppliedPromo(code);
+    setPromoInput(code);
+    setPromoState({ type: "success", message: "15% discount applied to eligible class packs." });
+  };
+
   const handleCheckout = async () => {
     const lastFour = effectiveLastFour.replace(/\D/g, "");
     if (!/^\d{4}$/.test(lastFour)) {
@@ -1954,7 +2057,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     setCheckoutState({ type: "loading", message: "Processing payment..." });
     try {
-      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour } });
+      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
       setCheckoutState({ type: "success", message: "Purchase complete!" });
       cart.clear();
     } catch (err) {
@@ -2004,6 +2107,29 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
           </div>
         ) : clientSession?.signedIn ? (
           <>
+            {hasPromoEligibleItem ? (
+              <div className="cart-payment">
+                <label className="payment-safe-field">
+                  <span>Promo code</span>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      placeholder="Enter promo code"
+                      value={promoInput}
+                      onChange={(e) => {
+                        setPromoInput(e.target.value.toUpperCase());
+                        setAppliedPromo("");
+                        setPromoState({ type: "", message: "" });
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyCartPromo(); } }}
+                    />
+                    <button type="button" className="payment-add-card" onClick={applyCartPromo}>Apply</button>
+                  </div>
+                </label>
+                {promoState.message ? <p className={`form-status ${promoState.type}`}>{promoState.message}</p> : null}
+              </div>
+            ) : null}
             <div className="cart-payment">
               {cardsLoaded && savedCards.length > 0 ? (
                 <>
