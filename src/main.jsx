@@ -2046,7 +2046,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     setAppliedPromo(code);
     setPromoInput(code);
-    setPromoState({ type: "success", message: "15% discount applied to eligible class packs." });
+    setPromoState({ type: "success", message: "15% discount applied." });
   };
 
   const handleCheckout = async () => {

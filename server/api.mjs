@@ -2543,17 +2543,24 @@ return true;
       const session = await readHydratedSession(request, response);
 
       if (!session) {
-        sendJson(response, 401, { ok: false, message: "Please sign in before purchasing.", loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}` });
+        sendJson(response, 401, {
+          ok: false,
+          message: "Please sign in before purchasing.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing")}`
+        });
         return true;
       }
 
       const clientId = await resolveSessionClientId(session).catch(() => "");
       if (!clientId) {
-        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
+        sendJson(response, 400, {
+          ok: false,
+          message: "Your studio account could not be found. Please contact Cave to link your account."
+        });
         return true;
       }
 
-      // Intentionally do NOT call assertNoRawCardPayload — card data is proxied securely to Mindbody.
+      // Card data is proxied securely to Mindbody and is never stored or logged here.
       const body = await readJsonBody(request);
       const items = Array.isArray(body.items) ? body.items : [];
 
@@ -2567,207 +2574,227 @@ return true;
       const staffToken = await getMindbodyActionToken("Cart checkout");
 
       const cartItems = items
-        .filter((i) => i.kind === "service")
-        .map((i) => ({
-          Item: { Type: "Service", Metadata: { Id: Number(i.id) } },
+        .filter((item) => item.kind === "service")
+        .map((item) => ({
+          Item: {
+            Type: "Service",
+            Metadata: { Id: Number(item.id) }
+          },
           DiscountAmount: 0,
-          Quantity: Number(i.quantity) || 1
+          Quantity: Number(item.quantity) || 1
         }));
 
       if (!cartItems.length) {
-        sendJson(response, 400, { ok: false, message: "No purchasable items found. Please add class packs to your cart." });
+        sendJson(response, 400, {
+          ok: false,
+          message: "No purchasable items found. Please add class packs to your cart."
+        });
         return true;
       }
 
-      // Build payment payload — prefer stored card, fall back to new card
-      let payments;
-      const storedLastFour = String(body.storedCardLastFour || body.paymentLastFour || "").replace(/\D/g, "");
+      const moneyValue = (value) => {
+        const amount = Number(String(value ?? "0").replace(/[^0-9.-]/g, ""));
+        return Number.isFinite(amount) ? amount : 0;
+      };
 
-      const fallbackCartAmount = items.reduce((sum, item) => {
-  const price = Number(String(item.price || item.amount || item.onlinePrice || "0").replace(/[^0-9.]/g, ""));
-  const quantity = Number(item.quantity) || 1;
-  return sum + price * quantity;
-}, 0);
+      const itemTotal = (item) => {
+        const price = moneyValue(item.price ?? item.amount ?? item.onlinePrice);
+        const quantity = Math.max(Number(item.quantity) || 1, 1);
+        return price * quantity;
+      };
 
-const resolveCheckoutAmount = async () => {
-  let amount = 0;
+      const subtotal = items.reduce((sum, item) => sum + itemTotal(item), 0);
+      const eligibleSubtotal = promoEligibleItems(items).reduce(
+        (sum, item) => sum + itemTotal(item),
+        0
+      );
+      const fallbackDiscount = promotion
+        ? eligibleSubtotal * (promotion.percentOff / 100)
+        : 0;
+      const fallbackCheckoutAmount = Number(
+        Math.max(subtotal - fallbackDiscount, 0).toFixed(2)
+      );
 
-  try {
-    const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
-      method: "POST",
-      token: staffToken,
-      body: {
-        Test: true,
-        ClientId: clientId,
-        LocationId: Number(locationId) || 1,
-        InStore: false,
-        CalculateTax: true,
-        ...(promotion ? { PromotionCode: promotion.code } : {}),
-        Items: cartItems,
-        Payments: []
-      }
-    });
+      const extractCheckoutTotal = (quoteResult) => {
+        const cart =
+          quoteResult?.ShoppingCart ||
+          quoteResult?.Cart ||
+          quoteResult?.shoppingCart ||
+          quoteResult?.cart ||
+          quoteResult;
 
-    const cart = quoteResult?.ShoppingCart || quoteResult?.Cart || quoteResult;
+        const candidates = [
+          cart?.GrandTotal,
+          cart?.grandTotal,
+          cart?.Total,
+          cart?.total,
+          cart?.TotalAmount,
+          cart?.totalAmount,
+          cart?.AmountDue,
+          cart?.amountDue,
+          quoteResult?.GrandTotal,
+          quoteResult?.grandTotal,
+          quoteResult?.Total,
+          quoteResult?.total
+        ];
 
-    amount = Number(
-      cart?.GrandTotal ??
-      cart?.Total ??
-      cart?.TotalAmount ??
-      cart?.SubTotal ??
-      cart?.Subtotal ??
-      0
-    );
-  } catch (err) {
-    console.warn("[cart/checkout] quote failed, using item price fallback:", err.message);
-  }
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    amount = fallbackCartAmount;
-  }
-
-  return Number(amount.toFixed(2));
-};
-
-if (storedLastFour.length === 4) {
-  const fallbackAmount = items.reduce((sum, item) => {
-    const price = Number(
-      String(item.price || item.amount || item.onlinePrice || "0").replace(/[^0-9.]/g, "")
-    );
-    const quantity = Number(item.quantity) || 1;
-    return sum + price * quantity;
-  }, 0);
-
-  let amount = 0;
-
-  try {
-    const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
-      method: "POST",
-      token: staffToken,
-      body: {
-        Test: true,
-        ClientId: clientId,
-        LocationId: Number(locationId) || 1,
-        InStore: false,
-        CalculateTax: true,
-        ...(promotion ? { PromotionCode: promotion.code } : {}),
-        Items: cartItems,
-        Payments: []
-      }
-    });
-
-    const cart = quoteResult?.ShoppingCart || quoteResult?.Cart || quoteResult;
-
-    amount = Number(
-      cart?.GrandTotal ??
-      cart?.Total ??
-      cart?.TotalAmount ??
-      cart?.SubTotal ??
-      cart?.Subtotal ??
-      0
-    );
-  } catch (err) {
-    console.warn("[cart/checkout] Mindbody quote failed, using item price fallback:", err.message);
-  }
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    amount = fallbackAmount;
-  }
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    sendJson(response, 400, {
-      ok: false,
-      message: "Could not determine the checkout total."
-    });
-    return true;
-  }
-
-  payments = [
-    {
-      Type: "StoredCard",
-      Metadata: {
-        Amount: Number(amount.toFixed(2)),
-        LastFour: storedLastFour
-      }
-    }
-  ];
-}else if (body.cardNumber) {
-        const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
-        const expMonth = Number(String(body.expMonth || "").replace(/\D/g, ""));
-        const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
-        const expYear = Number(expYearRaw.length === 2 ? `20${expYearRaw}` : expYearRaw);
-
-        if (cardNumber.length < 13 || cardNumber.length > 19) {
-          sendJson(response, 400, { ok: false, message: "Please enter a valid card number." });
-          return true;
-        }
-        if (!expMonth || expMonth < 1 || expMonth > 12 || !expYear) {
-          sendJson(response, 400, { ok: false, message: "Please enter a valid card expiry." });
-          return true;
-        }
-
-        // Quote first to get the actual total
-        let amount = 0;
-        try {
-          const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
-            method: "POST",
-            token: staffToken,
-            body: {
-              Test: true,
-              ClientId: clientId,
-              LocationId: Number(locationId) || 1,
-              InStore: false,
-              CalculateTax: true,
-              ...(promotion ? { PromotionCode: promotion.code } : {}),
-              Items: cartItems,
-              Payments: []
-            }
-          });
-          amount = quoteResult?.ShoppingCart?.GrandTotal ?? quoteResult?.GrandTotal ?? 0;
-        } catch (_) {}
-
-        payments = [{
-          Type: "CreditCard",
-          Metadata: {
-            Amount: amount,
-            CreditCardNumber: cardNumber,
-            ExpMonth: expMonth,
-            ExpYear: expYear,
-            Cvv: String(body.cvv || ""),
-            BillingName: String(body.billingName || "").trim(),
-            BillingAddress: String(body.billingAddress || "").trim(),
-            BillingCity: String(body.billingCity || "").trim(),
-            BillingState: String(body.billingState || "").trim(),
-            BillingPostalCode: String(body.billingPostalCode || "").replace(/\D/g, "").slice(0, 10),
-            SaveInfo: body.saveCard !== false
+        for (const candidate of candidates) {
+          const amount = moneyValue(candidate);
+          if (amount > 0) {
+            return Number(amount.toFixed(2));
           }
-        }];
-      } else {
-        sendJson(response, 400, { ok: false, message: "Please provide a payment method." });
-        return true;
-      }
+        }
+
+        return 0;
+      };
+
+      let checkoutAmount = 0;
 
       try {
-        const result = await bookingRequest("/sale/checkoutshoppingcart", {
+        const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
           method: "POST",
           token: staffToken,
           body: {
-            Test: process.env.BOOKING_TEST_MODE === "true",
+            Test: true,
             ClientId: clientId,
             LocationId: Number(locationId) || 1,
             InStore: false,
             CalculateTax: true,
             ...(promotion ? { PromotionCode: promotion.code } : {}),
-            SendEmail: true,
             Items: cartItems,
-            Payments: payments
+            Payments: []
           }
         });
-        sendJson(response, 200, { ok: true, purchase: result, promotion });
-      } catch (err) {
-        const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Checkout could not be completed.";
-        sendJson(response, err.status || 503, { ok: false, message: msg });
+
+        checkoutAmount = extractCheckoutTotal(quoteResult);
+      } catch (error) {
+        console.warn(
+          "[cart/checkout] Mindbody quote failed; using the locally calculated discounted total:",
+          error.message
+        );
       }
+
+      if (!Number.isFinite(checkoutAmount) || checkoutAmount <= 0) {
+        checkoutAmount = fallbackCheckoutAmount;
+      }
+
+      if (!Number.isFinite(checkoutAmount) || checkoutAmount <= 0) {
+        sendJson(response, 400, {
+          ok: false,
+          message: "Could not determine the checkout total."
+        });
+        return true;
+      }
+
+      // Use this one finalized amount for every payment path so the submitted
+      // payment always matches the promoted Mindbody cart total exactly.
+      checkoutAmount = Number(checkoutAmount.toFixed(2));
+
+      let payments;
+      const storedLastFour = String(
+        body.storedCardLastFour || body.paymentLastFour || ""
+      ).replace(/\D/g, "");
+
+      if (storedLastFour.length === 4) {
+        payments = [
+          {
+            Type: "StoredCard",
+            Metadata: {
+              Amount: checkoutAmount,
+              LastFour: storedLastFour
+            }
+          }
+        ];
+      } else if (body.cardNumber) {
+        const cardNumber = String(body.cardNumber || "").replace(/\D/g, "");
+        const expMonth = Number(String(body.expMonth || "").replace(/\D/g, ""));
+        const expYearRaw = String(body.expYear || "").replace(/\D/g, "");
+        const expYear = Number(
+          expYearRaw.length === 2 ? `20${expYearRaw}` : expYearRaw
+        );
+
+        if (cardNumber.length < 13 || cardNumber.length > 19) {
+          sendJson(response, 400, {
+            ok: false,
+            message: "Please enter a valid card number."
+          });
+          return true;
+        }
+
+        if (!expMonth || expMonth < 1 || expMonth > 12 || !expYear) {
+          sendJson(response, 400, {
+            ok: false,
+            message: "Please enter a valid card expiry."
+          });
+          return true;
+        }
+
+        payments = [
+          {
+            Type: "CreditCard",
+            Metadata: {
+              Amount: checkoutAmount,
+              CreditCardNumber: cardNumber,
+              ExpMonth: expMonth,
+              ExpYear: expYear,
+              Cvv: String(body.cvv || ""),
+              BillingName: String(body.billingName || "").trim(),
+              BillingAddress: String(body.billingAddress || "").trim(),
+              BillingCity: String(body.billingCity || "").trim(),
+              BillingState: String(body.billingState || "").trim(),
+              BillingPostalCode: String(body.billingPostalCode || "")
+                .replace(/\D/g, "")
+                .slice(0, 10),
+              SaveInfo: body.saveCard !== false
+            }
+          }
+        ];
+      } else {
+        sendJson(response, 400, {
+          ok: false,
+          message: "Please provide a payment method."
+        });
+        return true;
+      }
+
+      try {
+        const checkoutBody = {
+          Test: process.env.BOOKING_TEST_MODE === "true",
+          ClientId: clientId,
+          LocationId: Number(locationId) || 1,
+          InStore: false,
+          CalculateTax: true,
+          ...(promotion ? { PromotionCode: promotion.code } : {}),
+          SendEmail: true,
+          Items: cartItems,
+          Payments: payments
+        };
+
+        const result = await bookingRequest("/sale/checkoutshoppingcart", {
+          method: "POST",
+          token: staffToken,
+          body: checkoutBody
+        });
+
+        sendJson(response, 200, {
+          ok: true,
+          purchase: result,
+          promotion,
+          chargedTotal: checkoutAmount
+        });
+      } catch (error) {
+        const message =
+          error.data?.Error?.Message ||
+          error.data?.Message ||
+          error.message ||
+          "Checkout could not be completed.";
+
+        sendJson(response, error.status || 503, {
+          ok: false,
+          message
+        });
+      }
+
       return true;
     }
 
