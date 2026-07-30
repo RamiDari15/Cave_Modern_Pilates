@@ -2282,8 +2282,21 @@ function ContactPage({ location }) {
   const contact = getContactDetails(location);
   const mapSrc = `https://www.google.com/maps?q=${encodeURIComponent(contact.mapQuery)}&output=embed`;
   const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(contact.mapQuery)}`;
+  const contactParams = new URLSearchParams(window.location.search);
+  const isGuestBookingRequest = contactParams.get("topic") === "guest-pass";
+  const guestClassDetails = [
+    contactParams.get("className"),
+    contactParams.get("date"),
+    contactParams.get("time")
+  ].filter(Boolean).join(" · ");
 
-  const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    message: isGuestBookingRequest
+      ? `I would like to use my available guest pass for ${guestClassDetails || "an upcoming class"}. Guest name and email: `
+      : ""
+  });
   const [status, setStatus] = useState({ type: "", message: "" });
 
   const updateField = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -2317,8 +2330,10 @@ function ContactPage({ location }) {
     <>
       <section className="contact-hero">
         <div className="contact-hero-copy">
-          <h1>Contact Us</h1>
-          <p>Questions before class, private sessions, or memberships? Send us a note and we’ll get back to you.</p>
+          <h1>{isGuestBookingRequest ? "Book Your Guest" : "Contact Us"}</h1>
+          <p>{isGuestBookingRequest
+            ? "Add your guest’s name and email to the message. Cave will confirm the reservation and redeem your guest pass."
+            : "Questions before class, private sessions, or memberships? Send us a note and we’ll get back to you."}</p>
           <a href={`mailto:${contact.email}`}>{contact.email}</a>
           <a href={`tel:${contact.phone}`}>{contact.phoneDisplay}</a>
         </div>
@@ -2917,7 +2932,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
       )}
 
       <div className="account-grid">
-       <AccountCard title="Upcoming Bookings" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings. Head to the schedule to book a spot." />
+       <AccountCard title="Upcoming Classes" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings or waitlists. Head to the schedule to choose a class." />
 
 <AccountCard
   title="Class Credits"
@@ -3369,7 +3384,9 @@ function AccountCard({ title, data, empty, type, loading }) {
 }
 
 function normalizeAccountItems(data, type) {
-  const rows = firstArrayFromAccountData(data, accountPreferredKeys(type));
+  const rows = type === "schedule"
+    ? accountScheduleRows(data)
+    : firstArrayFromAccountData(data, accountPreferredKeys(type));
 
   if (!rows.length) {
     return [];
@@ -3377,16 +3394,24 @@ function normalizeAccountItems(data, type) {
 
   return rows.slice(0, 6).map((item) => {
     if (type === "schedule") {
+      const isWaitlisted =
+        item.type === "waitlist" ||
+        item.Waitlist === true ||
+        /wait\s*list/i.test(firstText(item.Status, item.BookingStatus, item.VisitStatus));
       const title = firstText(
         item.ClassDescription?.Name,
+        item.Class?.ClassDescription?.Name,
+        item.Class?.Name,
         item.ClassName,
         item.Name,
         item.SessionType?.Name,
-        "Booked class"
+        isWaitlisted ? "Waitlisted class" : "Booked class"
       );
-      const when = formatAccountDate(firstText(item.StartDateTime, item.StartDate, item.AppointmentStartDateTime, item.Date));
-      const instructor = firstText(item.Staff?.Name, item.StaffName, item.InstructorName);
-      const status = firstText(item.Status, item.BookingStatus, item.VisitStatus);
+      const when = formatAccountDate(firstText(item.StartDateTime, item.Class?.StartDateTime, item.StartDate, item.AppointmentStartDateTime, item.Date));
+      const instructor = firstText(item.Staff?.Name, item.Class?.Staff?.Name, item.StaffName, item.InstructorName);
+      const status = isWaitlisted
+        ? "Waitlisted"
+        : firstText(item.Status, item.BookingStatus, item.VisitStatus, "Booked");
 
       return {
         title,
@@ -3459,6 +3484,26 @@ if (type === "services") {
       meta: ends ? `Renews or ends ${ends}` : ""
     };
   });
+}
+
+function accountScheduleRows(data) {
+  if (!data || typeof data !== "object") {
+    return Array.isArray(data) ? data : [];
+  }
+
+  const schedule = data.ClientSchedule && typeof data.ClientSchedule === "object"
+    ? data.ClientSchedule
+    : data;
+  const visits = Array.isArray(schedule.Visits) ? schedule.Visits : [];
+  const waitlistEntries = Array.isArray(schedule.WaitlistEntries)
+    ? schedule.WaitlistEntries.map((item) => ({ ...item, type: "waitlist", Status: "Waitlisted" }))
+    : [];
+
+  if (visits.length || waitlistEntries.length) {
+    return [...visits, ...waitlistEntries];
+  }
+
+  return firstArrayFromAccountData(data, accountPreferredKeys("schedule"));
 }
 
 function accountPreferredKeys(type) {
@@ -3867,6 +3912,60 @@ if (
     }
   };
 
+  const bookGuest = async (classItem) => {
+    const guestPass = eligibility?.activeServices?.find((service) =>
+      /guest\s*pass/i.test(String(service.name || ""))
+    );
+    const firstName = window.prompt("Guest’s first name:");
+
+    if (!firstName?.trim()) return;
+
+    const lastName = window.prompt("Guest’s last name:");
+
+    if (!lastName?.trim()) return;
+
+    const email = window.prompt("Guest’s email address:");
+
+    if (!email?.trim()) return;
+
+    const mobilePhone = window.prompt("Guest’s mobile phone number:");
+
+    if (!mobilePhone?.trim()) return;
+
+    const classId = Number(classItem.id);
+    setBookingState({ classId, operation: "book-guest", type: "loading", message: "Booking guest…" });
+
+    try {
+      await apiRequest("/api/mindbody/book-guest", {
+        method: "POST",
+        body: {
+          classId,
+          guestPassClientServiceId: guestPass?.id,
+          guest: {
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            email: email.trim(),
+            mobilePhone: mobilePhone.trim()
+          }
+        }
+      });
+      setBookingState({
+        classId,
+        operation: "book-guest",
+        type: "success",
+        message: `${firstName.trim()} is booked! A confirmation will be sent to ${email.trim()}.`
+      });
+      refreshAll();
+    } catch (error) {
+      setBookingState({
+        classId,
+        operation: "book-guest",
+        type: "error",
+        message: error.data?.message || error.message || "The guest could not be booked."
+      });
+    }
+  };
+
   const removeFromWaitlist = async (classItem) => {
   const classId = Number(classItem.id);
   const waitlistData = clientSchedule.get(classId);
@@ -3928,6 +4027,13 @@ if (
 
   const isLiveDataLoading = liveLoading && !liveClasses;
   const hasNoCredits = clientSession?.signedIn && eligibility !== null && !eligibility.hasUsablePricingOption;
+  const hasAvailableGuestPass = eligibility?.activeServices?.some((service) => {
+    const name = String(service.name || "");
+    const remaining = Number(service.remaining);
+
+    return /guest\s*pass/i.test(name) &&
+      (!String(service.remaining ?? "").trim() || !Number.isFinite(remaining) || remaining > 0);
+  });
 
   return (
     <div className="schedule-browser" aria-live="polite">
@@ -4048,6 +4154,10 @@ if (
           const isThisLoading = bookingState.classId === classItem.id && bookingState.type === "loading";
           const isThisSuccess = bookingState.classId === classItem.id && bookingState.type === "success";
           const isThisUnbook = bookingState.classId === classItem.id && bookingState.operation === "unbook";
+          const isThisWaitlistSuccess =
+            isThisSuccess && bookingState.operation === "waitlist";
+          const isThisBookingSuccess =
+            isThisSuccess && bookingState.operation === "book";
 
           
 
@@ -4080,10 +4190,10 @@ let spotsText = "Available";
 if (isDataLoading) {
   spotsClass = "spots-badge spots-loading";
   spotsText = "Checking…";
-} else if (isWaitlisted) {
+} else if (isWaitlisted || isThisWaitlistSuccess) {
   spotsClass = "spots-badge spots-low";
   spotsText = "Waitlisted";
-} else if (isBooked || (isThisSuccess && !isThisUnbook)) {
+} else if (isBooked || isThisBookingSuccess) {
   spotsClass = "spots-badge spots-booked";
   spotsText = "Booked";
 } else if (isThisSuccess && isThisUnbook) {
@@ -4101,6 +4211,13 @@ if (isDataLoading) {
           let actionButton;
           const isBusy = isThisLoading;
           const effectiveBooked = isBooked && !(isThisSuccess && isThisUnbook);
+          const isGuestPassRestrictedClass =
+            /yalla\s*move|cave\s*intensified|latin\s*night/i.test(String(classItem.className || ""));
+          const canBookGuest =
+            hasAvailableGuestPass &&
+            !isGuestPassRestrictedClass &&
+            liveStatus !== "Canceled" &&
+            !shouldWaitlist;
           if (liveStatus === "Canceled") {
   actionButton = (
     <button className="book-class book-canceled" type="button" disabled>
@@ -4127,6 +4244,12 @@ if (isDataLoading) {
       onClick={() => removeFromWaitlist(classItem)}
     >
       {isBusy ? "Removing…" : "Remove Waitlist"}
+    </button>
+  );
+} else if (isThisWaitlistSuccess) {
+  actionButton = (
+    <button className="book-class book-waitlist" type="button" disabled>
+      Waitlisted
     </button>
   );
 } else if (!clientSession?.signedIn) {
@@ -4203,6 +4326,16 @@ if (isDataLoading) {
               </div>
               <div className="schedule-booking">
                 {actionButton}
+                {canBookGuest ? (
+                  <button
+                    className="book-class book-guest"
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => bookGuest(classItem)}
+                  >
+                    {isBusy && bookingState.operation === "book-guest" ? "Booking Guest…" : "Book Guest"}
+                  </button>
+                ) : null}
                 {bookingState.classId === classItem.id && bookingState.message ? (
                   <p className={`row-status ${bookingState.type}`}>{bookingState.message}</p>
                 ) : null}

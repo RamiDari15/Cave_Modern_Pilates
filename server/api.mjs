@@ -299,7 +299,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -937,6 +937,135 @@ return true;
           code,
           message: error.message || "Booking could not be completed.",
           canWaitlist: error.canWaitlist || false
+        });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/book-guest" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session) {
+        sendJson(response, 401, { ok: false, message: "Please sign in before booking a guest." });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const classId = Number(body.classId);
+      const requestedServiceId = Number(body.guestPassClientServiceId);
+      const guest = body.guest || {};
+      const firstName = String(guest.firstName || "").trim();
+      const lastName = String(guest.lastName || "").trim();
+      const email = String(guest.email || "").trim().toLowerCase();
+      const mobilePhone = String(guest.mobilePhone || "").trim();
+
+      if (!Number.isInteger(classId) || classId <= 0) {
+        sendJson(response, 400, { ok: false, message: "A valid class is required." });
+        return true;
+      }
+
+      if (!firstName || !lastName || !email || !mobilePhone || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        sendJson(response, 400, { ok: false, message: "Enter the guest’s first name, last name, email, and mobile phone." });
+        return true;
+      }
+
+      try {
+        const memberClientId = await resolveSessionClientId(session);
+
+        if (!memberClientId) {
+          throw httpError(400, "We could not match your login to a studio account.");
+        }
+
+        const memberInfo = await fetchClientCompleteInfo(memberClientId, session);
+        const guestPass = memberInfo.activeServices?.find((service) => {
+          const serviceId = Number(service.id);
+          const remaining = Number(service.remaining);
+
+          return /guest\s*pass/i.test(String(service.name || "")) &&
+            (!requestedServiceId || serviceId === requestedServiceId) &&
+            (!String(service.remaining ?? "").trim() || !Number.isFinite(remaining) || remaining > 0);
+        });
+
+        if (!guestPass) {
+          const error = httpError(402, "No available guest pass was found on your account.");
+          error.bookingCode = "NO_GUEST_PASS";
+          throw error;
+        }
+
+        const classesData = await bookingRequest("/class/classes", {
+          params: {
+            "request.classIds": String(classId),
+            "request.schedulingWindow": "true"
+          }
+        });
+        const classItem = firstListByKey(classesData, "Classes")
+          .find((item) => Number(item.Id || item.ClassId) === classId);
+        const className = String(classItem?.ClassDescription?.Name || classItem?.Name || "");
+
+        if (!classItem || classItem.IsCanceled || classItem.IsAvailable === false) {
+          throw httpError(409, "This class is no longer available.");
+        }
+
+        if (/yalla\s*move|cave\s*intensified|latin\s*night/i.test(className)) {
+          throw httpError(403, "Guest passes cannot be used for this specialty class.");
+        }
+
+        const maxCapacity = Number(firstDefined(classItem.MaxCapacity, classItem.WebCapacity) || 0);
+        const totalBooked = Number(firstDefined(classItem.TotalBooked, classItem.WebBooked) || 0);
+
+        if (maxCapacity > 0 && totalBooked >= maxCapacity) {
+          throw httpError(409, "This class is full. Guest passes cannot be used for the waitlist.");
+        }
+
+        let guestProfile = await findMindbodyClientByEmail(email).catch(() => null);
+
+        if (!guestProfile?.clientId) {
+          const created = await addClient({
+            FirstName: firstName,
+            LastName: lastName,
+            Email: email,
+            MobilePhone: mobilePhone,
+            MobileNumber: mobilePhone
+          });
+          guestProfile = extractClientProfile(created, email);
+        }
+
+        if (!guestProfile?.clientId) {
+          throw httpError(502, "The guest profile could not be created in Mindbody.");
+        }
+
+        const staffToken = await getMindbodyActionToken("Guest class booking");
+        const result = await bookingRequest("/class/addclienttoclass", {
+          method: "POST",
+          token: staffToken,
+          body: {
+            ClientId: guestProfile.clientId,
+            ClassId: classId,
+            ClientServiceId: Number(guestPass.id),
+            RequirePayment: false,
+            SendEmail: true,
+            Waitlist: false,
+            Test: process.env.BOOKING_TEST_MODE === "true"
+          }
+        });
+
+        liveClassesCache.expiresAt = 0;
+        sendJson(response, 200, {
+          ok: true,
+          message: "Guest booked.",
+          data: result
+        });
+      } catch (error) {
+        const upstreamMessage =
+          error.data?.Error?.Message ||
+          error.data?.Message ||
+          error.message ||
+          "The guest could not be booked.";
+        sendJson(response, error.status || 503, {
+          ok: false,
+          code: error.bookingCode || "GUEST_BOOKING_ERROR",
+          message: upstreamMessage
         });
       }
 

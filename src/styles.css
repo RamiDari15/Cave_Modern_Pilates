@@ -2322,6 +2322,17 @@ body.interior:has(.page-policies),
   background: #f5f5f5;
 }
 
+.book-class.book-guest {
+  background: #fff;
+  color: var(--black);
+  border-color: var(--black);
+  text-decoration: none;
+}
+
+.book-class.book-guest:hover {
+  background: #f5f5f5;
+}
+
 .schedule-booking {
   display: grid;
   gap: 8px;
