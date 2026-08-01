@@ -1476,13 +1476,30 @@ const visitsArray = Array.isArray(rawVisits) ? rawVisits : [];
 
 const visits = visitsArray
   .filter((v) => v && typeof v === "object")
-  .map((v) => ({
-    type: "booking",
-    classId: Number(v.ClassId || v.Class?.Id || v.Id || 0),
-    visitId: Number(v.Id || v.VisitId || 0),
-    startDateTime: v.StartDateTime || v.Class?.StartDateTime || "",
-    status: v.VisitStatus || v.Status || "Confirmed"
-  }))
+  .map((v) => {
+    const status = String(v.VisitStatus || v.BookingStatus || v.WaitlistStatus || v.AppointmentStatus || v.SignedInStatus || v.Status || "");
+    const waitlistEntryId = Number(v.WaitlistEntryId || v.WaitListEntryId || v.Waitlist?.Id || v.Class?.WaitlistEntryId || 0);
+    const waitlistPosition = Number(v.WaitlistPosition || v.WaitListPosition || v.Position || v.Class?.WaitlistPosition || 0);
+    const isWaitlisted =
+      v.IsWaitlisted === true ||
+      v.OnWaitlist === true ||
+      v.Waitlist === true ||
+      v.Class?.IsWaitlisted === true ||
+      v.Class?.OnWaitlist === true ||
+      waitlistEntryId > 0 ||
+      waitlistPosition > 0 ||
+      /wait\s*list/i.test(status);
+
+    return {
+      type: isWaitlisted ? "waitlist" : "booking",
+      classId: Number(v.ClassId || v.Class?.Id || v.Id || 0),
+      visitId: Number(v.Id || v.VisitId || 0),
+      waitlistEntryId,
+      waitlistPosition: waitlistPosition || null,
+      startDateTime: v.StartDateTime || v.Class?.StartDateTime || "",
+      status: isWaitlisted ? "Waitlisted" : (status || "Confirmed")
+    };
+  })
   .filter((v) => v.classId > 0);
 
 const rawWaitlist =

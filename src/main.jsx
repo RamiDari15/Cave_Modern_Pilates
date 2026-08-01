@@ -3397,7 +3397,13 @@ function normalizeAccountItems(data, type) {
       const isWaitlisted =
         item.type === "waitlist" ||
         item.Waitlist === true ||
-        /wait\s*list/i.test(firstText(item.Status, item.BookingStatus, item.VisitStatus));
+        item.IsWaitlisted === true ||
+        item.OnWaitlist === true ||
+        item.Class?.IsWaitlisted === true ||
+        item.Class?.OnWaitlist === true ||
+        Number(item.WaitlistEntryId || item.WaitListEntryId || item.Waitlist?.Id || item.Class?.WaitlistEntryId || 0) > 0 ||
+        Number(item.WaitlistPosition || item.WaitListPosition || item.Position || item.Class?.WaitlistPosition || 0) > 0 ||
+        /wait\s*list/i.test(firstText(item.Status, item.BookingStatus, item.VisitStatus, item.WaitlistStatus, item.AppointmentStatus, item.SignedInStatus));
       const title = firstText(
         item.ClassDescription?.Name,
         item.Class?.ClassDescription?.Name,
