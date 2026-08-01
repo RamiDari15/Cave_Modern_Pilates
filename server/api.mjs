@@ -1166,19 +1166,19 @@ return true;
   try {
     const staffToken = await getMindbodyActionToken("Remove waitlist");
 
-    const removeRequest = {
-      WaitlistEntryIds: [waitlistEntryId],
-      SendEmail: true
-    };
     const result = await bookingRequest("/class/removefromwaitlist", {
       method: "POST",
       token: staffToken,
-      body: removeRequest
+      params: {
+        "request.waitlistEntryIds": [waitlistEntryId]
+      }
     }).catch((firstError) =>
       bookingRequest("/class/removefromwaitlist", {
         method: "POST",
         token: staffToken,
-        body: { Request: removeRequest }
+        params: {
+          WaitlistEntryIds: [waitlistEntryId]
+        }
       }).catch(() => {
         throw firstError;
       })
