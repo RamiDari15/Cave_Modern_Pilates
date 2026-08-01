@@ -6640,6 +6640,8 @@ async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
     throw httpError(503, "The Guest Pass pricing option could not be found in Mindbody.");
   }
 
+  await ensureGuestPayerRelationship(clientId, memberClientId, staffToken);
+
   await bookingRequest("/sale/checkoutshoppingcart", {
     method: "POST",
     token: staffToken,
@@ -6673,6 +6675,58 @@ async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
   }
 
   return purchasedPassId;
+}
+
+async function ensureGuestPayerRelationship(guestClientId, memberClientId, staffToken) {
+  const relationshipData = await bookingRequest("/site/relationships", {
+    token: staffToken,
+    params: {
+      "request.active": "true",
+      "request.limit": "200",
+      "request.offset": "0"
+    }
+  });
+  const relationships = firstListByKey(relationshipData, "Relationships");
+  const payerRelationship = relationships.find((relationship) =>
+    /pay|payer|responsible/i.test(
+      `${relationship.RelationshipName1 || ""} ${relationship.RelationshipName2 || ""}`
+    )
+  );
+
+  if (!payerRelationship?.Id) {
+    throw httpError(503, "Mindbody does not have an active client payer relationship configured for guest passes.");
+  }
+
+  const guestRelationshipName =
+    [payerRelationship.RelationshipName1, payerRelationship.RelationshipName2]
+      .find((name) => /paid\s+for\s+by|payer|responsible/i.test(String(name || ""))) ||
+    payerRelationship.RelationshipName2 ||
+    payerRelationship.RelationshipName1 ||
+    "Paid for by";
+
+  await bookingRequest("/client/updateclient", {
+    method: "POST",
+    token: staffToken,
+    body: {
+      Client: {
+        Id: String(guestClientId),
+        ClientRelationships: [
+          {
+            RelatedClientId: String(memberClientId),
+            Relationship: {
+              Id: Number(payerRelationship.Id),
+              RelationshipName1: payerRelationship.RelationshipName1,
+              RelationshipName2: payerRelationship.RelationshipName2
+            },
+            RelationshipName: String(guestRelationshipName),
+            Delete: false
+          }
+        ]
+      },
+      CrossRegionalUpdate: false,
+      Test: process.env.BOOKING_TEST_MODE === "true"
+    }
+  });
 }
 
 async function bookingRequest(path, { method = "GET", body, params, token, consumerIdentityToken } = {}) {
