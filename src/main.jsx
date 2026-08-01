@@ -2949,6 +2949,15 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 />
 
 <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
+<AccountCard
+  title="Monthly Guest Pass"
+  type="guest-pass"
+  data={dashboard?.monthlyGuestPass?.booking ? [dashboard.monthlyGuestPass.booking] : []}
+  loading={dashboardLoading}
+  empty={dashboard?.monthlyGuestPass?.eligible
+    ? "Your monthly guest pass is available to use."
+    : "No monthly guest pass is available on your membership."}
+/>
 <AccountCard title="Rewards" type="rewards" data={dashboard?.rewards} loading={dashboardLoading} empty="No reward points on file." /></div>
 
       <a className="pill-button outline account-edit-toggle" href={bookingUrl}>View Schedule</a>
@@ -3399,6 +3408,15 @@ function normalizeAccountItems(data, type) {
   }
 
   return rows.slice(0, 6).map((item) => {
+    if (type === "guest-pass") {
+      const guestName = [item.guestFirstName, item.guestLastName].filter(Boolean).join(" ") || "Guest";
+      return {
+        title: `${guestName} · Guest Pass`,
+        detail: "Booked for this month",
+        meta: item.guestEmail || ""
+      };
+    }
+
     if (type === "schedule") {
       const isWaitlisted =
         item.type === "waitlist" ||
@@ -3542,6 +3560,10 @@ function accountPreferredKeys(type) {
 
   if (type === "rewards") {
     return ["RewardPoints", "LoyaltyPoints", "Points", "Rewards"];
+  }
+
+  if (type === "guest-pass") {
+    return ["GuestPass"];
   }
 
   return ["ClientContracts", "Contracts", "Memberships", "Agreements"];
@@ -4002,6 +4024,27 @@ if (
     }
   };
 
+  const unbookGuest = async (classItem) => {
+    const classId = Number(classItem.id);
+    setBookingState({ classId, operation: "unbook-guest", type: "loading", message: "Cancelling guest booking…" });
+
+    try {
+      await apiRequest("/api/mindbody/unbook-guest", {
+        method: "POST",
+        body: { classId }
+      });
+      setBookingState({ classId, operation: "unbook-guest", type: "success", message: "Guest booking cancelled. Your monthly pass is available again." });
+      refreshAll();
+    } catch (error) {
+      setBookingState({
+        classId,
+        operation: "unbook-guest",
+        type: "error",
+        message: error.data?.message || error.message || "The guest booking could not be cancelled."
+      });
+    }
+  };
+
   const removeFromWaitlist = async (classItem) => {
   const classId = Number(classItem.id);
   const waitlistData = clientSchedule.get(classId);
@@ -4070,8 +4113,12 @@ if (
     return /guest\s*pass/i.test(name) &&
       (!String(service.remaining ?? "").trim() || !Number.isFinite(remaining) || remaining > 0);
   });
+  const guestPassBooking = eligibility?.monthlyGuestPass?.booking || null;
+  const guestBookedClassId = Number(guestPassBooking?.classId || 0);
   const hasAvailableGuestPass = Boolean(
-    hasMindbodyGuestPass || eligibility?.monthlyGuestPass?.available
+    eligibility?.monthlyGuestPass?.eligible
+      ? eligibility.monthlyGuestPass.available
+      : hasMindbodyGuestPass
   );
 
   return (
@@ -4186,6 +4233,7 @@ if (
       <div className="schedule-list">
         {activeDay.classes.map((classItem, index) => {
           const classIdNum = Number(classItem.id);
+          const isGuestBooked = guestBookedClassId > 0 && guestBookedClassId === classIdNum;
           const clientClassState = clientSchedule.get(classIdNum);
           const isWaitlisted = clientClassState?.type === "waitlist";
           const isBooked = Boolean(clientClassState) && !isWaitlisted;
@@ -4232,6 +4280,9 @@ if (isDataLoading) {
 } else if (isWaitlisted || isThisWaitlistSuccess) {
   spotsClass = "spots-badge spots-low";
   spotsText = "Waitlisted";
+} else if (isGuestBooked) {
+  spotsClass = "spots-badge spots-booked";
+  spotsText = isBooked ? "You + Guest Booked" : "Guest Booked";
 } else if (isBooked || isThisBookingSuccess) {
   spotsClass = "spots-badge spots-booked";
   spotsText = "Booked";
@@ -4365,7 +4416,16 @@ if (isDataLoading) {
               </div>
               <div className="schedule-booking">
                 {actionButton}
-                {canBookGuest ? (
+                {isGuestBooked ? (
+                  <button
+                    className="book-class book-guest book-unbook-guest"
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => unbookGuest(classItem)}
+                  >
+                    {isBusy && bookingState.operation === "unbook-guest" ? "Cancelling Guest…" : "Unbook Guest"}
+                  </button>
+                ) : canBookGuest ? (
                   <button
                     className="book-class book-guest"
                     type="button"

@@ -299,7 +299,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/unbook-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -1083,6 +1083,9 @@ return true;
         }
 
         const staffToken = await getMindbodyActionToken("Guest class booking");
+        const guestClientServiceId = hasUnlimitedMembership
+          ? await ensureMindbodyGuestPass(guestProfile.clientId, staffToken)
+          : null;
         const guestBookingBody = {
           ClientId: guestProfile.clientId,
           ClassId: classId,
@@ -1092,10 +1095,9 @@ return true;
           Test: process.env.BOOKING_TEST_MODE === "true"
         };
 
-        // Unlimited-member guest bookings are recorded as complimentary staff
-        // bookings. A ClientServiceId on the member belongs to the member, not
-        // the guest, and must not be attached to the guest's Mindbody visit.
-        if (!hasUnlimitedMembership && guestPass?.id) {
+        if (guestClientServiceId) {
+          guestBookingBody.ClientServiceId = Number(guestClientServiceId);
+        } else if (!hasUnlimitedMembership && guestPass?.id) {
           guestBookingBody.ClientServiceId = Number(guestPass.id);
         }
 
@@ -1137,6 +1139,66 @@ return true;
           ok: false,
           code: error.bookingCode || "GUEST_BOOKING_ERROR",
           message: upstreamMessage
+        });
+      }
+
+      return true;
+    }
+
+    if (path === "/api/mindbody/unbook-guest" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session) {
+        sendJson(response, 401, { ok: false, message: "Please sign in before cancelling a guest booking." });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const classId = Number(body.classId);
+
+      if (!Number.isInteger(classId) || classId <= 0) {
+        sendJson(response, 400, { ok: false, message: "A valid class is required." });
+        return true;
+      }
+
+      try {
+        const memberClientId = await resolveSessionClientId(session);
+        const redemption = await monthlyGuestPassDetails(memberClientId);
+
+        if (!redemption || Number(redemption.class_id) !== classId) {
+          throw httpError(404, "No guest booking was found for this class.");
+        }
+
+        if (!redemption.guest_client_id) {
+          throw httpError(409, "The guest’s Mindbody account could not be found.");
+        }
+
+        const staffToken = await getMindbodyActionToken("Guest class cancellation");
+
+        try {
+          await bookingRequest("/class/removeclientfromclass", {
+            method: "POST",
+            token: staffToken,
+            body: {
+              ClientId: String(redemption.guest_client_id),
+              ClassId: classId,
+              SendEmail: true,
+              LateCancel: false,
+              Test: process.env.BOOKING_TEST_MODE === "true"
+            }
+          });
+        } catch (error) {
+          const message = String(error.data?.Error?.Message || error.data?.Message || error.message || "");
+          if (!/no class visit|not found|not registered|not booked/i.test(message)) throw error;
+        }
+
+        await deleteMonthlyGuestPass(memberClientId, classId);
+        liveClassesCache.expiresAt = 0;
+        sendJson(response, 200, { ok: true, message: "Guest booking cancelled." });
+      } catch (error) {
+        sendJson(response, error.status || 503, {
+          ok: false,
+          message: error.data?.Error?.Message || error.data?.Message || error.message || "The guest booking could not be cancelled."
         });
       }
 
@@ -1685,7 +1747,10 @@ return true;
 
       const info = await fetchClientCompleteInfo(clientId, session).catch(() => null);
       const hasUnlimitedMembership = hasEligibleUnlimitedMembership(info);
-      const monthlyAvailable = hasUnlimitedMembership
+      const guestBooking = hasUnlimitedMembership
+        ? await monthlyGuestPassDetails(clientId).catch(() => null)
+        : null;
+      const monthlyAvailable = hasUnlimitedMembership && !guestBooking
         ? await monthlyGuestPassAvailable(clientId).catch(() => false)
         : false;
       sendJson(response, 200, {
@@ -1695,7 +1760,8 @@ return true;
           monthlyGuestPass: {
             eligible: hasUnlimitedMembership,
             available: monthlyAvailable,
-            benefitMonth: currentBenefitMonth()
+            benefitMonth: currentBenefitMonth(),
+            booking: publicGuestPassBooking(guestBooking)
           }
         }
       });
@@ -1792,6 +1858,11 @@ return true;
 
   const schedule = fulfilledValue(scheduleResult);
   const rewards = fulfilledValue(rewardsResult);
+  const guestPassBooking = await monthlyGuestPassDetails(clientId).catch(() => null);
+  const guestPassEligible = hasEligibleUnlimitedMembership(accountInfo);
+  const guestPassAvailable = guestPassEligible && !guestPassBooking
+    ? await monthlyGuestPassAvailable(clientId).catch(() => false)
+    : false;
 
   const services = Array.isArray(accountInfo?.activeServices)
     ? accountInfo.activeServices.map((service) => ({
@@ -1827,6 +1898,12 @@ return true;
     services,
     contracts,
     rewards,
+    monthlyGuestPass: {
+      eligible: guestPassEligible,
+      available: guestPassAvailable,
+      benefitMonth: currentBenefitMonth(),
+      booking: publicGuestPassBooking(guestPassBooking)
+    },
     eligibility: accountInfo,
     session: publicSession(session),
     errors
@@ -6443,6 +6520,140 @@ async function monthlyGuestPassAvailable(clientId) {
     p_member_client_id: String(clientId),
     p_benefit_month: currentBenefitMonth()
   }));
+}
+
+function guestPassTableConfig() {
+  const url = normalizeSupabaseProjectUrl(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw httpError(503, "Monthly guest passes are not configured yet.");
+  return { url, key };
+}
+
+async function monthlyGuestPassDetails(clientId) {
+  if (!clientId) return null;
+  const { url, key } = guestPassTableConfig();
+  const query = new URLSearchParams({
+    member_client_id: `eq.${String(clientId)}`,
+    benefit_month: `eq.${currentBenefitMonth()}`,
+    status: "eq.booked",
+    select: "member_client_id,benefit_month,status,guest_first_name,guest_last_name,guest_email,guest_client_id,class_id,booked_at",
+    limit: "1"
+  });
+  const response = await fetch(`${url}/rest/v1/guest_pass_redemptions?${query}`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}` }
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw httpError(503, data?.message || "Guest pass details are unavailable.");
+  return Array.isArray(data) ? data[0] || null : null;
+}
+
+async function deleteMonthlyGuestPass(clientId, classId) {
+  const { url, key } = guestPassTableConfig();
+  const query = new URLSearchParams({
+    member_client_id: `eq.${String(clientId)}`,
+    benefit_month: `eq.${currentBenefitMonth()}`,
+    class_id: `eq.${Number(classId)}`,
+    status: "eq.booked"
+  });
+  const response = await fetch(`${url}/rest/v1/guest_pass_redemptions?${query}`, {
+    method: "DELETE",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: "return=representation" }
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw httpError(503, data?.message || "Guest pass tracking could not be updated.");
+  return data;
+}
+
+function publicGuestPassBooking(record) {
+  if (!record) return null;
+  return {
+    benefitMonth: record.benefit_month,
+    classId: Number(record.class_id),
+    guestFirstName: record.guest_first_name || "",
+    guestLastName: record.guest_last_name || "",
+    guestEmail: record.guest_email || "",
+    bookedAt: record.booked_at || ""
+  };
+}
+
+async function ensureMindbodyGuestPass(clientId, staffToken) {
+  const findActiveGuestPass = async () => {
+    const data = await bookingRequest("/client/clientservices", {
+      token: staffToken,
+      params: {
+        "request.clientId": String(clientId),
+        "request.showActiveOnly": "true",
+        "request.crossRegionalLookup": "true"
+      }
+    });
+    const services = [
+      ...firstListByKey(data, "ClientServices"),
+      ...firstListByKey(data, "Services")
+    ];
+    const pass = services.find((service) => {
+      const name = String(service.Name || service.ServiceName || service.ProductName || "");
+      const remainingText = String(
+        service.Remaining ?? service.RemainingVisits ?? service.RemainingSessions ?? ""
+      ).trim();
+      const remaining = Number(remainingText);
+
+      return /guest\s*pass/i.test(name) &&
+        (!remainingText || !Number.isFinite(remaining) || remaining > 0);
+    });
+
+    return pass?.Id || pass?.ClientServiceId || pass?.id || null;
+  };
+
+  const existingPassId = await findActiveGuestPass().catch(() => null);
+  if (existingPassId) return existingPassId;
+
+  const { locationId } = getBookingConfig();
+  const catalog = await bookingRequest("/sale/services", {
+    token: staffToken,
+    params: {
+      "request.locationId": String(Number(locationId) || 1),
+      "request.includeDiscontinued": "false",
+      "request.limit": "200",
+      "request.offset": "0"
+    }
+  });
+  const services = firstListByKey(catalog, "Services");
+  const guestPassService =
+    services.find((service) => /^guest\s*pass$/i.test(String(service.Name || "").trim())) ||
+    services.find((service) => /guest\s*pass/i.test(String(service.Name || "")));
+  const guestPassServiceId = Number(guestPassService?.Id || guestPassService?.ProductId || 0);
+
+  if (!guestPassServiceId) {
+    throw httpError(503, "The Guest Pass pricing option could not be found in Mindbody.");
+  }
+
+  await bookingRequest("/sale/checkoutshoppingcart", {
+    method: "POST",
+    token: staffToken,
+    body: {
+      Test: process.env.BOOKING_TEST_MODE === "true",
+      ClientId: String(clientId),
+      LocationId: Number(locationId) || 1,
+      InStore: true,
+      CalculateTax: false,
+      SendEmail: false,
+      Items: [
+        {
+          Item: { Type: "Service", Metadata: { Id: guestPassServiceId } },
+          DiscountAmount: 0,
+          Quantity: 1
+        }
+      ],
+      Payments: []
+    }
+  });
+
+  const purchasedPassId = await findActiveGuestPass();
+  if (!purchasedPassId) {
+    throw httpError(502, "Mindbody created the Guest Pass sale but did not return an active pass.");
+  }
+
+  return purchasedPassId;
 }
 
 async function bookingRequest(path, { method = "GET", body, params, token, consumerIdentityToken } = {}) {
