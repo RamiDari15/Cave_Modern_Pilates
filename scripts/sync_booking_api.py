@@ -232,6 +232,9 @@ def is_public_service_name(name: str) -> bool:
     if any(term in lowered for term in ["drop in", "drop-in", "dropin"]):
         return True
 
+    if "unlimited class pack" in lowered:
+        return True
+
     return bool(re.search(r"\b\d+\s*class\s*(pack|package)?\b", lowered))
 
 
