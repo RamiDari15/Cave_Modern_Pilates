@@ -711,9 +711,6 @@ return true;
       const session = await readHydratedSession(request, response);
       const body = await readJsonBody(request);
       const classId = Number(body.classId);
-      const classScheduleId = Number(body.classScheduleId || 0);
-      const classStartDateTime = String(body.startDateTime || "").trim();
-      const classLocationId = Number(body.locationId || 0);
 
       if (!Number.isInteger(classId) || classId <= 0) {
         sendJson(response, 400, { message: "A valid class ID is required." });
@@ -956,6 +953,9 @@ return true;
 
       const body = await readJsonBody(request);
       const classId = Number(body.classId);
+      const classScheduleId = Number(body.classScheduleId || 0);
+      const classStartDateTime = String(body.startDateTime || "").trim();
+      const classLocationId = Number(body.locationId || 0);
       const requestedServiceId = Number(body.guestPassClientServiceId);
       const guest = body.guest || {};
       const firstName = String(guest.firstName || "").trim();
