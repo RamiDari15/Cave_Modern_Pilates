@@ -1060,7 +1060,8 @@ return true;
             LastName: lastName,
             Email: email,
             MobilePhone: mobilePhone,
-            MobileNumber: mobilePhone
+            MobileNumber: mobilePhone,
+            SendScheduleEmails: true
           });
           guestProfile = extractClientProfile(created, email);
         }
@@ -1083,6 +1084,12 @@ return true;
         }
 
         const staffToken = await getMindbodyActionToken("Guest class booking");
+        await enableGuestScheduleConfirmation({
+          clientId: guestProfile.clientId,
+          email,
+          mobilePhone,
+          staffToken
+        });
         let guestClientServiceId = null;
 
         if (hasUnlimitedMembership) {
@@ -6708,6 +6715,23 @@ async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
   }
 
   return purchasedPassId;
+}
+
+async function enableGuestScheduleConfirmation({ clientId, email, mobilePhone, staffToken }) {
+  await bookingRequest("/client/updateclient", {
+    method: "POST",
+    token: staffToken,
+    body: {
+      Client: {
+        Id: String(clientId),
+        Email: String(email),
+        MobilePhone: String(mobilePhone || ""),
+        SendScheduleEmails: true
+      },
+      CrossRegionalUpdate: false,
+      Test: process.env.BOOKING_TEST_MODE === "true"
+    }
+  });
 }
 
 async function ensureGuestPayerRelationship(guestClientId, memberClientId, staffToken, allowedRelationshipIds = []) {

@@ -1109,6 +1109,150 @@ body.interior:has(.page-policies),
   text-align: center;
 }
 
+.membership-perks-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 52px;
+  margin: 28px auto 0;
+  padding: 0 20px 0 26px;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  border-radius: 999px;
+  color: var(--white);
+  background: rgba(5, 5, 5, 0.28);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.membership-perks-trigger-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--black);
+  background: var(--white);
+}
+
+.home-pricing-preview > .membership-perks-trigger {
+  display: flex;
+  width: fit-content;
+  margin: 0 auto clamp(48px, 6vw, 74px);
+}
+
+.membership-perks-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.membership-perks-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgba(5, 5, 5, 0.68);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+.membership-perks-modal {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 720px);
+  max-height: min(88vh, 820px);
+  overflow-y: auto;
+  padding: clamp(28px, 5vw, 52px);
+  border-radius: 32px;
+  color: var(--black);
+  background: #f6f6f3;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.34);
+  text-align: left;
+}
+
+.membership-perks-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 30px;
+}
+
+.membership-perks-kicker {
+  margin: 0 0 8px;
+  color: #147b5a;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.membership-perks-header h2 {
+  margin: 0;
+  font-size: clamp(2.35rem, 6vw, 4rem);
+  font-weight: 450;
+  line-height: 0.98;
+}
+
+.membership-perks-close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(5, 5, 5, 0.12);
+  border-radius: 50%;
+  color: var(--black);
+  background: transparent;
+  cursor: pointer;
+}
+
+.membership-perks-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.membership-perks-list section {
+  padding: 22px;
+  border: 1px solid rgba(5, 5, 5, 0.1);
+  border-radius: 20px;
+  background: var(--white);
+}
+
+.membership-perks-list h3 {
+  margin: 0 0 10px;
+  font-size: 1.08rem;
+  line-height: 1.25;
+}
+
+.membership-perks-list h3::before {
+  color: #147b5a;
+  content: "• ";
+}
+
+.membership-perks-list p,
+.membership-perks-list ul {
+  margin: 0;
+  color: rgba(5, 5, 5, 0.68);
+  font-size: 0.92rem;
+  line-height: 1.52;
+}
+
+.membership-perks-list p + p {
+  margin-top: 10px;
+}
+
+.membership-perks-list ul {
+  padding-left: 20px;
+}
+
 .pricing-back {
   color: var(--stone);
   font-size: 0.86rem;
@@ -4813,7 +4957,7 @@ body.interior:has(.page-policies),
 
 @media (max-width: 640px) {
   .hero {
-    min-height: 860px;
+    min-height: 620px;
   }
 
   .hero h1 {
@@ -4831,6 +4975,36 @@ body.interior:has(.page-policies),
     bottom: 165px;
     width: auto;
     transform: none;
+  }
+
+  .home-pricing-preview.section {
+    padding-top: 54px;
+  }
+
+  .home-pricing-preview > .membership-perks-trigger {
+    width: 100%;
+    margin-bottom: 48px;
+  }
+
+  .pricing-category-heading .membership-perks-trigger {
+    width: min(100%, 360px);
+    margin-top: 22px;
+  }
+
+  .membership-perks-overlay {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .membership-perks-modal {
+    width: 100%;
+    max-height: 91vh;
+    padding: 28px 20px 24px;
+    border-radius: 28px;
+  }
+
+  .membership-perks-list {
+    grid-template-columns: 1fr;
   }
 
   .section {

@@ -984,6 +984,7 @@ function HomePage({ memberships, store, bookingUrl }) {
       </section>
 
       <section className="home-pricing-preview section">
+        <MembershipPerks />
         <div className="section-heading center">
           <h2>Pricing</h2>
           <p>Newbie offers, memberships, and class packs.</p>
@@ -1545,6 +1546,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
     <>
       <section className={`pricing-category-heading section page-section ${category.key}`}>
         <h1>{category.title}</h1>
+        {category.key === "memberships" ? <MembershipPerks /> : null}
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
@@ -1580,6 +1582,69 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
 
       {cart?.isOpen ? (
         <CartDrawer cart={cart} clientSession={clientSession} savedCards={savedCards} cardsLoaded={cardsLoaded} onCardAdded={refreshCards} />
+      ) : null}
+    </>
+  );
+}
+
+function MembershipPerks() {
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen]);
+
+  return (
+    <>
+      <button className="membership-perks-trigger" type="button" onClick={() => setIsOpen(true)}>
+        <span>Membership Perks</span>
+        <span className="membership-perks-trigger-icon" aria-hidden="true"><Plus size={18} /></span>
+      </button>
+
+      {isOpen ? (
+        <div className="membership-perks-overlay" role="dialog" aria-modal="true" aria-labelledby="membership-perks-title">
+          <button className="membership-perks-backdrop" type="button" aria-label="Close membership perks" onClick={() => setIsOpen(false)} />
+          <article className="membership-perks-modal">
+            <div className="membership-perks-header">
+              <div>
+                <p className="membership-perks-kicker">Included with unlimited memberships</p>
+                <h2 id="membership-perks-title">Membership Perks</h2>
+              </div>
+              <button className="membership-perks-close" type="button" aria-label="Close membership perks" onClick={() => setIsOpen(false)}>
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="membership-perks-list">
+              <section>
+                <h3>Late Cancellation &amp; No-Show Waivers</h3>
+                <p>All unlimited members receive 1 complimentary late-cancellation waiver and 1 complimentary no-show waiver each month.</p>
+                <p>Unlimited members on a 12-month commitment receive 2 complimentary late-cancellation waivers and 2 complimentary no-show waivers each month.</p>
+              </section>
+              <section>
+                <h3>Complimentary Guest Pass</h3>
+                <p>All unlimited members receive one complimentary guest pass each month.</p>
+              </section>
+              <section>
+                <h3>Priority Access</h3>
+                <p>Members receive first access to exclusive CAVE events, specialty classes, workshops, collaborations, and other limited-capacity experiences before they are released to the public.</p>
+              </section>
+              <section>
+                <h3>Local Partner Discounts</h3>
+                <ul>
+                  <li>15% off at Oxygen Med Spa</li>
+                  <li>10% off at StretchLab</li>
+                  <li>10% off at Al Qahwah</li>
+                </ul>
+              </section>
+            </div>
+          </article>
+        </div>
       ) : null}
     </>
   );
