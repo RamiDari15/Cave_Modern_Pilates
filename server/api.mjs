@@ -6406,7 +6406,9 @@ function hasEligibleUnlimitedMembership(clientInfo) {
 }
 
 async function guestPassRpc(functionName, payload) {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseUrl = normalizeSupabaseProjectUrl(
+    process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  );
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseKey) throw httpError(503, "Monthly guest passes are not configured yet.");
@@ -6424,6 +6426,16 @@ async function guestPassRpc(functionName, payload) {
 
   if (!response.ok) throw httpError(503, data?.message || "Monthly guest pass tracking is unavailable.");
   return data;
+}
+
+function normalizeSupabaseProjectUrl(value) {
+  const input = String(value || "").trim().replace(/\/+$/, "");
+
+  if (!input) return "";
+  if (/^https?:\/\//i.test(input)) return input;
+  if (/\.supabase\.co$/i.test(input)) return `https://${input}`;
+  if (/^[a-z0-9]{12,40}$/i.test(input)) return `https://${input}.supabase.co`;
+  return input;
 }
 
 async function monthlyGuestPassAvailable(clientId) {
