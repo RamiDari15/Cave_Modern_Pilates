@@ -1084,7 +1084,7 @@ return true;
 
         const staffToken = await getMindbodyActionToken("Guest class booking");
         const guestClientServiceId = hasUnlimitedMembership
-          ? await ensureMindbodyGuestPass(guestProfile.clientId, staffToken)
+          ? await ensureMindbodyGuestPass(guestProfile.clientId, memberClientId, staffToken)
           : null;
         const guestBookingBody = {
           ClientId: guestProfile.clientId,
@@ -6576,7 +6576,7 @@ function publicGuestPassBooking(record) {
   };
 }
 
-async function ensureMindbodyGuestPass(clientId, staffToken) {
+async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
   const findActiveGuestPass = async () => {
     const data = await bookingRequest("/client/clientservices", {
       token: staffToken,
@@ -6646,6 +6646,7 @@ async function ensureMindbodyGuestPass(clientId, staffToken) {
     body: {
       Test: process.env.BOOKING_TEST_MODE === "true",
       ClientId: String(clientId),
+      PayerClientId: String(memberClientId),
       LocationId: Number(locationId) || 1,
       InStore: true,
       CalculateTax: false,
