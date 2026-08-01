@@ -1083,9 +1083,24 @@ return true;
         }
 
         const staffToken = await getMindbodyActionToken("Guest class booking");
-        const guestClientServiceId = hasUnlimitedMembership
-          ? await ensureMindbodyGuestPass(guestProfile.clientId, memberClientId, staffToken)
-          : null;
+        let guestClientServiceId = null;
+
+        if (hasUnlimitedMembership) {
+          try {
+            guestClientServiceId = await ensureMindbodyGuestPass(
+              guestProfile.clientId,
+              memberClientId,
+              staffToken
+            );
+          } catch (error) {
+            const message = String(error.data?.Error?.Message || error.data?.Message || error.message || "");
+            const canUseTrackedGuestPassBypass =
+              /PayerClientId is not allowed|only be sold in memberships or contracts|Payments is a required parameter/i.test(message);
+
+            if (!canUseTrackedGuestPassBypass) throw error;
+            console.warn(`[guest-pass] Mindbody pricing assignment bypassed: ${message}`);
+          }
+        }
         const guestBookingBody = {
           ClientId: guestProfile.clientId,
           ClassId: classId,
