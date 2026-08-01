@@ -6657,7 +6657,12 @@ async function ensureMindbodyGuestPass(clientId, staffToken) {
           Quantity: 1
         }
       ],
-      Payments: []
+      Payments: [
+        {
+          Type: "Cash",
+          Metadata: { Amount: 0 }
+        }
+      ]
     }
   });
 
