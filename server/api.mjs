@@ -6640,7 +6640,25 @@ async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
     throw httpError(503, "The Guest Pass pricing option could not be found in Mindbody.");
   }
 
-  await ensureGuestPayerRelationship(clientId, memberClientId, staffToken);
+  const pricingRelationships = guestPassService?.Program?.PricingRelationships ||
+    guestPassService?.PricingRelationships || {};
+  const configuredPaidByIds = Array.isArray(pricingRelationships.PaidBy)
+    ? pricingRelationships.PaidBy
+    : [];
+  const configuredPaysForIds = Array.isArray(pricingRelationships.PaysFor)
+    ? pricingRelationships.PaysFor
+    : [];
+  const allowedPaidByRelationshipIds = (configuredPaidByIds.length
+    ? configuredPaidByIds
+    : configuredPaysForIds
+  ).map(Number).filter((id) => Number.isInteger(id) && id > 0);
+
+  await ensureGuestPayerRelationship(
+    clientId,
+    memberClientId,
+    staffToken,
+    allowedPaidByRelationshipIds
+  );
 
   await bookingRequest("/sale/checkoutshoppingcart", {
     method: "POST",
@@ -6677,7 +6695,7 @@ async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
   return purchasedPassId;
 }
 
-async function ensureGuestPayerRelationship(guestClientId, memberClientId, staffToken) {
+async function ensureGuestPayerRelationship(guestClientId, memberClientId, staffToken, allowedRelationshipIds = []) {
   const relationshipData = await bookingRequest("/site/relationships", {
     token: staffToken,
     params: {
@@ -6687,11 +6705,13 @@ async function ensureGuestPayerRelationship(guestClientId, memberClientId, staff
     }
   });
   const relationships = firstListByKey(relationshipData, "Relationships");
-  const payerRelationship = relationships.find((relationship) =>
-    /pay|payer|responsible/i.test(
-      `${relationship.RelationshipName1 || ""} ${relationship.RelationshipName2 || ""}`
-    )
-  );
+  const payerRelationship =
+    relationships.find((relationship) => allowedRelationshipIds.includes(Number(relationship.Id))) ||
+    relationships.find((relationship) =>
+      /pay|payer|responsible/i.test(
+        `${relationship.RelationshipName1 || ""} ${relationship.RelationshipName2 || ""}`
+      )
+    );
 
   if (!payerRelationship?.Id) {
     throw httpError(503, "Mindbody does not have an active client payer relationship configured for guest passes.");
