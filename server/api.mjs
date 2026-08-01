@@ -6608,20 +6608,33 @@ async function ensureMindbodyGuestPass(clientId, staffToken) {
   if (existingPassId) return existingPassId;
 
   const { locationId } = getBookingConfig();
-  const catalog = await bookingRequest("/sale/services", {
-    token: staffToken,
-    params: {
-      "request.locationId": String(Number(locationId) || 1),
-      "request.includeDiscontinued": "false",
-      "request.limit": "200",
-      "request.offset": "0"
-    }
-  });
-  const services = firstListByKey(catalog, "Services");
+  const catalogRequests = [false, true].map((sellOnline) =>
+    bookingRequest("/sale/services", {
+      token: staffToken,
+      params: {
+        "request.locationId": String(Number(locationId) || 1),
+        "request.sellOnline": String(sellOnline),
+        "request.includeDiscontinued": "false",
+        "request.limit": "200",
+        "request.offset": "0"
+      }
+    }).catch(() => null)
+  );
+  const catalogs = await Promise.all(catalogRequests);
+  const services = catalogs.flatMap((catalog) => firstListByKey(catalog, "Services"));
   const guestPassService =
     services.find((service) => /^guest\s*pass$/i.test(String(service.Name || "").trim())) ||
     services.find((service) => /guest\s*pass/i.test(String(service.Name || "")));
-  const guestPassServiceId = Number(guestPassService?.Id || guestPassService?.ProductId || 0);
+  const { siteId } = getBookingConfig();
+  const configuredGuestPassId = Number(process.env.MINDBODY_GUEST_PASS_SERVICE_ID || 0);
+  const studioGuestPassId = String(siteId) === "5753835" ? 100021 : 0;
+  const guestPassServiceId = Number(
+    guestPassService?.Id ||
+    guestPassService?.ProductId ||
+    configuredGuestPassId ||
+    studioGuestPassId ||
+    0
+  );
 
   if (!guestPassServiceId) {
     throw httpError(503, "The Guest Pass pricing option could not be found in Mindbody.");
