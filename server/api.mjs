@@ -299,7 +299,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/join-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -1166,13 +1166,23 @@ return true;
   try {
     const staffToken = await getMindbodyActionToken("Remove waitlist");
 
+    const removeRequest = {
+      WaitlistEntryIds: [waitlistEntryId],
+      SendEmail: true
+    };
     const result = await bookingRequest("/class/removefromwaitlist", {
       method: "POST",
       token: staffToken,
-      params: {
-        "request.waitlistEntryIds": [waitlistEntryId]
-      }
-    });
+      body: removeRequest
+    }).catch((firstError) =>
+      bookingRequest("/class/removefromwaitlist", {
+        method: "POST",
+        token: staffToken,
+        body: { Request: removeRequest }
+      }).catch(() => {
+        throw firstError;
+      })
+    );
 
     liveClassesCache.expiresAt = 0;
 
