@@ -840,6 +840,164 @@ body.interior:has(.page-policies),
   width: 100%;
 }
 
+/* Guest booking modal */
+.guest-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 520;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.guest-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgba(5, 5, 5, 0.62);
+  backdrop-filter: blur(7px);
+  cursor: default;
+}
+
+.guest-modal {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 560px);
+  max-height: min(90vh, 760px);
+  overflow-y: auto;
+  padding: clamp(24px, 4vw, 38px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 28px;
+  background: linear-gradient(145deg, #fff 0%, #f1f2ef 100%);
+  color: var(--black);
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.38);
+}
+
+.guest-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 22px;
+  margin-bottom: 26px;
+}
+
+.guest-modal-eyebrow {
+  margin: 0 0 8px;
+  color: #167a54;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.guest-modal-header h3 {
+  margin: 0;
+  font-size: clamp(1.8rem, 5vw, 2.45rem);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.guest-modal-header p:last-child {
+  margin: 10px 0 0;
+  color: rgba(5, 5, 5, 0.62);
+  font-size: 0.92rem;
+}
+
+.guest-modal-form,
+.guest-modal-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.guest-modal-form {
+  gap: 18px;
+}
+
+.guest-modal-name-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.guest-modal-form label > span {
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.guest-modal-form input {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 1px solid rgba(5, 5, 5, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--black);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.guest-modal-form input:focus {
+  border-color: #167a54;
+  box-shadow: 0 0 0 3px rgba(22, 122, 84, 0.14);
+}
+
+.guest-modal-note {
+  margin: -2px 0 0;
+  color: rgba(5, 5, 5, 0.56);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.guest-modal-submit {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 2px;
+}
+
+.guest-modal-success {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 14px 0 2px;
+  text-align: center;
+}
+
+.guest-modal-success-mark {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #167a54;
+  color: white;
+  font-size: 1.7rem;
+}
+
+.guest-modal-success h4 {
+  margin: 4px 0 0;
+  font-size: 1.55rem;
+}
+
+.guest-modal-success p {
+  margin: 0 0 8px;
+  color: rgba(5, 5, 5, 0.62);
+}
+
+@media (max-width: 560px) {
+  .guest-modal-name-row {
+    grid-template-columns: 1fr;
+  }
+
+  .guest-modal {
+    padding: 24px 20px;
+    border-radius: 22px;
+  }
+}
+
 .pricing-choice {
   display: grid;
   width: 100%;

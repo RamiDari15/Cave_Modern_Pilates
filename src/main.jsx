@@ -3662,6 +3662,8 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   const [eligibility, setEligibility] = useState(null); // {hasUsablePricingOption, ...}
   const [dataLoading, setDataLoading] = useState(false);
   const [bookingState, setBookingState] = useState({ classId: null, operation: "", type: "", message: "" });
+  const [guestBookingClass, setGuestBookingClass] = useState(null);
+  const [guestForm, setGuestForm] = useState({ firstName: "", lastName: "", email: "", mobilePhone: "" });
   const autoBookTriggered = React.useRef(false);
   const visibleDayCount = useScheduleDayCount();
   const requestedClassId = new URLSearchParams(window.location.search).get("classId");
@@ -3937,25 +3939,29 @@ if (
     }
   };
 
-  const bookGuest = async (classItem) => {
+  const openGuestBooking = (classItem) => {
+    setGuestBookingClass(classItem);
+    setGuestForm({ firstName: "", lastName: "", email: "", mobilePhone: "" });
+    setBookingState({ classId: null, operation: "", type: "", message: "" });
+  };
+
+  const closeGuestBooking = () => {
+    if (bookingState.operation === "book-guest" && bookingState.type === "loading") return;
+    setGuestBookingClass(null);
+  };
+
+  const bookGuest = async (event) => {
+    event.preventDefault();
+    const classItem = guestBookingClass;
+    if (!classItem) return;
+
     const guestPass = eligibility?.activeServices?.find((service) =>
       /guest\s*pass/i.test(String(service.name || ""))
     );
-    const firstName = window.prompt("Guest’s first name:");
-
-    if (!firstName?.trim()) return;
-
-    const lastName = window.prompt("Guest’s last name:");
-
-    if (!lastName?.trim()) return;
-
-    const email = window.prompt("Guest’s email address:");
-
-    if (!email?.trim()) return;
-
-    const mobilePhone = window.prompt("Guest’s mobile phone number:");
-
-    if (!mobilePhone?.trim()) return;
+    const firstName = guestForm.firstName.trim();
+    const lastName = guestForm.lastName.trim();
+    const email = guestForm.email.trim();
+    const mobilePhone = guestForm.mobilePhone.trim();
 
     const classId = Number(classItem.id);
     setBookingState({ classId, operation: "book-guest", type: "loading", message: "Booking guest…" });
@@ -4359,7 +4365,7 @@ if (isDataLoading) {
                     className="book-class book-guest"
                     type="button"
                     disabled={isBusy}
-                    onClick={() => bookGuest(classItem)}
+                    onClick={() => openGuestBooking(classItem)}
                   >
                     {isBusy && bookingState.operation === "book-guest" ? "Booking Guest…" : "Book Guest"}
                   </button>
@@ -4372,6 +4378,60 @@ if (isDataLoading) {
           );
         })}
       </div>
+      {guestBookingClass ? (
+        <div className="guest-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="guest-modal-title">
+          <button className="guest-modal-backdrop" type="button" onClick={closeGuestBooking} aria-label="Close guest booking" />
+          <div className="guest-modal">
+            <div className="guest-modal-header">
+              <div>
+                <p className="guest-modal-eyebrow">Monthly guest pass</p>
+                <h3 id="guest-modal-title">Book your guest</h3>
+                <p>{guestBookingClass.className} · {guestBookingClass.date} at {guestBookingClass.time}</p>
+              </div>
+              <button className="cart-close" type="button" onClick={closeGuestBooking} aria-label="Close">
+                <X size={20} strokeWidth={1.7} />
+              </button>
+            </div>
+
+            {bookingState.operation === "book-guest" && bookingState.type === "success" ? (
+              <div className="guest-modal-success">
+                <div className="guest-modal-success-mark" aria-hidden="true">✓</div>
+                <h4>Guest booked</h4>
+                <p>{bookingState.message}</p>
+                <button className="pill-button black" type="button" onClick={closeGuestBooking}>Done</button>
+              </div>
+            ) : (
+              <form className="guest-modal-form" onSubmit={bookGuest}>
+                <div className="guest-modal-name-row">
+                  <label>
+                    <span>First name</span>
+                    <input required autoComplete="given-name" value={guestForm.firstName} onChange={(event) => setGuestForm((form) => ({ ...form, firstName: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Last name</span>
+                    <input required autoComplete="family-name" value={guestForm.lastName} onChange={(event) => setGuestForm((form) => ({ ...form, lastName: event.target.value }))} />
+                  </label>
+                </div>
+                <label>
+                  <span>Email address</span>
+                  <input required type="email" autoComplete="email" value={guestForm.email} onChange={(event) => setGuestForm((form) => ({ ...form, email: event.target.value }))} />
+                </label>
+                <label>
+                  <span>Mobile phone</span>
+                  <input required type="tel" autoComplete="tel" value={guestForm.mobilePhone} onChange={(event) => setGuestForm((form) => ({ ...form, mobilePhone: event.target.value }))} />
+                </label>
+                <p className="guest-modal-note">Your guest will receive the class confirmation and will have a Mindbody guest profile created if needed.</p>
+                {bookingState.operation === "book-guest" && bookingState.type === "error" ? (
+                  <p className="form-status error" role="alert">{bookingState.message}</p>
+                ) : null}
+                <button className="pill-button black guest-modal-submit" type="submit" disabled={bookingState.operation === "book-guest" && bookingState.type === "loading"}>
+                  {bookingState.operation === "book-guest" && bookingState.type === "loading" ? "Booking guest…" : "Confirm guest booking"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
