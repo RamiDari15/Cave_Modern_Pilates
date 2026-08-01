@@ -4052,13 +4052,16 @@ if (
 
   const isLiveDataLoading = liveLoading && !liveClasses;
   const hasNoCredits = clientSession?.signedIn && eligibility !== null && !eligibility.hasUsablePricingOption;
-  const hasAvailableGuestPass = eligibility?.activeServices?.some((service) => {
+  const hasMindbodyGuestPass = eligibility?.activeServices?.some((service) => {
     const name = String(service.name || "");
     const remaining = Number(service.remaining);
 
     return /guest\s*pass/i.test(name) &&
       (!String(service.remaining ?? "").trim() || !Number.isFinite(remaining) || remaining > 0);
   });
+  const hasAvailableGuestPass = Boolean(
+    hasMindbodyGuestPass || eligibility?.monthlyGuestPass?.available
+  );
 
   return (
     <div className="schedule-browser" aria-live="polite">

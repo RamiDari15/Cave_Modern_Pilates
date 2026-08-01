@@ -970,6 +970,8 @@ return true;
         return true;
       }
 
+      let monthlyReservationToken = "";
+
       try {
         const memberClientId = await resolveSessionClientId(session);
 
@@ -986,11 +988,25 @@ return true;
             (!requestedServiceId || serviceId === requestedServiceId) &&
             (!String(service.remaining ?? "").trim() || !Number.isFinite(remaining) || remaining > 0);
         });
+        const hasUnlimitedMembership = hasEligibleUnlimitedMembership(memberInfo);
 
-        if (!guestPass) {
+        if (!guestPass && !hasUnlimitedMembership) {
           const error = httpError(402, "No available guest pass was found on your account.");
           error.bookingCode = "NO_GUEST_PASS";
           throw error;
+        }
+
+        if (!guestPass && hasUnlimitedMembership) {
+          monthlyReservationToken = String(await guestPassRpc("reserve_monthly_guest_pass", {
+            p_member_client_id: String(memberClientId),
+            p_benefit_month: currentBenefitMonth()
+          }) || "");
+
+          if (!monthlyReservationToken) {
+            const error = httpError(409, "Your free guest pass has already been used this month.");
+            error.bookingCode = "MONTHLY_GUEST_PASS_USED";
+            throw error;
+          }
         }
 
         const classesData = await bookingRequest("/class/classes", {
@@ -1036,19 +1052,33 @@ return true;
         }
 
         const staffToken = await getMindbodyActionToken("Guest class booking");
+        const guestBookingBody = {
+          ClientId: guestProfile.clientId,
+          ClassId: classId,
+          RequirePayment: false,
+          SendEmail: true,
+          Waitlist: false,
+          Test: process.env.BOOKING_TEST_MODE === "true"
+        };
+
+        if (guestPass?.id) guestBookingBody.ClientServiceId = Number(guestPass.id);
+
         const result = await bookingRequest("/class/addclienttoclass", {
           method: "POST",
           token: staffToken,
-          body: {
-            ClientId: guestProfile.clientId,
-            ClassId: classId,
-            ClientServiceId: Number(guestPass.id),
-            RequirePayment: false,
-            SendEmail: true,
-            Waitlist: false,
-            Test: process.env.BOOKING_TEST_MODE === "true"
-          }
+          body: guestBookingBody
         });
+
+        if (monthlyReservationToken) {
+          await guestPassRpc("complete_monthly_guest_pass", {
+            p_reservation_token: monthlyReservationToken,
+            p_guest_first_name: firstName,
+            p_guest_last_name: lastName,
+            p_guest_email: email,
+            p_guest_client_id: String(guestProfile.clientId),
+            p_class_id: classId
+          });
+        }
 
         liveClassesCache.expiresAt = 0;
         sendJson(response, 200, {
@@ -1057,6 +1087,11 @@ return true;
           data: result
         });
       } catch (error) {
+        if (monthlyReservationToken) {
+          await guestPassRpc("release_monthly_guest_pass", {
+            p_reservation_token: monthlyReservationToken
+          }).catch(() => null);
+        }
         const upstreamMessage =
           error.data?.Error?.Message ||
           error.data?.Message ||
@@ -1613,9 +1648,20 @@ return true;
       }
 
       const info = await fetchClientCompleteInfo(clientId, session).catch(() => null);
+      const hasUnlimitedMembership = hasEligibleUnlimitedMembership(info);
+      const monthlyAvailable = hasUnlimitedMembership
+        ? await monthlyGuestPassAvailable(clientId).catch(() => false)
+        : false;
       sendJson(response, 200, {
         ok: true,
-        data: info || { hasUsablePricingOption: false, activeServices: [], activeMemberships: [] }
+        data: {
+          ...(info || { hasUsablePricingOption: false, activeServices: [], activeMemberships: [] }),
+          monthlyGuestPass: {
+            eligible: hasUnlimitedMembership,
+            available: monthlyAvailable,
+            benefitMonth: currentBenefitMonth()
+          }
+        }
       });
       return true;
     }
@@ -6272,6 +6318,80 @@ function compactObject(object) {
   return Object.fromEntries(
     Object.entries(object).filter(([, value]) => value !== undefined && value !== null && value !== "")
   );
+}
+
+function currentBenefitMonth() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Detroit",
+    year: "numeric",
+    month: "2-digit"
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return `${year}-${month}-01`;
+}
+
+function currentDetroitDate() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Detroit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return `${year}-${month}-${day}`;
+}
+
+function hasEligibleUnlimitedMembership(clientInfo) {
+  const candidates = [
+    ...(Array.isArray(clientInfo?.activeMemberships) ? clientInfo.activeMemberships : []),
+    ...(Array.isArray(clientInfo?.activeServices) ? clientInfo.activeServices : [])
+  ];
+  const today = currentDetroitDate();
+
+  return candidates.some((item) => {
+    const name = String(item?.name || "");
+    const status = String(item?.status || "").toLowerCase();
+    const expirationDate = String(item?.expirationDate || "").slice(0, 10);
+    const remainingText = String(item?.remaining ?? "").trim();
+    const remaining = Number(remainingText);
+
+    if (!/\bunlimited\b/i.test(name)) return false;
+    if (/expired|cancelled|canceled|terminated|inactive|suspended/.test(status)) return false;
+    if (expirationDate && expirationDate < today) return false;
+    if (remainingText && Number.isFinite(remaining) && remaining <= 0) return false;
+    return true;
+  });
+}
+
+async function guestPassRpc(functionName, payload) {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) throw httpError(503, "Monthly guest passes are not configured yet.");
+
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${functionName}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: supabaseKey,
+      Authorization: `Bearer ${supabaseKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) throw httpError(503, data?.message || "Monthly guest pass tracking is unavailable.");
+  return data;
+}
+
+async function monthlyGuestPassAvailable(clientId) {
+  return Boolean(await guestPassRpc("monthly_guest_pass_available", {
+    p_member_client_id: String(clientId),
+    p_benefit_month: currentBenefitMonth()
+  }));
 }
 
 async function bookingRequest(path, { method = "GET", body, params, token, consumerIdentityToken } = {}) {
