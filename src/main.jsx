@@ -3606,7 +3606,7 @@ function FormField({ label, name, type = "text", value, onChange, required = fal
 function MembershipGrid({ memberships }) {
   const visibleMemberships = memberships.length ? memberships : FALLBACK_CACHE.memberships;
   const knownPriceFallbacks = {
-    "4 class pack": "$150.00"
+    "4 class pack": "$139.00"
   };
 
   return (

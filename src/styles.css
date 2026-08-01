@@ -1134,10 +1134,10 @@ body.interior:has(.page-policies),
 
 .pricing-card {
   display: grid;
-  grid-template-rows: 1fr auto;
-  min-height: clamp(240px, 20vw, 300px);
-  align-content: stretch;
-  gap: clamp(16px, 1.6vw, 24px);
+  grid-template-rows: auto auto;
+  min-height: 0;
+  align-content: center;
+  gap: clamp(18px, 1.8vw, 26px);
   justify-items: center;
   padding: clamp(24px, 2.2vw, 34px) clamp(20px, 2.3vw, 34px);
   border: 1px solid rgba(255, 255, 255, 0.68);
@@ -1149,7 +1149,7 @@ body.interior:has(.page-policies),
 }
 
 .pricing-card.classPacks {
-  min-height: clamp(250px, 20vw, 310px);
+  min-height: 0;
   align-content: center;
   border-radius: clamp(34px, 3.2vw, 52px);
   background:
@@ -1157,7 +1157,7 @@ body.interior:has(.page-policies),
 }
 
 .pricing-card.newbie {
-  min-height: clamp(250px, 20vw, 310px);
+  min-height: 0;
   align-content: center;
   border-radius: clamp(34px, 3.2vw, 52px);
   background:
@@ -1165,7 +1165,7 @@ body.interior:has(.page-policies),
 }
 
 .pricing-card.memberships {
-  min-height: 250px;
+  min-height: 0;
   border-radius: 38px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 244, 241, 0.9));
@@ -1228,7 +1228,7 @@ body.interior:has(.page-policies),
 
 .pricing-card.classPacks h3 {
   max-width: 18ch;
-  min-height: 3.1em;
+  min-height: 0;
   align-content: start;
 }
 

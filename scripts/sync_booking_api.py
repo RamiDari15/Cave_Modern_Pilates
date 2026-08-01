@@ -78,7 +78,7 @@ TARGET_MEMBERSHIPS = [
         "label": "4 class pack",
         "sessions": 4,
         "matches": ["4 class pack-3 months contract", "4 class membership", "4 class pack", "four class"],
-        "fallbackPrice": "$150.00",
+        "fallbackPrice": "$139.00",
         "imagePosition": "34% 42%",
     },
     {
