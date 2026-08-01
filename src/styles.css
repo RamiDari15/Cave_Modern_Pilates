@@ -1743,6 +1743,23 @@ body.interior:has(.page-policies),
   padding-bottom: clamp(72px, 8vw, 116px);
 }
 
+.page-class-packs {
+  display: grid;
+  min-height: calc(100vh - 76px);
+  align-content: center;
+}
+
+.page-class-packs .pricing-category-heading {
+  padding-top: clamp(24px, 3vw, 42px);
+  padding-bottom: clamp(18px, 2vw, 28px);
+}
+
+.page-class-packs .pricing-store-page {
+  min-height: 0;
+  padding-top: clamp(18px, 2vw, 28px);
+  padding-bottom: clamp(32px, 4vw, 56px);
+}
+
 .section-heading {
   margin-bottom: 58px;
 }
