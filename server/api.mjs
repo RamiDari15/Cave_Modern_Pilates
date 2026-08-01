@@ -1474,7 +1474,7 @@ return true;
 
 const visitsArray = Array.isArray(rawVisits) ? rawVisits : [];
 
-const visits = visitsArray
+let visits = visitsArray
   .filter((v) => v && typeof v === "object")
   .map((v) => {
     const status = String(v.VisitStatus || v.BookingStatus || v.WaitlistStatus || v.AppointmentStatus || v.SignedInStatus || v.Status || "");
@@ -1497,6 +1497,8 @@ const visits = visitsArray
       waitlistEntryId,
       waitlistPosition: waitlistPosition || null,
       startDateTime: v.StartDateTime || v.Class?.StartDateTime || "",
+      className: v.ClassDescription?.Name || v.Class?.ClassDescription?.Name || v.Class?.Name || v.ClassName || "",
+      instructor: v.Staff?.Name || v.Class?.Staff?.Name || v.StaffName || "",
       status: isWaitlisted ? "Waitlisted" : (status || "Confirmed")
     };
   })
@@ -1518,9 +1520,57 @@ const waitlistEntries = waitlistArray
     classId: Number(w.ClassId || w.Class?.Id || w.Id || 0),
     waitlistEntryId: Number(w.Id || w.WaitlistEntryId || w.WaitListEntryId || 0),
     startDateTime: w.StartDateTime || w.Class?.StartDateTime || "",
+    className: w.ClassDescription?.Name || w.Class?.ClassDescription?.Name || w.Class?.Name || w.ClassName || "",
+    instructor: w.Staff?.Name || w.Class?.Staff?.Name || w.StaffName || "",
     status: w.Status || "Waitlisted"
   }))
   .filter((w) => w.classId > 0 && w.waitlistEntryId > 0);
+
+// Mindbody sometimes returns a waitlisted client as a booking-shaped item in
+// ClientSchedule. Reconcile those ambiguous records against the authoritative
+// class visit and waitlist rosters before sending status to the website.
+if (staffToken && visits.length) {
+  const classIds = [...new Set(visits.map((item) => item.classId).filter((id) => id > 0))];
+  const rosterParams = {
+    "request.classIds": classIds,
+    "request.clientIds": [clientId],
+    "request.startDate": today,
+    "request.endDate": future,
+    "request.limit": "200"
+  };
+
+  const waitlistRosterData = await bookingRequest("/class/waitlistentries", {
+    token: staffToken,
+    params: rosterParams
+  }).catch(() => null);
+  const rosterWaitlist = [
+    ...firstListByKey(waitlistRosterData, "WaitlistEntries"),
+    ...firstListByKey(waitlistRosterData, "WaitListEntries")
+  ];
+  const waitlistByClassId = new Map();
+
+  rosterWaitlist
+    .filter((item) => String(item.ClientId || item.Client?.Id || "") === String(clientId))
+    .forEach((item) => {
+      const rosterClassId = Number(item.ClassId || item.Class?.Id || 0);
+      if (rosterClassId > 0) waitlistByClassId.set(rosterClassId, item);
+    });
+
+  visits = visits.map((item) => {
+    const waitlistRecord = waitlistByClassId.get(item.classId);
+
+    if (!waitlistRecord) return item;
+
+    return {
+      ...item,
+      type: "waitlist",
+      visitId: 0,
+      waitlistEntryId: Number(waitlistRecord.Id || waitlistRecord.WaitlistEntryId || waitlistRecord.WaitListEntryId || item.waitlistEntryId || 0),
+      waitlistPosition: Number(waitlistRecord.WaitlistPosition || waitlistRecord.WaitListPosition || waitlistRecord.Position || item.waitlistPosition || 0) || null,
+      status: "Waitlisted"
+    };
+  });
+}
 
 sendJson(response, 200, {
   ok: true,

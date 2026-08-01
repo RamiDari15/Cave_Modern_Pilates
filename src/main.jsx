@@ -2811,13 +2811,19 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 
     Promise.all([
       apiRequest("/api/account/me").catch(() => null),
-      apiRequest("/api/client/dashboard").catch(() => null)
-    ]).then(([acct, dash]) => {
+      apiRequest("/api/client/dashboard").catch(() => null),
+      apiRequest("/api/client/schedule").catch(() => null)
+    ]).then(([acct, dash, reconciledSchedule]) => {
       if (!isMounted) return;
       if (acct?.data) setAccountData(acct.data);
       if (dash) {
         if (dash.session?.signedIn) setClientSession((prev) => ({ ...prev, ...dash.session }));
-        setDashboard(dash);
+        setDashboard({
+          ...dash,
+          schedule: Array.isArray(reconciledSchedule?.data?.visits)
+            ? reconciledSchedule.data.visits
+            : dash.schedule
+        });
       }
     }).finally(() => {
       if (!isMounted) return;
@@ -3409,12 +3415,13 @@ function normalizeAccountItems(data, type) {
         item.Class?.ClassDescription?.Name,
         item.Class?.Name,
         item.ClassName,
+        item.className,
         item.Name,
         item.SessionType?.Name,
         isWaitlisted ? "Waitlisted class" : "Booked class"
       );
-      const when = formatAccountDate(firstText(item.StartDateTime, item.Class?.StartDateTime, item.StartDate, item.AppointmentStartDateTime, item.Date));
-      const instructor = firstText(item.Staff?.Name, item.Class?.Staff?.Name, item.StaffName, item.InstructorName);
+      const when = formatAccountDate(firstText(item.StartDateTime, item.startDateTime, item.Class?.StartDateTime, item.StartDate, item.AppointmentStartDateTime, item.Date));
+      const instructor = firstText(item.Staff?.Name, item.Class?.Staff?.Name, item.StaffName, item.InstructorName, item.instructor);
       const status = isWaitlisted
         ? "Waitlisted"
         : firstText(item.Status, item.BookingStatus, item.VisitStatus, "Booked");
