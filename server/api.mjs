@@ -1504,7 +1504,9 @@ const visits = visitsArray
 
 const rawWaitlist =
   scheduleData?.ClientSchedule?.WaitlistEntries ||
+  scheduleData?.ClientSchedule?.WaitListEntries ||
   scheduleData?.WaitlistEntries ||
+  scheduleData?.WaitListEntries ||
   [];
 
 const waitlistArray = Array.isArray(rawWaitlist) ? rawWaitlist : [];

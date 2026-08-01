@@ -3501,12 +3501,24 @@ function accountScheduleRows(data) {
     ? data.ClientSchedule
     : data;
   const visits = Array.isArray(schedule.Visits) ? schedule.Visits : [];
-  const waitlistEntries = Array.isArray(schedule.WaitlistEntries)
-    ? schedule.WaitlistEntries.map((item) => ({ ...item, type: "waitlist", Status: "Waitlisted" }))
+  const rawWaitlistEntries = schedule.WaitlistEntries || schedule.WaitListEntries;
+  const waitlistEntries = Array.isArray(rawWaitlistEntries)
+    ? rawWaitlistEntries.map((item) => ({ ...item, type: "waitlist", Status: "Waitlisted" }))
     : [];
 
   if (visits.length || waitlistEntries.length) {
-    return [...visits, ...waitlistEntries];
+    const rowsByClass = new Map();
+
+    visits.forEach((item, index) => {
+      const classId = Number(item.ClassId || item.Class?.Id || 0);
+      rowsByClass.set(classId > 0 ? `class-${classId}` : `visit-${index}`, item);
+    });
+    waitlistEntries.forEach((item, index) => {
+      const classId = Number(item.ClassId || item.Class?.Id || 0);
+      rowsByClass.set(classId > 0 ? `class-${classId}` : `waitlist-${index}`, item);
+    });
+
+    return [...rowsByClass.values()];
   }
 
   return firstArrayFromAccountData(data, accountPreferredKeys("schedule"));
