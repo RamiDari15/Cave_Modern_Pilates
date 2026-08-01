@@ -996,19 +996,6 @@ return true;
           throw error;
         }
 
-        if (!guestPass && hasUnlimitedMembership) {
-          monthlyReservationToken = String(await guestPassRpc("reserve_monthly_guest_pass", {
-            p_member_client_id: String(memberClientId),
-            p_benefit_month: currentBenefitMonth()
-          }) || "");
-
-          if (!monthlyReservationToken) {
-            const error = httpError(409, "Your free guest pass has already been used this month.");
-            error.bookingCode = "MONTHLY_GUEST_PASS_USED";
-            throw error;
-          }
-        }
-
         const classesData = await bookingRequest("/class/classes", {
           params: {
             "request.classIds": String(classId),
@@ -1019,7 +1006,7 @@ return true;
           .find((item) => Number(item.Id || item.ClassId) === classId);
         const className = String(classItem?.ClassDescription?.Name || classItem?.Name || "");
 
-        if (!classItem || classItem.IsCanceled || classItem.IsAvailable === false) {
+        if (!classItem || classItem.IsCanceled) {
           throw httpError(409, "This class is no longer available.");
         }
 
@@ -1051,6 +1038,19 @@ return true;
           throw httpError(502, "The guest profile could not be created in Mindbody.");
         }
 
+        if (hasUnlimitedMembership) {
+          monthlyReservationToken = String(await guestPassRpc("reserve_monthly_guest_pass", {
+            p_member_client_id: String(memberClientId),
+            p_benefit_month: currentBenefitMonth()
+          }) || "");
+
+          if (!monthlyReservationToken) {
+            const error = httpError(409, "Your free guest pass has already been used this month.");
+            error.bookingCode = "MONTHLY_GUEST_PASS_USED";
+            throw error;
+          }
+        }
+
         const staffToken = await getMindbodyActionToken("Guest class booking");
         const guestBookingBody = {
           ClientId: guestProfile.clientId,
@@ -1061,7 +1061,12 @@ return true;
           Test: process.env.BOOKING_TEST_MODE === "true"
         };
 
-        if (guestPass?.id) guestBookingBody.ClientServiceId = Number(guestPass.id);
+        // Unlimited-member guest bookings are recorded as complimentary staff
+        // bookings. A ClientServiceId on the member belongs to the member, not
+        // the guest, and must not be attached to the guest's Mindbody visit.
+        if (!hasUnlimitedMembership && guestPass?.id) {
+          guestBookingBody.ClientServiceId = Number(guestPass.id);
+        }
 
         const result = await bookingRequest("/class/addclienttoclass", {
           method: "POST",
@@ -5847,8 +5852,11 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
 
     hasUsablePricingOption: usableServices.length > 0 || activeMemberships.length > 0,
 
-    defaultClientServiceId: usableServices.length
-      ? usableServices[0].Id || usableServices[0].ClientServiceId || usableServices[0].id
+    defaultClientServiceId: usableServices.some((service) => !/guest\s*pass/i.test(cleanName(service)))
+      ? (() => {
+          const service = usableServices.find((item) => !/guest\s*pass/i.test(cleanName(item)));
+          return service.Id || service.ClientServiceId || service.id;
+        })()
       : null
   };
 }

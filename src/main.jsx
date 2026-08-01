@@ -3865,7 +3865,9 @@ if (
     setBookingState({ classId, operation: "book", type: "loading", message: "Booking\u2026" });
 
     try {
-      const clientServiceId = eligibility?.activeServices?.[0]?.id;
+      const clientServiceId = eligibility?.activeServices?.find((service) =>
+        !/guest\s*pass/i.test(String(service.name || ""))
+      )?.id;
       await apiRequest("/api/mindbody/book-class", {
         method: "POST",
        body: {
