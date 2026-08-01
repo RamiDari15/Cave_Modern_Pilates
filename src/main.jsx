@@ -3973,6 +3973,9 @@ if (
         method: "POST",
         body: {
           classId,
+          classScheduleId: classItem.classScheduleId || undefined,
+          startDateTime: classItem.startDateTime || classItem.startTime || undefined,
+          locationId: classItem.locationId || undefined,
           guestPassClientServiceId: guestPass?.id,
           guest: {
             firstName: firstName.trim(),

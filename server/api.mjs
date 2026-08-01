@@ -711,6 +711,9 @@ return true;
       const session = await readHydratedSession(request, response);
       const body = await readJsonBody(request);
       const classId = Number(body.classId);
+      const classScheduleId = Number(body.classScheduleId || 0);
+      const classStartDateTime = String(body.startDateTime || "").trim();
+      const classLocationId = Number(body.locationId || 0);
 
       if (!Number.isInteger(classId) || classId <= 0) {
         sendJson(response, 400, { message: "A valid class ID is required." });
@@ -996,14 +999,42 @@ return true;
           throw error;
         }
 
-        const classesData = await bookingRequest("/class/classes", {
+        let classesData = await bookingRequest("/class/classes", {
           params: {
             "request.classIds": String(classId),
             "request.schedulingWindow": "true"
           }
         });
-        const classItem = firstListByKey(classesData, "Classes")
-          .find((item) => Number(item.Id || item.ClassId) === classId);
+        let classItems = firstListByKey(classesData, "Classes");
+        let classItem = classItems.find((item) => Number(item.Id || item.ClassId) === classId);
+
+        if (!classItem && classStartDateTime) {
+          const start = new Date(classStartDateTime);
+
+          if (!Number.isNaN(start.getTime())) {
+            const fallbackParams = {
+              "request.startDateTime": formatApiDate(start),
+              "request.endDateTime": formatApiDate(start),
+              "request.schedulingWindow": "true",
+              "request.limit": "200"
+            };
+
+            if (classLocationId > 0) {
+              fallbackParams["request.locationIds"] = String(classLocationId);
+            }
+
+            classesData = await bookingRequest("/class/classes", { params: fallbackParams });
+            classItems = firstListByKey(classesData, "Classes");
+            classItem =
+              classItems.find((item) => Number(item.Id || item.ClassId) === classId) ||
+              (classScheduleId > 0
+                ? classItems.find((item) => Number(item.ClassScheduleId) === classScheduleId)
+                : null) ||
+              classItems.find((item) => String(item.StartDateTime || "") === classStartDateTime) ||
+              null;
+          }
+        }
+
         const className = String(classItem?.ClassDescription?.Name || classItem?.Name || "");
 
         if (!classItem || classItem.IsCanceled) {
