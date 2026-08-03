@@ -3209,6 +3209,19 @@ return true;
         return true;
       }
 
+      // Mindbody determines the amount charged by PurchaseContract from the
+      // contract's own billing schedule; the API does not accept a price
+      // override. Keep checkout closed until every live contract schedule has
+      // been verified against the prices advertised on the website.
+      if (process.env.MINDBODY_CONTRACT_PRICES_VERIFIED !== "true") {
+        sendJson(response, 409, {
+          ok: false,
+          code: "MEMBERSHIP_PRICES_NOT_VERIFIED",
+          message: "Online membership checkout is temporarily paused while Cave verifies the updated Mindbody billing prices. No charge was made. Please contact the studio to purchase at the advertised price."
+        });
+        return true;
+      }
+
       const clientId = await resolveSessionClientId(session).catch(() => "");
       if (!clientId) {
         sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
@@ -5532,7 +5545,8 @@ async function fetchFreshPublicSchedule() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const future = new Date(today);
-  future.setDate(future.getDate() + 45);
+  // Load far enough ahead to cover the full following calendar month.
+  future.setDate(future.getDate() + 62);
 
   const allClasses = [];
   const limit = 100;
@@ -5668,22 +5682,40 @@ async function fetchLiveClasses(locationId) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const future = new Date(today);
-  future.setDate(future.getDate() + 30);
+  // Active members may reserve into the following month.
+  future.setDate(future.getDate() + 62);
 
-  const params = {
-    "request.startDateTime": formatApiDate(today),
-    "request.endDateTime": formatApiDate(future),
-    "request.hideCanceledClasses": "true",
-    "request.schedulingWindow": "true",
-    "request.limit": "200"
-  };
+  const classes = [];
+  const limit = 200;
+  let offset = 0;
 
-  if (locationId) {
-    params["request.locationIds"] = locationId;
+  while (offset < 2000) {
+    const params = {
+      "request.startDateTime": formatApiDate(today),
+      "request.endDateTime": formatApiDate(future),
+      "request.hideCanceledClasses": "true",
+      "request.schedulingWindow": "true",
+      "request.limit": String(limit),
+      "request.offset": String(offset)
+    };
+
+    if (locationId) {
+      params["request.locationIds"] = locationId;
+    }
+
+    const data = await bookingRequest("/class/classes", { params });
+    const page = firstListByKey(data, "Classes");
+
+    if (!page.length) break;
+    classes.push(...page);
+
+    const totalResults = Number(data?.PaginationResponse?.TotalResults);
+    offset += page.length;
+
+    if ((Number.isFinite(totalResults) && offset >= totalResults) || page.length < limit) {
+      break;
+    }
   }
-
-  const data = await bookingRequest("/class/classes", { params });
-  const classes = firstListByKey(data, "Classes");
 
   const normalized = classes
     .filter((item) => item && typeof item === "object" && !item.IsCanceled)
@@ -6098,6 +6130,34 @@ if (!classItem) {
 
     if (!resolvedServiceId) {
       resolvedServiceId = clientInfo.defaultClientServiceId;
+    }
+
+    // A monthly contract can create a new client service at the next billing
+    // cycle. Do not force the current cycle's expiring service onto a future
+    // class; when the active contract covers that date, Mindbody should select
+    // the appropriate contract-backed service itself.
+    const classStartsAt = new Date(
+      classItem.StartDateTime || classHint?.startDateTime || ""
+    ).getTime();
+
+    if (resolvedServiceId && Number.isFinite(classStartsAt)) {
+      const selectedService = clientInfo.activeServices?.find(
+        (service) => String(service.id) === String(resolvedServiceId)
+      );
+      const serviceExpiresAt = selectedService?.expirationDate
+        ? new Date(`${String(selectedService.expirationDate).slice(0, 10)}T23:59:59`).getTime()
+        : 0;
+      const contractCoversClass = clientInfo.activeMemberships?.some((membership) => {
+        if (!membership.expirationDate) return true;
+        const contractExpiresAt = new Date(
+          `${String(membership.expirationDate).slice(0, 10)}T23:59:59`
+        ).getTime();
+        return Number.isFinite(contractExpiresAt) && contractExpiresAt >= classStartsAt;
+      });
+
+      if (serviceExpiresAt && serviceExpiresAt < classStartsAt && contractCoversClass) {
+        resolvedServiceId = null;
+      }
     }
   } catch (serviceErr) {
     if (serviceErr.bookingCode === "NO_VALID_SERVICE") throw serviceErr;

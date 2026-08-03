@@ -1602,7 +1602,7 @@ function MembershipPerks() {
   return (
     <>
       <button className="membership-perks-trigger" type="button" onClick={() => setIsOpen(true)}>
-        <span>Membership Perks</span>
+        <span>Unlimited Membership Perks</span>
         <span className="membership-perks-trigger-icon" aria-hidden="true"><Plus size={18} /></span>
       </button>
 
@@ -1612,8 +1612,8 @@ function MembershipPerks() {
           <article className="membership-perks-modal">
             <div className="membership-perks-header">
               <div>
-                <p className="membership-perks-kicker">Included with unlimited memberships</p>
-                <h2 id="membership-perks-title">Membership Perks</h2>
+                <p className="membership-perks-kicker">Exclusive unlimited member benefits</p>
+                <h2 id="membership-perks-title">Unlimited Membership Perks</h2>
               </div>
               <button className="membership-perks-close" type="button" aria-label="Close membership perks" onClick={() => setIsOpen(false)}>
                 <X size={24} />
