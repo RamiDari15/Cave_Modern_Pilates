@@ -163,8 +163,8 @@ const FAQ_ITEMS = [
     question: "What happens if I late cancel?",
     answer: [
       "Drop-in guests, package holders, and members will be charged a $20 late cancellation fee if the cancellation is made within 12 hours of your scheduled class.",
-      "Unlimited members with a 6-month contract receive 1 late cancellation exemption per term. Unlimited members with a 12-month contract receive 2 late cancellation exemptions per term.",
-      "Once all exemptions have been used, each additional late cancellation will result in a $20 late cancellation fee."
+      "Unlimited members receive 1 complimentary late-cancellation waiver each month. Unlimited members on a 12-month commitment receive 2 complimentary late-cancellation waivers each month.",
+      "Once the monthly waivers have been used, each additional late cancellation will result in a $20 late cancellation fee."
     ]
   },
   {
@@ -175,8 +175,8 @@ const FAQ_ITEMS = [
       "If you do not attend your scheduled class and do not cancel before class begins, you will be considered a no-show.",
       "Drop-In Guests: You will forfeit the full cost of the class you booked. No refunds will be issued.",
       "Class Package Members: One class credit will be forfeited.",
-      "Unlimited Members (6-Month): You receive one (1) no-show exemption during your membership term. After your exemption has been used, each additional no-show will incur a $30 no-show fee.",
-      "Unlimited Members (12-Month): You receive two (2) no-show exemptions during your membership term. After both exemptions have been used, each additional no-show will incur a $30 no-show fee.",
+      "Unlimited members receive one (1) complimentary no-show waiver each month. After the monthly waiver has been used, each additional no-show will incur a $30 no-show fee.",
+      "Unlimited members on a 12-month commitment receive two (2) complimentary no-show waivers each month. After both monthly waivers have been used, each additional no-show will incur a $30 no-show fee.",
       "Repeated no-shows may result in temporary booking restrictions at management's discretion."
     ]
   },
@@ -198,6 +198,17 @@ const FAQ_ITEMS = [
       "Unlimited Membership holders may attend one class per day.",
       "Multiple classes in the same calendar day are not permitted unless approved by management.",
       "Unlimited memberships are set to auto-renew monthly for the duration of the commitment term."
+    ]
+  },
+  {
+    id: "unlimited-perks",
+    category: "Memberships",
+    question: "What perks are included with an unlimited membership?",
+    answer: [
+      "All unlimited members receive one complimentary late-cancellation waiver, one complimentary no-show waiver, and one complimentary guest pass each month. Unlimited members on a 12-month commitment receive two complimentary late-cancellation waivers and two complimentary no-show waivers each month.",
+      "Unlimited members receive priority access to exclusive CAVE events, specialty classes, workshops, collaborations, and other limited-capacity experiences before they are released to the public.",
+      "Local partner benefits include 15% off at Oxygen Med Spa, 10% off at StretchLab, 10% off at Al Qahwah, and 10% off Cave retail.",
+      "Members also enjoy access to curated members-only CAVE events, specialty classes, workshops, and community experiences."
     ]
   },
   {
@@ -883,6 +894,33 @@ function setStructuredData(page) {
     publisher: { "@id": `${SITE_URL}/#studio` }
   }];
 
+  if (page !== "home") {
+    const pageLabel = PAGE_TITLES[page]?.split(" | ")[0] || page;
+    graph.push({
+      "@type": "BreadcrumbList",
+      "@id": `${SITE_URL}/${page}#breadcrumb`,
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
+        { "@type": "ListItem", position: 2, name: pageLabel, item: `${SITE_URL}/${page}` }
+      ]
+    });
+  }
+
+  if (["home", "schedule", "pricing", "newbie", "memberships", "class-packs", "drop-in"].includes(page)) {
+    graph.push({
+      "@type": "Service",
+      "@id": `${SITE_URL}/#pilates-service`,
+      name: "Women's Reformer Pilates and High-Intensity, Low-Impact Classes",
+      serviceType: "Reformer Pilates and high-intensity, low-impact group fitness classes",
+      provider: { "@id": `${SITE_URL}/#studio` },
+      areaServed: ["Orland Park", "Tinley Park", "Palos", "Palos Hills", "Mokena", "Homer Glen", "Frankfort"].map((name) => ({
+        "@type": "City",
+        name
+      })),
+      url: `${SITE_URL}${page === "home" ? "/" : `/${page}`}`
+    });
+  }
+
   if (page === "faq") {
     graph.push({
       "@type": "FAQPage",
@@ -1036,6 +1074,38 @@ function HomePage({ memberships, store, bookingUrl }) {
           <a className="pill-button black" href={ROUTES.schedule}>View Class Schedule</a>
           <a className="pill-button outline" href={ROUTES.about}>About Cave</a>
         </div>
+      </section>
+
+      <section className="home-seo-guide section" aria-labelledby="home-seo-guide-title">
+        <div className="section-heading center">
+          <p className="eyebrow">Why Cave</p>
+          <h2 id="home-seo-guide-title">Your women-focused Pilates studio in Orland Park.</h2>
+          <p>
+            Build strength with modern reformer-inspired movement in a focused, welcoming studio.
+            Start with the option that fits your experience, schedule, and commitment.
+          </p>
+        </div>
+        <div className="home-seo-guide-grid">
+          <article>
+            <h3>New to Pilates?</h3>
+            <p>Review what to expect, studio policies, and answers to common first-class questions before you arrive.</p>
+            <a href={ROUTES.faq}>Read the beginner FAQ</a>
+          </article>
+          <article>
+            <h3>High-intensity, low-impact movement</h3>
+            <p>Explore a modern workout experience designed to challenge strength, control, and endurance with less impact.</p>
+            <a href={ROUTES.about}>Discover the Cave approach</a>
+          </article>
+          <article>
+            <h3>Flexible ways to begin</h3>
+            <p>Compare the new-client offer, memberships, class packs, and single-class drop-in options in one place.</p>
+            <a href={ROUTES.pricing}>Compare pricing options</a>
+          </article>
+        </div>
+        <p className="home-seo-nearby">
+          Conveniently located at Orland Square for women from Orland Park, Tinley Park, Palos,
+          Palos Hills, Mokena, Homer Glen, Frankfort, and nearby southwest suburbs.
+        </p>
       </section>
 
       <section className="home-pricing-preview section">
@@ -1696,7 +1766,12 @@ function MembershipPerks() {
                   <li>15% off at Oxygen Med Spa</li>
                   <li>10% off at StretchLab</li>
                   <li>10% off at Al Qahwah</li>
+                  <li>10% off Cave retail</li>
                 </ul>
+              </section>
+              <section>
+                <h3>Members-Only Events</h3>
+                <p>Enjoy exclusive access to curated CAVE events, specialty classes, workshops, and community experiences created just for our members.</p>
               </section>
             </div>
           </article>

@@ -47,9 +47,7 @@ function studioServerPlugin() {
       const path = page === "index" ? "/" : `/${page}`;
       const canonical = `${siteUrl}${path}`;
       const isPrivate = ["login", "signup", "account"].includes(page);
-      const structuredData = JSON.stringify({
-        "@context": "https://schema.org",
-        "@graph": [
+      const graph = [
           {
             "@type": ["HealthClub", "SportsActivityLocation", "LocalBusiness"],
             "@id": `${siteUrl}/#studio`,
@@ -57,6 +55,7 @@ function studioServerPlugin() {
             alternateName: ["Cave Pilates", "Cave Modern Pilates Orland Park"],
             url: siteUrl,
             image: `${siteUrl}/og-image.jpg`,
+            logo: `${siteUrl}/og-image.jpg`,
             description: seoPages.index[1],
             email: "support@cavemodernpilates.com",
             telephone: "+1-708-571-5730",
@@ -70,6 +69,7 @@ function studioServerPlugin() {
               addressCountry: "US"
             },
             areaServed: ["Orland Park", "Tinley Park", "Palos", "Palos Hills", "Mokena", "Homer Glen", "Frankfort"].map((name) => ({ "@type": "City", name })),
+            knowsAbout: ["Pilates", "Reformer Pilates", "Lagree", "Women's fitness", "Low-impact strength training"],
             sameAs: ["https://www.instagram.com/cavemodernpilates/", "https://www.tiktok.com/@cavemodernpilates"]
           },
           {
@@ -90,8 +90,32 @@ function studioServerPlugin() {
             inLanguage: "en-US",
             publisher: { "@id": `${siteUrl}/#studio` }
           }
-        ]
-      });
+        ];
+
+      if (page !== "index") {
+        graph.push({
+          "@type": "BreadcrumbList",
+          "@id": `${canonical}#breadcrumb`,
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Home", item: siteUrl },
+            { "@type": "ListItem", position: 2, name: title.split(" | ")[0], item: canonical }
+          ]
+        });
+      }
+
+      if (["index", "schedule", "pricing", "newbie", "memberships", "class-packs", "drop-in"].includes(page)) {
+        graph.push({
+          "@type": "Service",
+          "@id": `${siteUrl}/#pilates-service`,
+          name: "Women's Reformer Pilates and High-Intensity, Low-Impact Classes",
+          serviceType: "Reformer Pilates and high-intensity, low-impact group fitness classes",
+          provider: { "@id": `${siteUrl}/#studio` },
+          areaServed: ["Orland Park", "Tinley Park", "Palos", "Palos Hills", "Mokena", "Homer Glen", "Frankfort"].map((name) => ({ "@type": "City", name })),
+          url: canonical
+        });
+      }
+
+      const structuredData = JSON.stringify({ "@context": "https://schema.org", "@graph": graph });
       const tags = [
         `<link rel="canonical" href="${canonical}">`,
         `<meta name="robots" content="${isPrivate ? "noindex, nofollow" : "index, follow, max-image-preview:large"}">`,
