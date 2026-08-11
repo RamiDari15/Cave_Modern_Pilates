@@ -59,6 +59,28 @@ svg {
   border: 0;
 }
 
+.home-local-intro {
+  max-width: 920px;
+  margin-inline: auto;
+  padding-top: clamp(4rem, 8vw, 7rem);
+  padding-bottom: clamp(3rem, 6vw, 5rem);
+  text-align: center;
+}
+
+.home-local-intro h2 {
+  margin: 0.45rem 0 1rem;
+  font-size: clamp(2.25rem, 5vw, 4.75rem);
+  line-height: 0.98;
+}
+
+.home-local-intro > p:not(.eyebrow) {
+  max-width: 760px;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+  line-height: 1.7;
+}
+
 .site-header {
   position: fixed;
   z-index: 30;

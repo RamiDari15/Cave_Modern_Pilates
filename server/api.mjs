@@ -1108,19 +1108,22 @@ return true;
             console.warn(`[guest-pass] Mindbody pricing assignment bypassed: ${message}`);
           }
         }
+        const guestPaymentServiceId = guestClientServiceId ||
+          (!hasUnlimitedMembership && guestPass?.id ? Number(guestPass.id) : null);
         const guestBookingBody = {
           ClientId: guestProfile.clientId,
           ClassId: classId,
-          RequirePayment: false,
+          // Mindbody only applies/decrements ClientServiceId when payment is
+          // required. Sending false here booked the guest but left the Guest
+          // Pass showing as "1 remaining" on the client account.
+          RequirePayment: Boolean(guestPaymentServiceId),
           SendEmail: true,
           Waitlist: false,
           Test: process.env.BOOKING_TEST_MODE === "true"
         };
 
-        if (guestClientServiceId) {
-          guestBookingBody.ClientServiceId = Number(guestClientServiceId);
-        } else if (!hasUnlimitedMembership && guestPass?.id) {
-          guestBookingBody.ClientServiceId = Number(guestPass.id);
+        if (guestPaymentServiceId) {
+          guestBookingBody.ClientServiceId = Number(guestPaymentServiceId);
         }
 
         const result = await bookingRequest("/class/addclienttoclass", {

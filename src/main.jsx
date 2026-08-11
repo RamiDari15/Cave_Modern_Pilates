@@ -42,42 +42,44 @@ const FOOTER_LINKS = [
 ];
 
 const PAGE_TITLES = {
-  home: "Cave Modern Pilates",
-  pricing: "Pricing | Cave Modern Pilates",
-  newbie: "Newbie Promo | Cave Modern Pilates",
-  memberships: "Memberships | Cave Modern Pilates",
-  "class-packs": "Class Packs | Cave Modern Pilates",
-  "drop-in": "Drop In | Cave Modern Pilates",
-  schedule: "Schedule | Cave Modern Pilates",
-  about: "About Us | Cave Modern Pilates",
-  contact: "Contact | Cave Modern Pilates",
-  faq: "FAQ | Cave Modern Pilates",
+  home: "Women's Pilates & Lagree in Orland Park | Cave Modern Pilates",
+  pricing: "Pilates Pricing in Orland Park | Cave Modern Pilates",
+  newbie: "New Client Pilates Offer in Orland Park | Cave Modern Pilates",
+  memberships: "Pilates Memberships in Orland Park | Cave Modern Pilates",
+  "class-packs": "Pilates Class Packs in Orland Park | Cave Modern Pilates",
+  "drop-in": "Drop-In Pilates Class in Orland Park | Cave Modern Pilates",
+  schedule: "Orland Park Pilates & Lagree Class Schedule | Cave Modern Pilates",
+  about: "Women's Pilates Studio in Orland Park | Cave Modern Pilates",
+  contact: "Contact Our Orland Park Pilates Studio | Cave Modern Pilates",
+  faq: "Pilates Membership & Booking FAQ | Cave Modern Pilates",
   login: "Login | Cave Modern Pilates",
   signup: "Sign Up | Cave Modern Pilates",
   account: "Account | Cave Modern Pilates",
-  terms: "TOS | Cave Modern Pilates",
-  policies: "Policies | Cave Modern Pilates"
+  terms: "Terms of Service | Cave Modern Pilates",
+  policies: "Studio Policies | Cave Modern Pilates"
 };
 
 const PAGE_DESCRIPTIONS = {
-  home: "Cave Modern Pilates is a modern reformer Pilates studio in Orland Park for high-intensity, low-impact strength, control, and confidence.",
-  pricing: "View Cave Modern Pilates pricing, newbie intro offers, monthly memberships, and class packs loaded from the studio booking system.",
-  newbie: "Newbie intro offers for first-time Cave Modern Pilates clients.",
-  memberships: "Monthly Cave Modern Pilates memberships with current options from the studio booking system.",
-  "class-packs": "Cave Modern Pilates class packs with current pricing from the studio booking system.",
-  "drop-in": "Drop in to Cave Modern Pilates for a single reformer Pilates class. No commitment required.",
-  schedule: "View the Cave Modern Pilates class schedule and book reformer Pilates classes online.",
-  about: "Learn about Cave Modern Pilates, its mission, and founder Hala.",
-  contact: "Contact Cave Modern Pilates in Orland Park for class, private session, and membership questions.",
-  faq: "Answers to Cave Modern Pilates booking, cancellation, membership, refund, privacy, and studio policy questions.",
+  home: "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort.",
+  pricing: "Compare Cave Modern Pilates memberships, class packs, drop-ins, and new-client offers at our women's Pilates studio in Orland Park, Illinois.",
+  newbie: "Start Pilates in Orland Park with a Cave Modern Pilates new-client offer. Welcoming women from Tinley Park, Palos Hills, Mokena, Homer Glen, and Frankfort.",
+  memberships: "Explore women's Pilates memberships at Cave Modern Pilates in Orland Park, including monthly class plans and unlimited membership options.",
+  "class-packs": "Buy flexible Pilates class packs at Cave Modern Pilates in Orland Park, serving Tinley Park, Palos, Mokena, Homer Glen, and Frankfort.",
+  "drop-in": "Book one drop-in reformer Pilates class at Cave Modern Pilates in Orland Park. No membership or long-term commitment required.",
+  schedule: "View and book the Cave Modern Pilates class schedule in Orland Park for modern reformer Pilates and high-intensity, low-impact workouts.",
+  about: "Meet Cave Modern Pilates, a women-focused Pilates studio in Orland Park created to build strength, confidence, and community through movement.",
+  contact: "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions.",
+  faq: "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies.",
   login: "Sign in to your Cave Modern Pilates account.",
   signup: "Create your Cave Modern Pilates client account and complete the first-class liability waiver.",
   account: "View your Cave Modern Pilates account, bookings, credits, and memberships.",
-  terms: "Cave Modern Pilates terms of service and membership terms.",
-  policies: "Cave Modern Pilates studio policies, cancellation rules, privacy policy, and liability waiver."
+  terms: "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions.",
+  policies: "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."
 };
 
 const SITE_URL = "https://www.cavemodernpilates.com";
+const SOCIAL_IMAGE_URL = `${SITE_URL}/og-image.jpg`;
+const PRIVATE_PAGES = new Set(["login", "signup", "account"]);
 const STUDIO_CACHE_POLL_MS = 60 * 60 * 1000;
 const CONTACT_EMAIL = "support@cavemodernpilates.com";
 const CONTACT_PHONE = "7085715730";
@@ -792,9 +794,15 @@ function updatePageMeta(page) {
   setMetaTag("og:description", description, "property");
   setMetaTag("og:type", "website", "property");
   setMetaTag("og:url", canonicalUrl, "property");
+  setMetaTag("og:site_name", "Cave Modern Pilates", "property");
+  setMetaTag("og:locale", "en_US", "property");
+  setMetaTag("og:image", SOCIAL_IMAGE_URL, "property");
+  setMetaTag("og:image:alt", "Cave Modern Pilates studio in Orland Park, Illinois", "property");
   setMetaTag("twitter:card", "summary_large_image", "name");
   setMetaTag("twitter:title", title, "name");
   setMetaTag("twitter:description", description, "name");
+  setMetaTag("twitter:image", SOCIAL_IMAGE_URL, "name");
+  setMetaTag("robots", PRIVATE_PAGES.has(page) ? "noindex, nofollow" : "index, follow, max-image-preview:large");
   setCanonical(canonicalUrl);
   setStructuredData(page);
 }
@@ -838,13 +846,18 @@ function setStructuredData(page) {
     document.head.appendChild(tag);
   }
 
-  tag.textContent = JSON.stringify({
-    "@context": "https://schema.org",
-    "@type": "HealthClub",
+  const localBusiness = {
+    "@type": ["HealthClub", "SportsActivityLocation", "LocalBusiness"],
+    "@id": `${SITE_URL}/#studio`,
     name: "Cave Modern Pilates",
+    alternateName: ["Cave Pilates", "Cave Modern Pilates Orland Park"],
     url: SITE_URL,
+    image: SOCIAL_IMAGE_URL,
+    logo: SOCIAL_IMAGE_URL,
+    description: PAGE_DESCRIPTIONS.home,
     email: CONTACT_EMAIL,
     telephone: CONTACT_PHONE,
+    priceRange: "$$",
     address: {
       "@type": "PostalAddress",
       streetAddress: "31 Orland Square Drive, Suite B",
@@ -853,9 +866,35 @@ function setStructuredData(page) {
       postalCode: "60462",
       addressCountry: "US"
     },
+    areaServed: ["Orland Park", "Tinley Park", "Palos", "Palos Hills", "Mokena", "Homer Glen", "Frankfort"].map((name) => ({
+      "@type": "City",
+      name
+    })),
+    knowsAbout: ["Pilates", "Reformer Pilates", "Lagree", "Women's fitness", "Low-impact strength training"],
     sameAs: [INSTAGRAM_URL, TIKTOK_URL],
     mainEntityOfPage: page === "home" ? SITE_URL : `${SITE_URL}/${page}`
-  });
+  };
+  const graph = [localBusiness, {
+    "@type": "WebSite",
+    "@id": `${SITE_URL}/#website`,
+    name: "Cave Modern Pilates",
+    url: SITE_URL,
+    inLanguage: "en-US",
+    publisher: { "@id": `${SITE_URL}/#studio` }
+  }];
+
+  if (page === "faq") {
+    graph.push({
+      "@type": "FAQPage",
+      mainEntity: FAQ_ITEMS.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: { "@type": "Answer", text: item.answer.join(" ") }
+      }))
+    });
+  }
+
+  tag.textContent = JSON.stringify({ "@context": "https://schema.org", "@graph": graph });
 }
 
 function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle, onCloseMenu }) {
@@ -970,6 +1009,7 @@ function HomePage({ memberships, store, bookingUrl }) {
   return (
     <>
       <section className="hero" id="home" aria-label="Cave Modern Pilates home">
+        <h1 className="sr-only">Women's Pilates and Lagree-style fitness in Orland Park</h1>
         <video className="hero-video" autoPlay muted loop playsInline poster={homeHeroPoster} aria-hidden="true">
           <source src={homeHeroVideo} type="video/mp4" />
         </video>
@@ -981,6 +1021,21 @@ function HomePage({ memberships, store, bookingUrl }) {
           <path className="wave-line" d="M0 54C170 18 309 42 468 70C634 100 781 133 982 111C1144 93 1272 42 1440 46" />
           <path className="wave-fill" d="M0 54C170 18 309 42 468 70C634 100 781 133 982 111C1144 93 1272 42 1440 46V185H0Z" />
         </svg>
+      </section>
+
+      <section className="home-local-intro section" aria-labelledby="home-local-title">
+        <p className="eyebrow">Cave Modern Pilates · Orland Park</p>
+        <h2 id="home-local-title">Modern Pilates built for women.</h2>
+        <p>
+          Looking for Pilates or Lagree near you? Cave Modern Pilates offers high-intensity,
+          low-impact reformer workouts in a women-focused studio at Orland Square. We welcome
+          clients from Orland Park, Tinley Park, Palos, Palos Hills, Mokena, Homer Glen, Frankfort,
+          and surrounding southwest suburbs.
+        </p>
+        <div className="button-row compact">
+          <a className="pill-button black" href={ROUTES.schedule}>View Class Schedule</a>
+          <a className="pill-button outline" href={ROUTES.about}>About Cave</a>
+        </div>
       </section>
 
       <section className="home-pricing-preview section">
@@ -1293,6 +1348,7 @@ const PRICING_TABS = [
 function PricingLandingPage({ store, memberships, clientSession }) {
   return (
     <section className="pricing-choice section">
+      <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
         {PRICING_CATEGORIES.map((category) => (
           <a className={`pricing-choice-card ${category.key}`} href={category.href} key={category.key}>
@@ -2270,6 +2326,7 @@ function pricingTitleLines(item, category) {
 function SchedulePage({ schedule, bookingUrl, clientSession, spotsLoading }) {
   return (
     <section className="schedule section page-section">
+      <h1 className="sr-only">Orland Park Pilates and Lagree class schedule</h1>
       <ScheduleList schedule={schedule} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={spotsLoading} />
     </section>
   );
