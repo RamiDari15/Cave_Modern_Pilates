@@ -1061,53 +1061,6 @@ function HomePage({ memberships, store, bookingUrl }) {
         </svg>
       </section>
 
-      <section className="home-local-intro section" aria-labelledby="home-local-title">
-        <p className="eyebrow">Cave Modern Pilates · Orland Park</p>
-        <h2 id="home-local-title">Modern Pilates built for women.</h2>
-        <p>
-          Looking for Pilates or Lagree near you? Cave Modern Pilates offers high-intensity,
-          low-impact reformer workouts in a women-focused studio at Orland Square. We welcome
-          clients from Orland Park, Tinley Park, Palos, Palos Hills, Mokena, Homer Glen, Frankfort,
-          and surrounding southwest suburbs.
-        </p>
-        <div className="button-row compact">
-          <a className="pill-button black" href={ROUTES.schedule}>View Class Schedule</a>
-          <a className="pill-button outline" href={ROUTES.about}>About Cave</a>
-        </div>
-      </section>
-
-      <section className="home-seo-guide section" aria-labelledby="home-seo-guide-title">
-        <div className="section-heading center">
-          <p className="eyebrow">Why Cave</p>
-          <h2 id="home-seo-guide-title">Your women-focused Pilates studio in Orland Park.</h2>
-          <p>
-            Build strength with modern reformer-inspired movement in a focused, welcoming studio.
-            Start with the option that fits your experience, schedule, and commitment.
-          </p>
-        </div>
-        <div className="home-seo-guide-grid">
-          <article>
-            <h3>New to Pilates?</h3>
-            <p>Review what to expect, studio policies, and answers to common first-class questions before you arrive.</p>
-            <a href={ROUTES.faq}>Read the beginner FAQ</a>
-          </article>
-          <article>
-            <h3>High-intensity, low-impact movement</h3>
-            <p>Explore a modern workout experience designed to challenge strength, control, and endurance with less impact.</p>
-            <a href={ROUTES.about}>Discover the Cave approach</a>
-          </article>
-          <article>
-            <h3>Flexible ways to begin</h3>
-            <p>Compare the new-client offer, memberships, class packs, and single-class drop-in options in one place.</p>
-            <a href={ROUTES.pricing}>Compare pricing options</a>
-          </article>
-        </div>
-        <p className="home-seo-nearby">
-          Conveniently located at Orland Square for women from Orland Park, Tinley Park, Palos,
-          Palos Hills, Mokena, Homer Glen, Frankfort, and nearby southwest suburbs.
-        </p>
-      </section>
-
       <section className="home-pricing-preview section">
         <MembershipPerks />
         <div className="section-heading center">
