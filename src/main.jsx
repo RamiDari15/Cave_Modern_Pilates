@@ -768,6 +768,7 @@ function App() {
 
   return (
     <div className={shellClass}>
+      <BackToSchoolBanner />
       <Header
         activePage={page}
         bookingUrl={bookingUrl}
@@ -790,6 +791,69 @@ function App() {
       </main>
       <Footer location={cache.location} />
       <AiAssistant page={page} bookingUrl={bookingUrl} clientSession={clientSession} />
+      <NewbieSignupPopup page={page} clientSession={clientSession} />
+    </div>
+  );
+}
+
+function isBackToSchoolPromotionActive(now = new Date()) {
+  const year = now.getFullYear();
+  return now >= new Date(year, 8, 1, 0, 0, 0, 0);
+}
+
+function BackToSchoolBanner() {
+  if (!isBackToSchoolPromotionActive()) return null;
+
+  return (
+    <a className="school-promo-banner" href={ROUTES.classPacks}>
+      <strong>Back to School:</strong> Save 15% on all class packs with code <span>BACKTOSCHOOL15</span>
+    </a>
+  );
+}
+
+function NewbieSignupPopup({ page, clientSession }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [email, setEmail] = useState("");
+
+  useEffect(() => {
+    if (clientSession?.signedIn || !["home", "pricing", "newbie"].includes(page)) return undefined;
+    if (window.sessionStorage.getItem("cave-newbie-popup-dismissed") === "1") return undefined;
+    const timer = window.setTimeout(() => setIsOpen(true), 1400);
+    return () => window.clearTimeout(timer);
+  }, [clientSession?.signedIn, page]);
+
+  const close = () => {
+    window.sessionStorage.setItem("cave-newbie-popup-dismissed", "1");
+    setIsOpen(false);
+  };
+
+  const submit = (event) => {
+    event.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return;
+    window.sessionStorage.setItem("cave-newbie-email", cleanEmail);
+    window.location.href = `${ROUTES.signup}?email=${encodeURIComponent(cleanEmail)}`;
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="newbie-popup-overlay" role="dialog" aria-modal="true" aria-labelledby="newbie-popup-title">
+      <button className="newbie-popup-backdrop" type="button" aria-label="Close new client offer" onClick={close} />
+      <article className="newbie-popup">
+        <button className="newbie-popup-close" type="button" aria-label="Close" onClick={close}><X size={22} /></button>
+        <p className="newbie-popup-kicker">New to Cave?</p>
+        <h2 id="newbie-popup-title">Start with our new-client offer.</h2>
+        <p>Enter your email to create your Cave account and see the introductory class packages available to first-time clients.</p>
+        <form onSubmit={submit}>
+          <label>
+            <span>Email address</span>
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required />
+          </label>
+          <button className="pill-button black" type="submit">Create My Account</button>
+        </form>
+        <a className="newbie-popup-link" href={ROUTES.newbie}>View the new-client offer</a>
+      </article>
     </div>
   );
 }
@@ -1892,6 +1956,7 @@ function sortBySessionsAsc(items) {
 }
 
 const CLASS_PACK_PROMO_CODES = new Set([
+  "BACKTOSCHOOL15",
   "LILA15",
   "SAMAH15",
   "IMUNIQUE15",
@@ -1913,6 +1978,19 @@ function isPromoEligibleClassPack(item) {
   return name === "5 class pack" || name === "10 class pack";
 }
 
+function isAnyClassPack(item) {
+  const name = String(item?.name || item?.sourceName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /\bclass pack\b/.test(name) && !/\bnew client\b|\bnewbie\b|\bdrop in\b/.test(name);
+}
+
+function promoAppliesToItem(code, item) {
+  return code === "BACKTOSCHOOL15" ? isAnyClassPack(item) : isPromoEligibleClassPack(item);
+}
+
 function moneyValue(value) {
   const amount = Number(String(value || "0").replace(/[^0-9.]/g, ""));
   return Number.isFinite(amount) ? amount : 0;
@@ -1932,7 +2010,7 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
 
   const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
-  const promoEligible = !isContract && isPromoEligibleClassPack(item);
+  const promoEligible = !isContract && isAnyClassPack(item);
   const itemAmount = moneyValue(item.price);
   const discountedAmount = appliedPromo && promoEligible ? itemAmount * 0.85 : itemAmount;
   const titleLines = pricingTitleLines(item, category);
@@ -1961,9 +2039,14 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
       setPromoState({ type: "error", message: "That promo code is invalid." });
       return;
     }
-    if (!promoEligible) {
+    if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
       setAppliedPromo("");
-      setPromoState({ type: "error", message: "This promo code only applies to the 5 Class Pack and 10 Class Pack." });
+      setPromoState({ type: "error", message: "BACKTOSCHOOL15 begins September 1." });
+      return;
+    }
+    if (!promoAppliesToItem(code, item)) {
+      setAppliedPromo("");
+      setPromoState({ type: "error", message: code === "BACKTOSCHOOL15" ? "This promo code only applies to class packs." : "This promo code only applies to the 5 Class Pack and 10 Class Pack." });
       return;
     }
     setAppliedPromo(code);
@@ -2217,7 +2300,7 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   }, [cardsLoaded, savedCards, selectedCard]);
 
   const cartItemsKey = cart.items.map((i) => `${i.id}:${i.kind}:${i.quantity}`).join(",");
-  const hasPromoEligibleItem = cart.items.some(isPromoEligibleClassPack);
+  const hasPromoEligibleItem = cart.items.some(isAnyClassPack);
   useEffect(() => {
     if (!cart.items.length || !clientSession?.signedIn) return;
     let mounted = true;
@@ -2239,9 +2322,14 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
       setPromoState({ type: "error", message: "That promo code is invalid." });
       return;
     }
-    if (!hasPromoEligibleItem) {
+    if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
       setAppliedPromo("");
-      setPromoState({ type: "error", message: "This promo code only applies to the 5 Class Pack and 10 Class Pack." });
+      setPromoState({ type: "error", message: "BACKTOSCHOOL15 begins September 1." });
+      return;
+    }
+    if (!cart.items.some((item) => promoAppliesToItem(code, item))) {
+      setAppliedPromo("");
+      setPromoState({ type: "error", message: code === "BACKTOSCHOOL15" ? "This promo code only applies to class packs." : "This promo code only applies to the 5 Class Pack and 10 Class Pack." });
       return;
     }
     setAppliedPromo(code);
@@ -2872,6 +2960,8 @@ function SignupPage({ clientSession, bookingUrl }) {
     return null;
   }
 
+  const email = new URLSearchParams(window.location.search).get("email") || window.sessionStorage.getItem("cave-newbie-email") || "";
+
   return (
     <section className="login-page signup-page">
       <div className="login-copy">
@@ -2879,6 +2969,7 @@ function SignupPage({ clientSession, bookingUrl }) {
         <p>Sign in or create a Mindbody account, then complete your studio profile to book classes and sign the liability waiver.</p>
       </div>
       <div className="login-panel">
+        {email ? <p className="signup-email-note">Creating an account for <strong>{email}</strong></p> : null}
         <a className="pill-button black" href={authStartHref(ROUTES.account)}>Create Account</a>
         <a className="pill-button outline" href={ROUTES.login}>Already Have an Account</a>
         {bookingUrl && <a className="pill-button outline" href={bookingUrl}>View Schedule</a>}

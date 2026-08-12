@@ -53,6 +53,7 @@ const pricingCatalogCache = {
 };
 
 const CLASS_PACK_PROMOTIONS = Object.freeze({
+  BACKTOSCHOOL15: 15,
   LILA15: 15,
   SAMAH15: 15,
   IMUNIQUE15: 15,
@@ -84,6 +85,22 @@ function promoEligibleItems(items) {
   );
 }
 
+function isBackToSchoolPromotionActive(now = new Date()) {
+  const year = now.getFullYear();
+  return now >= new Date(year, 8, 1, 0, 0, 0, 0);
+}
+
+function allClassPackPromoItems(items) {
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const name = normalizePromoItemName(item?.name || item?.sourceName);
+    return /\bclass pack\b/.test(name) && !/\bnew client\b|\bnewbie\b|\bdrop in\b/.test(name);
+  });
+}
+
+function promotionEligibleItems(code, items) {
+  return code === "BACKTOSCHOOL15" ? allClassPackPromoItems(items) : promoEligibleItems(items);
+}
+
 function validateClassPackPromotion(rawCode, items) {
   const code = normalizePromoCode(rawCode);
 
@@ -94,8 +111,15 @@ function validateClassPackPromotion(rawCode, items) {
     throw httpError(400, "That promo code is invalid.");
   }
 
-  if (!promoEligibleItems(items).length) {
-    throw httpError(400, "This promo code only applies to the 5 Class Pack and 10 Class Pack.");
+  if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
+    throw httpError(400, "BACKTOSCHOOL15 begins September 1.");
+  }
+
+  if (!promotionEligibleItems(code, items).length) {
+    const message = code === "BACKTOSCHOOL15"
+      ? "This promo code only applies to class packs."
+      : "This promo code only applies to the 5 Class Pack and 10 Class Pack.";
+    throw httpError(400, message);
   }
 
   return { code, percentOff };
@@ -2846,7 +2870,7 @@ return true;
           const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
           return sum + price * (Number(item.quantity) || 1);
         }, 0);
-        const eligibleSubtotal = promoEligibleItems(items).reduce((sum, item) => {
+        const eligibleSubtotal = promotionEligibleItems(promotion?.code, items).reduce((sum, item) => {
           const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
           return sum + price * (Number(item.quantity) || 1);
         }, 0);
@@ -2906,7 +2930,7 @@ return true;
           const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
           return sum + price * (Number(item.quantity) || 1);
         }, 0);
-        const eligibleSubtotal = promoEligibleItems(items).reduce((sum, item) => {
+        const eligibleSubtotal = promotionEligibleItems(promotion?.code, items).reduce((sum, item) => {
           const price = Number(String(item.price || "0").replace(/[^0-9.]/g, ""));
           return sum + price * (Number(item.quantity) || 1);
         }, 0);
@@ -2990,7 +3014,7 @@ return true;
       };
 
       const subtotal = items.reduce((sum, item) => sum + itemTotal(item), 0);
-      const eligibleSubtotal = promoEligibleItems(items).reduce(
+      const eligibleSubtotal = promotionEligibleItems(promotion?.code, items).reduce(
         (sum, item) => sum + itemTotal(item),
         0
       );
