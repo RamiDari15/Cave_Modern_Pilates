@@ -1469,11 +1469,46 @@ body.interior:has(.page-policies),
 }
 
 .pricing-card.memberships {
+  position: relative;
   min-height: 0;
   border-radius: 38px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 244, 241, 0.9));
   box-shadow: 0 22px 58px rgba(5, 5, 5, 0.14);
+}
+
+.pricing-card.memberships.current-membership {
+  border: 2px solid #167d58;
+  box-shadow: 0 22px 58px rgba(5, 5, 5, 0.14), 0 0 0 5px rgba(22, 125, 88, 0.12);
+}
+
+.pricing-current-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  margin-bottom: 16px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  color: #fff;
+  background: #167d58;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pricing-current-status {
+  display: inline-flex;
+  min-width: 150px;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  border: 1px solid rgba(22, 125, 88, 0.28);
+  border-radius: 999px;
+  color: #126b4c;
+  background: rgba(22, 125, 88, 0.1);
+  font-weight: 800;
 }
 
 .pricing-card-media {

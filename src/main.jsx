@@ -1618,8 +1618,28 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
   const groups = usePricingCatalog(store, memberships);
   const items = groups[category.key] || [];
+  const [activeMemberships, setActiveMemberships] = useState([]);
   const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
   const totalQty = cart ? cart.items.reduce((n, i) => n + i.quantity, 0) : 0;
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (category.key !== "memberships" || !clientSession?.signedIn) {
+      setActiveMemberships([]);
+      return () => { mounted = false; };
+    }
+
+    apiRequest("/api/client/dashboard")
+      .then((data) => {
+        if (mounted) setActiveMemberships(Array.isArray(data?.contracts) ? data.contracts : []);
+      })
+      .catch(() => {
+        if (mounted) setActiveMemberships([]);
+      });
+
+    return () => { mounted = false; };
+  }, [category.key, clientSession?.signedIn]);
 
   return (
     <>
@@ -1638,6 +1658,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
                 key={`${item.kind}-${item.id}`}
                 item={item}
                 category={category}
+                isCurrentMembership={category.key === "memberships" && activeMemberships.some((membership) => membershipsMatch(item, membership))}
                 savedCards={savedCards}
                 cardsLoaded={cardsLoaded}
                 clientSession={clientSession}
@@ -1780,6 +1801,33 @@ function membershipSearchText(item) {
     .toLowerCase();
 }
 
+function membershipIdentity(item) {
+  const text = membershipSearchText(item);
+  const commitment = text.match(/\b(3|6|12)\s*[- ]*months?\b/)?.[1] || "";
+  const classCount = text.match(/\b(4|8)\s*[- ]*class(?:es)?\b/)?.[1] || "";
+  const plan = /\bunlimited\b/.test(text)
+    ? "unlimited"
+    : classCount
+      ? `${classCount}-class`
+      : "";
+
+  return { plan, commitment };
+}
+
+function membershipsMatch(catalogMembership, activeMembership) {
+  const catalog = membershipIdentity(catalogMembership);
+  const active = membershipIdentity(activeMembership);
+
+  return Boolean(
+    catalog.plan &&
+    active.plan &&
+    catalog.plan === active.plan &&
+    catalog.commitment &&
+    active.commitment &&
+    catalog.commitment === active.commitment
+  );
+}
+
 function membershipCommitmentMonths(item) {
   const text = membershipSearchText(item);
 
@@ -1870,7 +1918,7 @@ function moneyValue(value) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess }) {
+function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess, isCurrentMembership = false }) {
   const [showModal, setShowModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
@@ -1972,8 +2020,9 @@ const payload = isContract
 
   return (
     <>
-      <article className={`pricing-card ${category.key}`}>
+      <article className={`pricing-card ${category.key}${isCurrentMembership ? " current-membership" : ""}`}>
         <div>
+          {isCurrentMembership ? <span className="pricing-current-badge">Your current membership</span> : null}
           {item.isNewbiePromo ? <span className="pricing-badge">New Client</span> : null}
           <p className="pricing-card-price">{item.price || "Ask studio"}</p>
           <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
@@ -1984,7 +2033,9 @@ const payload = isContract
         </div>
 
         <div className="pricing-card-actions">
-          {!clientSession?.signedIn ? (
+          {isCurrentMembership ? (
+            <span className="pricing-current-status" aria-label="This is your active membership">Active</span>
+          ) : !clientSession?.signedIn ? (
             <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/pricing")}`}>
               Sign In to Buy
             </a>
@@ -3081,7 +3132,12 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
             <EditProfileSection
               accountData={accountData}
               clientSession={clientSession}
-              onSaved={() => setEditOpen(false)}
+              onSaved={(updatedProfile) => {
+                if (updatedProfile) {
+                  setAccountData(updatedProfile);
+                }
+                setEditOpen(false);
+              }}
             />
           )}
         </>
@@ -3353,7 +3409,7 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
     setStatus({ type: "", message: "" });
 
     try {
-      await apiRequest("/api/account/profile", {
+      const result = await apiRequest("/api/account/profile", {
         method: "POST",
         body: {
           clientId: accountData?.clientId,
@@ -3362,8 +3418,21 @@ function EditProfileSection({ accountData, clientSession, onSaved }) {
           ...form
         }
       });
+
+      if (!result?.ok) {
+        throw new Error("Mindbody did not confirm that the profile was saved.");
+      }
+
+      const refreshed = await apiRequest("/api/account/me");
+
+      if (!refreshed?.data) {
+        throw new Error("The profile was saved, but the updated details could not be reloaded.");
+      }
+
       setStatus({ type: "success", message: "Profile updated." });
-      if (onSaved) setTimeout(onSaved, 1200);
+      if (onSaved) {
+        setTimeout(() => onSaved(refreshed.data), 700);
+      }
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Profile could not be saved. Please try again." });
     } finally {
@@ -3549,9 +3618,12 @@ function AccountCard({ title, data, empty, type, loading }) {
 }
 
 function normalizeAccountItems(data, type) {
-  const rows = type === "schedule"
+  const sourceRows = type === "schedule"
     ? accountScheduleRows(data)
     : firstArrayFromAccountData(data, accountPreferredKeys(type));
+  const rows = type === "contracts"
+    ? dedupeAccountMemberships(sourceRows)
+    : sourceRows;
 
   if (!rows.length) {
     return [];
@@ -3665,6 +3737,35 @@ if (type === "services") {
       meta: ends ? `Renews or ends ${ends}` : ""
     };
   });
+}
+
+function dedupeAccountMemberships(rows) {
+  const memberships = new Map();
+
+  rows.forEach((item, index) => {
+    const name = firstText(item.ContractName, item.Name, item.MembershipName, item.AgreementName, "Membership");
+    const normalizedName = String(name).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const term = normalizedName.match(/\b(3|6|12)\s*months?\b/)?.[1] || "";
+    const classCount = normalizedName.match(/\b(4|5|8|10)\s*class(?:es)?\b/)?.[1] || "";
+    const tier = normalizedName.includes("unlimited")
+      ? "unlimited"
+      : classCount
+        ? `${classCount}-class`
+        : "";
+    const key = tier ? `${tier}|${term || "open"}` : `${normalizedName}|${index}`;
+    const endValue = firstText(item.EndDate, item.EndDateTime, item.ExpirationDate, item.Expires, item.ExpiryDate);
+    const endTime = new Date(endValue || "").getTime();
+    const current = memberships.get(key);
+
+    if (!current || (Number.isFinite(endTime) ? endTime : 0) >= current.endTime) {
+      memberships.set(key, {
+        item,
+        endTime: Number.isFinite(endTime) ? endTime : 0
+      });
+    }
+  });
+
+  return [...memberships.values()].map(({ item }) => item);
 }
 
 function accountScheduleRows(data) {

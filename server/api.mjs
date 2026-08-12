@@ -2330,17 +2330,11 @@ if (confirmedClient?.clientId) {
   clientId = cleanClientId(confirmedClient.clientId);
 }
 
-// Do NOT send Email/MobileNumber/MobilePhone in updateclient.
-// Mindbody treats those as duplicate-sensitive fields.
 const clientPayload = compactObject({
   Id: clientId,
-
-  // Do not send Email, MobileNumber, or MobilePhone here.
-  // Mindbody treats those as duplicate-sensitive fields.
-  // The account is already linked by clientId.
-
   FirstName: firstName,
   LastName: lastName,
+  MobilePhone: phoneNumber,
   HomePhone: body.homePhone,
   WorkPhone: body.workPhone,
   MiddleName: body.middleName,
@@ -2351,6 +2345,7 @@ const clientPayload = compactObject({
   PostalCode: body.postalCode,
   Country: body.country,
   BirthDate: body.birthDate,
+  Gender: body.gender,
   EmergencyContactInfoName: body.emergencyContactName,
   EmergencyContactInfoEmail: body.emergencyContactEmail,
   EmergencyContactInfoPhone: body.emergencyContactPhone,
@@ -2399,10 +2394,9 @@ const clientPayload = compactObject({
     clientId = cleanClientId(recovered.clientId);
     clientPayload.Id = clientId;
 
-    // Remove duplicate-sensitive fields again before retrying.
+    // A recovered duplicate points at the canonical Mindbody client. Keep the
+    // requested phone update, but do not change the login email here.
     delete clientPayload.Email;
-    delete clientPayload.MobileNumber;
-    delete clientPayload.MobilePhone;
 
     const token = await getStaffToken();
 
@@ -5908,11 +5902,26 @@ async function fetchClientCompleteInfo(clientId, session) {
   return Number.isFinite(time) ? time : 0;
 };
 
+const membershipPlanKey = (item) => {
+  const name = nameKey(item);
+  const term = name.match(/\b(3|6|12)\s*[- ]*months?\b/i)?.[1] || "";
+  const classCount = name.match(/\b(4|5|8|10)\s*[- ]*class(?:es)?\b/i)?.[1] || "";
+  const tier = /unlimited/i.test(name)
+    ? "unlimited"
+    : classCount
+      ? `${classCount}-class`
+      : "";
+
+  // Only merge records when the plan can be identified confidently. Mindbody
+  // often returns the same contract under slightly different display names.
+  return tier ? `${tier}|${term || "open"}` : name;
+};
+
 const dedupeByNameKeepLatest = (items) => {
   const map = new Map();
 
   items.forEach((item) => {
-    const key = nameKey(item);
+    const key = membershipPlanKey(item);
     if (!key) return;
 
     const existing = map.get(key);
