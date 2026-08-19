@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
@@ -87,6 +87,7 @@ const CONTACT_PHONE_DISPLAY = "(708) 571-5730";
 const INSTAGRAM_URL = "https://www.instagram.com/cavemodernpilates/";
 const TIKTOK_URL = "https://www.tiktok.com/@cavemodernpilates";
 const SOCIAL_HANDLE = "@cavemodernpilates";
+const MINDBODY_GIFT_CARD_URL = "https://clients.mindbodyonline.com/classic/ws?studioid=5753835&stype=42";
 
 const PRICING_CATEGORIES = [
   {
@@ -1445,6 +1446,27 @@ function PricingLandingPage({ store, memberships, clientSession }) {
             </div>
           </a>
         ))}
+      </div>
+      <GiftCardPurchaseSection />
+    </section>
+  );
+}
+
+function GiftCardPurchaseSection() {
+  return (
+    <section className="gift-card-purchase" aria-labelledby="gift-card-title">
+      <div className="gift-card-visual" aria-hidden="true">
+        <span className="gift-card-mark"><Gift size={30} strokeWidth={1.7} /></span>
+        <span className="gift-card-brand">CAVE</span>
+        <span className="gift-card-label">Gift Card</span>
+      </div>
+      <div className="gift-card-copy">
+        <p className="gift-card-eyebrow">Give the gift of movement</p>
+        <h2 id="gift-card-title">Cave Gift Cards</h2>
+        <p>Choose an amount and send a Cave Modern Pilates gift card to someone special. Recipient details, payment, and delivery are completed securely through Mindbody.</p>
+        <a className="pill-button black gift-card-button" href={MINDBODY_GIFT_CARD_URL} target="_blank" rel="noreferrer">
+          Buy a Gift Card
+        </a>
       </div>
     </section>
   );
