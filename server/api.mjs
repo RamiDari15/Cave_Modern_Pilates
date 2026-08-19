@@ -6694,7 +6694,7 @@ function publicGuestPassBooking(record) {
   };
 }
 
-async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
+async function ensureMindbodyGuestPass(clientId, _memberClientId, staffToken) {
   const findActiveGuestPass = async () => {
     const data = await bookingRequest("/client/clientservices", {
       token: staffToken,
@@ -6758,33 +6758,12 @@ async function ensureMindbodyGuestPass(clientId, memberClientId, staffToken) {
     throw httpError(503, "The Guest Pass pricing option could not be found in Mindbody.");
   }
 
-  const pricingRelationships = guestPassService?.Program?.PricingRelationships ||
-    guestPassService?.PricingRelationships || {};
-  const configuredPaidByIds = Array.isArray(pricingRelationships.PaidBy)
-    ? pricingRelationships.PaidBy
-    : [];
-  const configuredPaysForIds = Array.isArray(pricingRelationships.PaysFor)
-    ? pricingRelationships.PaysFor
-    : [];
-  const allowedPaidByRelationshipIds = (configuredPaidByIds.length
-    ? configuredPaidByIds
-    : configuredPaysForIds
-  ).map(Number).filter((id) => Number.isInteger(id) && id > 0);
-
-  await ensureGuestPayerRelationship(
-    clientId,
-    memberClientId,
-    staffToken,
-    allowedPaidByRelationshipIds
-  );
-
   await bookingRequest("/sale/checkoutshoppingcart", {
     method: "POST",
     token: staffToken,
     body: {
       Test: process.env.BOOKING_TEST_MODE === "true",
       ClientId: String(clientId),
-      PayerClientId: String(memberClientId),
       LocationId: Number(locationId) || 1,
       InStore: true,
       CalculateTax: false,

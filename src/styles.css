@@ -1182,28 +1182,28 @@ body.interior:has(.page-policies),
 }
 
 .pricing-choice-card.newbie .pricing-choice-image {
-  background-image: url("../assets/cave-pricing-newbie.jpeg");
+  background-image: url("../assets/cave-pricing-newbie-2026.jpeg");
   background-size: cover;
   background-position: center;
 }
 
 .pricing-choice-card.memberships .pricing-choice-image {
-  background-image: url("../assets/cave-home-hero.jpeg");
+  background-image: url("../assets/cave-pricing-memberships-2026.jpeg");
   background-size: cover;
   background-position: center;
 }
 
 .pricing-choice-card.classPacks .pricing-choice-image {
-  background-image: url("../assets/cave-pricing-class-packs.jpeg");
+  background-image: url("../assets/cave-pricing-class-packs-2026.jpeg");
   background-size: cover;
   background-position: center center;
 }
 
 .pricing-choice-card.dropIn .pricing-choice-image {
-  background-image: url("../public/assets/IMG_2025.JPG.jpeg");
+  background-image: url("../assets/cave-pricing-drop-in-2026.jpeg");
   background-size: cover;
   background-position: center center;
-  filter: grayscale(1) contrast(1.08);
+  filter: none;
 }
 
 .pricing-choice-copy {
