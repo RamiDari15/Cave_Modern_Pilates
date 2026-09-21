@@ -9,13 +9,13 @@ const cacheFile = resolve(__dirname, "data/studio-cache.json");
 const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
 const siteUrl = "https://www.cavemodernpilates.com";
 const seoPages = {
-  index: ["Women's Pilates & Lagree in Orland Park | Cave Modern Pilates", "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort."],
+  index: ["Women's Reformer Pilates in Orland Park | Cave Modern Pilates", "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort."],
   pricing: ["Pilates Pricing in Orland Park | Cave Modern Pilates", "Compare Cave Modern Pilates memberships, class packs, drop-ins, and new-client offers at our women's Pilates studio in Orland Park, Illinois."],
   newbie: ["New Client Pilates Offer in Orland Park | Cave Modern Pilates", "Start Pilates in Orland Park with a Cave Modern Pilates new-client offer. Welcoming women from Tinley Park, Palos Hills, Mokena, Homer Glen, and Frankfort."],
   memberships: ["Pilates Memberships in Orland Park | Cave Modern Pilates", "Explore women's Pilates memberships at Cave Modern Pilates in Orland Park, including monthly class plans and unlimited membership options."],
   "class-packs": ["Pilates Class Packs in Orland Park | Cave Modern Pilates", "Buy flexible Pilates class packs at Cave Modern Pilates in Orland Park, serving Tinley Park, Palos, Mokena, Homer Glen, and Frankfort."],
   "drop-in": ["Drop-In Pilates Class in Orland Park | Cave Modern Pilates", "Book one drop-in reformer Pilates class at Cave Modern Pilates in Orland Park. No membership or long-term commitment required."],
-  schedule: ["Orland Park Pilates & Lagree Class Schedule | Cave Modern Pilates", "View and book the Cave Modern Pilates class schedule in Orland Park for modern reformer Pilates and high-intensity, low-impact workouts."],
+  schedule: ["Orland Park Reformer Pilates Class Schedule | Cave Modern Pilates", "View and book the Cave Modern Pilates class schedule in Orland Park for modern reformer Pilates and high-intensity, low-impact workouts."],
   about: ["Women's Pilates Studio in Orland Park | Cave Modern Pilates", "Meet Cave Modern Pilates, a women-focused Pilates studio in Orland Park created to build strength, confidence, and community through movement."],
   contact: ["Contact Our Orland Park Pilates Studio | Cave Modern Pilates", "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions."],
   faq: ["Pilates Membership & Booking FAQ | Cave Modern Pilates", "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies."],
@@ -69,7 +69,7 @@ function studioServerPlugin() {
               addressCountry: "US"
             },
             areaServed: ["Orland Park", "Tinley Park", "Palos", "Palos Hills", "Mokena", "Homer Glen", "Frankfort"].map((name) => ({ "@type": "City", name })),
-            knowsAbout: ["Pilates", "Reformer Pilates", "Lagree", "Women's fitness", "Low-impact strength training"],
+            knowsAbout: ["Pilates", "Reformer Pilates", "Modern Pilates", "Women's fitness", "Low-impact strength training"],
             sameAs: ["https://www.instagram.com/cavemodernpilates/", "https://www.tiktok.com/@cavemodernpilates"]
           },
           {

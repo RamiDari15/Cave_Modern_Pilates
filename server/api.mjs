@@ -1,6 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { NO_SHOW_POLICY_PARAGRAPHS } from "../src/studioPolicies.js";
+import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
+import { getGuestPassPeriod } from "../src/guestPass.js";
+import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 
 const ROOT_DIR = resolve(import.meta.dirname, "..");
 const API_HOST = "api." + "mind" + "bodyonline.com";
@@ -21,6 +25,8 @@ const OAUTH_PROFILE_REFRESH_MS = 10 * 60 * 1000;
 const PUBLIC_SCHEDULE_REFRESH_TTL_MS = Math.max(Number(process.env.BOOKING_SCHEDULE_REFRESH_SECONDS || 600), 30) * 1000;
 const AUTH_RATE_LIMIT = { count: 300, windowMs: 15 * 60 * 1000 };
 const rateLimitHits = new Map();
+const GIFT_CARD_RATE_LIMIT = { count: 5, windowMs: 15 * 60 * 1000 };
+const giftCardRateLimitHits = new Map();
 const pendingOAuthStates = new Map();
 const actionTokenCache = {
   key: "",
@@ -128,21 +134,23 @@ function validateClassPackPromotion(rawCode, items) {
 loadLocalEnv();
 
 function loadLocalEnv() {
-  const envFile = resolve(ROOT_DIR, ".env");
+  for (const filename of [".env.local", ".env"]) {
+    const envFile = resolve(ROOT_DIR, filename);
 
-  if (!existsSync(envFile)) {
-    return;
-  }
-
-  for (const line of readFileSync(envFile, "utf-8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+    if (!existsSync(envFile)) {
       continue;
     }
 
-    const [key, ...valueParts] = trimmed.split("=");
-    process.env[key.trim()] ||= valueParts.join("=").trim().replace(/^['"]|['"]$/g, "");
+    for (const line of readFileSync(envFile, "utf-8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+        continue;
+      }
+
+      const [key, ...valueParts] = trimmed.split("=");
+      process.env[key.trim()] ||= valueParts.join("=").trim().replace(/^['"]|['"]$/g, "");
+    }
   }
 }
 
@@ -323,8 +331,12 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/unbook-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/unbook-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase", "/api/gift-cards/options", "/api/gift-cards/purchase"].includes(path)) {
       enforceRateLimit(request);
+    }
+
+    if (path === "/api/gift-cards/purchase") {
+      enforceGiftCardRateLimit(request);
     }
 
     if (path === "/api/auth/status") {
@@ -555,6 +567,24 @@ export async function handleApiRequest(request, response) {
       }
 
       sendJson(response, 200, buildAssistantReply(message, body));
+      return true;
+    }
+
+    if (path === "/api/auth/start" && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const signupPhone = normalizeMobilePhone(body.phone);
+      const signupPromotionalTexts = body.promotionalTexts === true;
+
+      if (!signupPhone) {
+        sendJson(response, 400, { ok: false, message: MOBILE_PHONE_ERROR });
+        return true;
+      }
+
+      startOAuthSignIn(request, response, body.returnTo || "/account", false, false, "", "", {
+        signupPhone,
+        signupPromotionalTexts,
+        jsonResponse: true
+      });
       return true;
     }
 
@@ -1017,6 +1047,10 @@ return true;
         });
         const hasUnlimitedMembership = hasEligibleUnlimitedMembership(memberInfo);
 
+        if (!guestPass && !hasUnlimitedMembership && memberInfo.guestPassEligibilityVerified === false) {
+          throw httpError(503, "We couldn’t verify your guest pass with Mindbody. Please try again.");
+        }
+
         if (!guestPass && !hasUnlimitedMembership) {
           const error = httpError(402, "No available guest pass was found on your account.");
           error.bookingCode = "NO_GUEST_PASS";
@@ -1457,6 +1491,48 @@ return true;
       return true;
     }
 
+    if (path === "/api/gift-cards/options" && request.method === "GET") {
+      try {
+        const giftCards = await fetchMindbodyGiftCards();
+        sendJson(response, 200, { ok: true, giftCards });
+      } catch (error) {
+        const status = error.status >= 400 && error.status < 600 ? error.status : 503;
+        sendJson(response, status, {
+          ok: false,
+          message: publicApiErrorMessage(error) || "Gift cards are temporarily unavailable."
+        });
+      }
+      return true;
+    }
+
+    if (path === "/api/gift-cards/purchase" && request.method === "POST") {
+      const session = await readHydratedSession(request, response);
+
+      if (!session) {
+        sendJson(response, 401, {
+          ok: false,
+          message: "Please sign in before purchasing a gift card.",
+          loginUrl: `/api/auth/start?returnTo=${encodeURIComponent("/pricing#gift-cards")}`
+        });
+        return true;
+      }
+
+      try {
+        const body = await readJsonBody(request);
+        const purchase = await purchaseMindbodyGiftCard(session, body);
+        sendJson(response, 200, { ok: true, purchase });
+      } catch (error) {
+        const status = error.status >= 400 && error.status < 600 ? error.status : 503;
+        const message = error.data?.Error?.Message || error.data?.Message || error.message || "Gift card purchase could not be completed.";
+        sendJson(response, status, {
+          ok: false,
+          message,
+          ...(error.data?.paymentAuthenticationUrl ? { paymentAuthenticationUrl: error.data.paymentAuthenticationUrl } : {})
+        });
+      }
+      return true;
+    }
+
     if (path === "/api/client/saved-cards" && request.method === "GET") {
       const session = await readHydratedSession(request, response);
 
@@ -1474,16 +1550,15 @@ return true;
 
       try {
         const staffToken = await getMindbodyActionToken("Saved cards");
-        const data = await bookingRequest("/sale/creditcards", {
+        const data = await bookingRequest("/client/clientcompleteinfo", {
           token: staffToken,
-          params: { ClientId: clientId }
+          params: {
+            "request.clientId": clientId,
+            "request.showActiveOnly": "true",
+            "request.crossRegionalLookup": "true"
+          }
         });
-        const cards = (data.CreditCards || data.creditCards || []).map((card) => ({
-          lastFour: String(card.LastFour || card.lastFour || "").trim(),
-          cardType: String(card.CardType || card.cardType || card.Type || "").trim(),
-          expMonth: String(card.ExpMonth || card.expMonth || "").trim(),
-          expYear: String(card.ExpYear || card.expYear || "").trim()
-        })).filter((card) => /^\d{4}$/.test(card.lastFour));
+        const cards = normalizeSavedCardsFromClient(data);
         sendJson(response, 200, { cards });
       } catch (error) {
         sendJson(response, 200, { cards: [], note: publicApiErrorMessage(error) });
@@ -1795,23 +1870,12 @@ return true;
       }
 
       const info = await fetchClientCompleteInfo(clientId, session).catch(() => null);
-      const hasUnlimitedMembership = hasEligibleUnlimitedMembership(info);
-      const guestBooking = hasUnlimitedMembership
-        ? await monthlyGuestPassDetails(clientId).catch(() => null)
-        : null;
-      const monthlyAvailable = hasUnlimitedMembership && !guestBooking
-        ? await monthlyGuestPassAvailable(clientId).catch(() => false)
-        : false;
+      const monthlyGuestPass = await monthlyGuestPassState(clientId, info);
       sendJson(response, 200, {
         ok: true,
         data: {
           ...(info || { hasUsablePricingOption: false, activeServices: [], activeMemberships: [] }),
-          monthlyGuestPass: {
-            eligible: hasUnlimitedMembership,
-            available: monthlyAvailable,
-            benefitMonth: currentBenefitMonth(),
-            booking: publicGuestPassBooking(guestBooking)
-          }
+          monthlyGuestPass
         }
       });
       return true;
@@ -1907,11 +1971,7 @@ return true;
 
   const schedule = fulfilledValue(scheduleResult);
   const rewards = fulfilledValue(rewardsResult);
-  const guestPassBooking = await monthlyGuestPassDetails(clientId).catch(() => null);
-  const guestPassEligible = hasEligibleUnlimitedMembership(accountInfo);
-  const guestPassAvailable = guestPassEligible && !guestPassBooking
-    ? await monthlyGuestPassAvailable(clientId).catch(() => false)
-    : false;
+  const monthlyGuestPass = await monthlyGuestPassState(clientId, accountInfo);
 
   const services = Array.isArray(accountInfo?.activeServices)
     ? accountInfo.activeServices.map((service) => ({
@@ -1947,12 +2007,7 @@ return true;
     services,
     contracts,
     rewards,
-    monthlyGuestPass: {
-      eligible: guestPassEligible,
-      available: guestPassAvailable,
-      benefitMonth: currentBenefitMonth(),
-      booking: publicGuestPassBooking(guestPassBooking)
-    },
+    monthlyGuestPass,
     eligibility: accountInfo,
     session: publicSession(session),
     errors
@@ -1979,6 +2034,7 @@ return true;
 
       let accessToken = session.consumerIdentityToken || session.accessToken;
       const activeSession = session;
+      const authenticatedEmail = activeSession.user?.email || activeSession.user?.username || "";
 
       const { siteId } = getBookingConfig();
       const meResult = await fetchPlatformMeWithStatus(accessToken);
@@ -1991,9 +2047,9 @@ return true;
         ? await fetchPlatformBusinessProfiles(userId, accessToken).catch(() => [])
         : [];
 
-      const studioProfile = findStudioBusinessProfile(profiles, siteId);
+      const studioProfile = findStudioBusinessProfile(profiles, siteId, activeSession.clientId);
       const hasBusinessProfile = Boolean(studioProfile);
-      const studioClientId = studioProfile?.clientId || studioProfile?.ClientId || activeSession.clientId || "";
+      const studioClientId = activeSession.clientId || studioProfile?.clientId || studioProfile?.ClientId || "";
       const businessId = studioProfile?.businessId || studioProfile?.BusinessId || activeSession.businessId || siteId || "";
       const profileId = studioProfile?.id || studioProfile?.profileId || studioProfile?.ProfileId || activeSession.profileId || "";
 
@@ -2015,14 +2071,14 @@ return true;
       let resolvedClientId = studioClientId || activeSession.clientId;
       let fullProfile = null;
 
-      if (!resolvedClientId && accessToken) {
+      if (!resolvedClientId && accessToken && authenticatedEmail) {
         const ccFallback = await bookingRequest("/client/clientcompleteinfo", {
           consumerIdentityToken: accessToken,
           params: { "request.crossRegionalLookup": "true" }
         }).catch(() => null);
 
         if (ccFallback) {
-          const foundId = extractClientId(ccFallback);
+          const foundId = extractClientProfile(ccFallback, authenticatedEmail)?.clientId;
           if (foundId) {
             resolvedClientId = foundId;
             console.log(`[account/me] clientcompleteinfo (consumer token) resolved clientId: ${foundId}`);
@@ -2048,7 +2104,7 @@ return true;
             "request.crossRegionalLookup": "true"
           })
         }).catch(() => null);
-        if (ccResp) {
+        if (ccResp && extractClientProfile(ccResp, activeSession.user?.email || activeSession.user?.username, resolvedClientId)?.clientId) {
           const client = ccResp.ClientCompleteInfo?.Client || ccResp.Client || {};
           fullProfile = compactObject({
             phone: client.MobilePhone || undefined,
@@ -2090,7 +2146,7 @@ fullProfile.waiverDate =
         ok: true,
         data: {
           userId,
-          email: platformUser?.email || platformUser?.Email || activeSession.user?.email || "",
+          email: activeSession.user?.email || activeSession.user?.username || platformUser?.email || platformUser?.Email || "",
           firstName: platformUser?.firstName || platformUser?.FirstName || activeSession.user?.firstName || "",
           lastName: platformUser?.lastName || platformUser?.LastName || activeSession.user?.lastName || "",
           countryCode: platformUser?.countryCode || platformUser?.CountryCode || "",
@@ -2130,6 +2186,74 @@ fullProfile.waiverDate =
       return true;
     }
 
+    if (path === "/api/account/signup-phone") {
+      if (request.method !== "POST") {
+        response.setHeader("Allow", "POST");
+        sendJson(response, 405, { ok: false, message: "Method not allowed. Use POST /api/account/signup-phone." });
+        return true;
+      }
+
+      enforceRateLimit(request);
+      const session = readSession(request);
+
+      if (!session) {
+        sendJson(response, 401, { ok: false, message: "Please sign in first." });
+        return true;
+      }
+
+      const body = await readJsonBody(request);
+      const phone = normalizeMobilePhone(body.phone);
+
+      if (!phone) {
+        sendJson(response, 400, { ok: false, message: MOBILE_PHONE_ERROR });
+        return true;
+      }
+
+      const clientId = String(session.clientId || "").trim();
+
+      if (!clientId || isUUID(clientId) || /^[a-f0-9]{20,}$/i.test(clientId)) {
+        sendJson(response, 409, { ok: false, message: "Please complete your Cave studio profile before saving your phone number." });
+        return true;
+      }
+
+      const token = await getMindbodyActionToken("Signup phone update");
+      try {
+        await bookingRequest("/client/updateclient", {
+          method: "POST",
+          token,
+          body: {
+            Client: {
+              Id: clientId,
+              MobilePhone: phone,
+              ...(session.signupPromotionalTexts ? { SendPromotionalTexts: true } : {})
+            },
+            CrossRegionalUpdate: false
+          }
+        });
+      } catch (error) {
+        sendJson(response, error.status || 502, {
+          ok: false,
+          message: error.data?.Error?.Message || error.data?.Message || error.message || "Your phone number could not be saved. Please try again."
+        });
+        return true;
+      }
+
+      const updatedSession = {
+        ...session,
+        clientId,
+        user: { ...(session.user || {}), phone }
+      };
+      delete updatedSession.signupPhone;
+      delete updatedSession.signupPromotionalTexts;
+      delete updatedSession.signupPromotionalTextsAt;
+      setSessionCookie(response, updatedSession);
+      sendJson(response, 200, {
+        phone,
+        ...createAppAuthPayload(request, updatedSession)
+      });
+      return true;
+    }
+
 if (path === "/api/account/profile") {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -2137,7 +2261,9 @@ if (path === "/api/account/profile") {
     return true;
   }
 
-  const session = await readHydratedSession(request, response);
+  // Profile edits stay bound to the identity in the signed session. Refreshing
+  // a consumer profile here must not choose a different studio client.
+  const session = readSession(request);
 
   if (!session) {
     sendJson(response, 401, { ok: false, message: "Please sign in first." });
@@ -2150,7 +2276,7 @@ if (path === "/api/account/profile") {
     const text = String(value || "").trim();
 
     // Reject OAuth/platform IDs like 6a4579b0004309521d915633
-    if (/^[a-f0-9]{20,}$/i.test(text)) {
+    if (isUUID(text) || /^[a-f0-9]{20,}$/i.test(text)) {
       return "";
     }
 
@@ -2161,20 +2287,24 @@ if (path === "/api/account/profile") {
   const lastName = String(body.lastName || session.user?.lastName || "").trim();
 
   const email = String(
-    body.email ||
     session.user?.email ||
     session.user?.username ||
     ""
   ).trim().toLowerCase();
 
-  const phoneNumber = String(
+  if (body.email !== undefined && String(body.email).trim().toLowerCase() !== email) {
+    sendJson(response, 400, { ok: false, message: "Your sign-in email cannot be changed from this profile form." });
+    return true;
+  }
+
+  const phoneNumber = normalizeMobilePhone(
     body.mobileNumber ||
     body.mobilePhone ||
     body.phone ||
     ""
-  ).replace(/\D/g, "");
+  );
 
-  if (!firstName || !lastName || !email || !phoneNumber) {
+  if (!firstName || !lastName || !email) {
     sendJson(response, 400, {
       ok: false,
       message: "First name, last name, email, and mobile phone are required."
@@ -2182,10 +2312,12 @@ if (path === "/api/account/profile") {
     return true;
   }
 
-  let clientId =
-    cleanClientId(session.clientId) ||
-    cleanClientId(body.clientId) ||
-    cleanClientId(await resolveSessionClientId(session).catch(() => ""));
+  if (!phoneNumber) {
+    sendJson(response, 400, { ok: false, message: MOBILE_PHONE_ERROR });
+    return true;
+  }
+
+  let clientId = cleanClientId(session.clientId);
 
   let staffToken = null;
 
@@ -2197,83 +2329,37 @@ if (path === "/api/account/profile") {
   };
 
   const searchClient = async () => {
-    const terms = [
-      email,
-      phoneNumber,
-      `${firstName} ${lastName}`.trim()
-    ].filter(Boolean);
-
     const token = await getStaffToken();
+    const searchResult = await bookingRequest("/client/clients", {
+      token,
+      params: { "request.searchText": email, "request.limit": 200, "request.offset": 0 }
+    });
+    const clientsRaw = searchResult?.Clients ?? searchResult?.clients ?? searchResult?.Client ?? searchResult?.client;
 
-    for (const term of terms) {
-      const searchResult = await bookingRequest("/client/clients", {
-        token,
-        params: { SearchText: term }
-      }).catch((err) => {
-        console.warn("[account/profile] client search failed:", term, err.message);
-        return null;
-      });
-
-      const clientsRaw =
-        searchResult?.Clients ||
-        searchResult?.clients ||
-        searchResult?.Client ||
-        searchResult?.client ||
-        [];
-
-      const clients = Array.isArray(clientsRaw) ? clientsRaw : [clientsRaw];
-
-      const exactMatch = clients.find((client) => {
-        const clientEmail = String(
-          client.Email ||
-          client.EmailAddress ||
-          client.email ||
-          ""
-        ).trim().toLowerCase();
-
-        const clientPhone = String(
-          client.MobileNumber ||
-          client.MobilePhone ||
-          client.Phone ||
-          client.HomePhone ||
-          client.phone ||
-          ""
-        ).replace(/\D/g, "");
-
-        return (
-          clientEmail === email ||
-          (phoneNumber && clientPhone && clientPhone.endsWith(phoneNumber.slice(-10)))
-        );
-      });
-
-      const picked = exactMatch || (clients.length === 1 ? clients[0] : null);
-
-      if (picked) {
-        return {
-          clientId: cleanClientId(picked.Id || picked.ClientId || picked.UniqueId || picked.id),
-          uniqueId: picked.UniqueId || picked.UniqueID || "",
-          firstName: picked.FirstName || firstName,
-          lastName: picked.LastName || lastName,
-          email: picked.Email || email
-        };
-      }
+    if (clientsRaw === undefined || clientsRaw === null) {
+      throw httpError(502, "We could not verify your studio profile. Please try again.");
     }
 
-    return null;
+    const clients = Array.isArray(clientsRaw) ? clientsRaw : [clientsRaw];
+    const matchingIds = new Set();
+    for (const client of clients) {
+      const clientEmail = String(client?.Email || client?.EmailAddress || client?.email || "").trim().toLowerCase();
+      if (clientEmail !== email) continue;
+      const matchingId = cleanClientId(client.Id || client.ClientId || client.UniqueId || client.id);
+      if (!matchingId) throw httpError(409, "We could not uniquely match your studio profile. Please contact Cave for help.");
+      matchingIds.add(matchingId);
+    }
+
+    const totalResults = Number(searchResult?.PaginationResponse?.TotalResults || 0);
+    if (matchingIds.size > 1 || clients.length >= 200 || totalResults > clients.length) {
+      throw httpError(409, "We could not uniquely match your studio profile. Please contact Cave for help.");
+    }
+
+    return matchingIds.size === 1 ? { clientId: [...matchingIds][0] } : null;
   };
 
-  // 1. If no valid Mindbody clientId in session, try to find an existing Mindbody client.
-  if (!clientId) {
-    const found = await findMindbodyClientByEmail(email).catch((err) => {
-      console.warn("[account/profile] findMindbodyClientByEmail failed:", err.message);
-      return null;
-    });
-
-    if (found?.clientId) {
-      clientId = cleanClientId(found.clientId);
-    }
-  }
-
+  // Only an exact authenticated-email match can link an unlinked signup.
+  // Names and phone numbers may be shared by unrelated clients.
   if (!clientId) {
     const foundBySearch = await searchClient();
 
@@ -2291,6 +2377,7 @@ if (path === "/api/account/profile") {
         Email: email,
         MobileNumber: phoneNumber,
         MobilePhone: phoneNumber,
+        HomePhone: body.homePhone || phoneNumber,
         AddressLine1: body.addressLine1,
         AddressLine2: body.addressLine2,
         City: body.city,
@@ -2322,14 +2409,12 @@ if (path === "/api/account/profile") {
         throw err;
       }
 
-      console.warn("[account/profile] duplicate on create, searching existing client:", duplicateMessage);
-
       const recovered = await searchClient();
 
       if (!recovered?.clientId) {
         sendJson(response, 409, {
           ok: false,
-          message: "This client already exists in Mindbody, but the website could not link it automatically. Search the client in Mindbody by phone/email and confirm the account."
+          message: "An existing studio profile could not be linked to your sign-in email. Please contact Cave for help."
         });
         return true;
       }
@@ -2345,14 +2430,6 @@ if (path === "/api/account/profile") {
     });
     return true;
   }
-
-// Before updating, trust the client found by email/phone more than the session.
-// This prevents updating the wrong Mindbody client and causing duplicate errors.
-const confirmedClient = await searchClient().catch(() => null);
-
-if (confirmedClient?.clientId) {
-  clientId = cleanClientId(confirmedClient.clientId);
-}
 
 const clientPayload = compactObject({
   Id: clientId,
@@ -2398,40 +2475,17 @@ const clientPayload = compactObject({
       ""
     );
 
-    if (!/duplicate client records|duplicate/i.test(duplicateMessage)) {
-      const mbMessage = err?.data?.Error?.Message || err?.data?.Message || err?.message || "Profile update failed.";
-      sendJson(response, err?.status || 500, { ok: false, message: mbMessage });
-      return true;
-    }
-
-    console.warn("[account/profile] duplicate on update, recovering real client:", duplicateMessage);
-
-    const recovered = await searchClient();
-
-    if (!recovered?.clientId) {
+    if (/duplicate client records|duplicate/i.test(duplicateMessage)) {
       sendJson(response, 409, {
         ok: false,
-        message: "This profile matches another Mindbody client, but the website could not link it automatically. Search this client in Mindbody by phone/email and confirm the account."
+        message: "Your studio profile has a duplicate record. Please contact Cave to resolve it before updating your details."
       });
       return true;
     }
-    clientId = cleanClientId(recovered.clientId);
-    clientPayload.Id = clientId;
 
-    // A recovered duplicate points at the canonical Mindbody client. Keep the
-    // requested phone update, but do not change the login email here.
-    delete clientPayload.Email;
-
-    const token = await getStaffToken();
-
-    updateResult = await bookingRequest("/client/updateclient", {
-      method: "POST",
-      token,
-      body: {
-        Client: clientPayload,
-        CrossRegionalUpdate: false
-      }
-    });
+    const mbMessage = err?.data?.Error?.Message || err?.data?.Message || err?.message || "Profile update failed.";
+    sendJson(response, err?.status || 500, { ok: false, message: mbMessage });
+    return true;
   }
 
   const updatedSession = {
@@ -2443,9 +2497,11 @@ const clientPayload = compactObject({
       firstName,
       lastName,
       email,
-      username: email
+      username: email,
+      phone: phoneNumber
     }
   };
+  delete updatedSession.signupPhone;
 
   setSessionCookie(response, updatedSession);
 
@@ -2642,7 +2698,7 @@ const clientPayload = compactObject({
     if (path === "/api/pricing/catalog" && request.method === "GET") {
 
       if (pricingCatalogCache.data && pricingCatalogCache.expiresAt > Date.now()) {
-  sendJson(response, 200, pricingCatalogCache.data);
+  sendJson(response, 200, { ...pricingCatalogCache.data, membershipCheckoutEnabled: process.env.MINDBODY_CONTRACT_PRICES_VERIFIED === "true" });
   return true;
 }
       const { locationId } = getBookingConfig();
@@ -2703,70 +2759,10 @@ const isSoldOnlineValue = (item) => {
   return true;
 };
 
-const CONTRACT_PRICE_BY_ID = {
-  "101": 139,
-  "102": 129,
-  "103": 118,
-  "104": 239,
-  "105": 225,
-  "106": 209,
-  "113": 315,
-  "114": 289,
-  "115": 265
-};
-
-const moneyString = (value) => {
-  const number = Number(String(value || "").replace(/[^0-9.]/g, ""));
-
-  if (!Number.isFinite(number) || number <= 0) {
-    return "";
-  }
-
-  return `$${number.toFixed(2)}`;
-};
-
-const contractPriceValue = (item, id) => {
-  return (
-    item.OnlinePrice ??
-    item.Price ??
-    item.Amount ??
-    item.RecurringPaymentAmount ??
-    item.FirstPaymentAmount ??
-    item.TotalContractAmount ??
-    item.MonthlyPayment ??
-    item.PaymentAmount ??
-    item.BillingAmount ??
-    item.Membership?.Amount ??
-    item.Membership?.Price ??
-    item.AutopaySchedule?.PaymentAmount ??
-    item.AutopaySchedule?.Amount ??
-    item.AutoPaySchedule?.PaymentAmount ??
-    item.AutoPaySchedule?.Amount ??
-    CONTRACT_PRICE_BY_ID[String(id)] ??
-    null
-  );
-};
-
-const contractItems = liveContracts
-  .filter((item) => isSoldOnlineValue(item))
-  .map((item) => {
-
-const id = String(item.Id || item.ContractId || "");
-const name = item.Name || item.ContractName || "";
-const price = contractPriceValue(item, id);
-
-    return {
-      id,
-      kind: "contract",
-      name,
-      price: moneyString(price),
-      description: item.Description || "",
-      sellOnline: true,
-      requiresWaiver: true,
-      requiresTerms: true
-    };
-  })
-  .filter((item) => item.id && item.name);
+      const contractItems = liveContracts
+        .filter((item) => isSoldOnlineValue(item))
+        .map(normalizeMindbodyContract)
+        .filter((item) => item.id && item.name);
 
 
 
@@ -2803,16 +2799,19 @@ const price = contractPriceValue(item, id);
         const isUnlimitedService = (s) =>
   /\bunlimited\b/i.test(String(s.name || s.description || ""));
 
-const regularServices = services.filter((s) =>
-  !s.isNewbiePromo && !isUnlimitedService(s)
+const publicServices = services.filter((s) => !isPrivateStoreItem(s));
+
+const regularServices = publicServices.filter((s) =>
+  !s.isNewbiePromo &&
+  !isUnlimitedService(s)
 );
 
-const unlimitedServices = services.filter((s) =>
+const unlimitedServices = publicServices.filter((s) =>
   !s.isNewbiePromo && isUnlimitedService(s)
 );
 
 catalog = {
-  newbie: services.filter((s) => s.isNewbiePromo),
+  newbie: publicServices.filter((s) => s.isNewbiePromo),
 
   classPacks: [
     ...regularServices.filter((s) => s.sessions && s.sessions > 1),
@@ -2838,6 +2837,7 @@ catalog = {
 const responseBody = {
   ok: true,
   catalog,
+  membershipCheckoutEnabled: process.env.MINDBODY_CONTRACT_PRICES_VERIFIED === "true",
   source: liveServices ? "live" : "cache"
 };
 
@@ -3220,6 +3220,17 @@ return true;
       // Intentionally do NOT call assertNoRawCardPayload — card data is proxied securely to Mindbody.
       const body = await readJsonBody(request);
 
+      const appCheckout = body.checkoutVersion === 2;
+      if (body.checkoutVersion != null && !appCheckout) {
+        sendJson(response, 400, { ok: false, code: "UNSUPPORTED_CHECKOUT_VERSION", message: "Please update the app before purchasing a membership." });
+        return true;
+      }
+      if (appCheckout && (body.acceptTerms !== true || body.acceptWaiver !== true)) {
+        sendJson(response, 400, { ok: false, code: "MEMBERSHIP_CONSENT_REQUIRED", message: "Please review and accept the membership agreement and waiver before continuing." });
+        return true;
+      }
+      if (appCheckout) assertNoRawCardPayload(body);
+
       if (!body.contractId) {
         sendJson(response, 400, { ok: false, message: "Contract ID is required." });
         return true;
@@ -3251,6 +3262,32 @@ return true;
 
       const { locationId, paymentAuthenticationCallbackUrl } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Membership purchase");
+
+      if (appCheckout) {
+        // Reload the selected provider contract immediately before checkout.
+        // Never trust the cached catalog or a client-supplied charge amount.
+        let currentContracts = [];
+        try {
+          const data = await bookingRequest("/sale/contracts", {
+            token: staffToken,
+            params: {
+              "request.contractIds": String(body.contractId),
+              "request.soldOnline": "true",
+              "request.limit": "100",
+              "request.offset": "0",
+              "request.locationId": String(Number(locationId) || 1)
+            }
+          });
+          currentContracts = firstListByKey(data, "Contracts").filter((contract) =>
+            String(contract.Id ?? contract.ContractId ?? "") === String(body.contractId));
+        } catch (_) {
+          // An unavailable current quote must never fall through to a charge.
+        }
+        if (currentContracts.length !== 1 || !membershipQuoteMatches(currentContracts[0], body.quote)) {
+          sendJson(response, 409, { ok: false, code: "MEMBERSHIP_QUOTE_CHANGED", message: "The membership details changed or could not be verified. Please reload the membership and review its agreement and payment schedule. No charge was made." });
+          return true;
+        }
+      }
 
       // Build payment payload
       let paymentPayload = {};
@@ -3305,6 +3342,16 @@ return true;
             ...paymentPayload
           }
         });
+        const paymentFailure = membershipPaymentFailure(result);
+        if (paymentFailure) {
+          sendJson(response, paymentFailure.authenticationUrl ? 409 : 402, {
+            ok: false,
+            code: paymentFailure.authenticationUrl ? "PAYMENT_AUTHENTICATION_REQUIRED" : "PAYMENT_FAILED",
+            message: paymentFailure.message,
+            ...(paymentFailure.authenticationUrl ? { paymentAuthenticationUrl: paymentFailure.authenticationUrl } : {})
+          });
+          return true;
+        }
         sendJson(response, 200, { ok: true, purchase: result });
       } catch (err) {
         const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Membership purchase could not be completed.";
@@ -3466,6 +3513,16 @@ function buildAssistantReply(message, context = {}) {
   const schedule = Array.isArray(cache.schedule) ? cache.schedule : [];
   const location = cache.location || {};
 
+  if (/\bno[\s\u2010-\u2015-]*shows?\b|\bmiss(?:ed|ing)? (?:my |a |the )?(?:scheduled )?class\b/.test(text)) {
+    return {
+      reply: NO_SHOW_POLICY_PARAGRAPHS.join("\n\n"),
+      actions: [
+        { label: "Policies", href: "/policies" },
+        { label: "Contact Us", href: "/contact" }
+      ]
+    };
+  }
+
   if (matchesAny(text, ["price", "pricing", "cost", "membership", "package", "drop in", "drop-in", "newbie", "intro", "buy"])) {
     return pricingAssistantReply(text, store);
   }
@@ -3498,7 +3555,7 @@ function buildAssistantReply(message, context = {}) {
 
   if (matchesAny(text, ["cancel", "late", "no show", "no-show", "refund", "renew", "notice", "policy", "policies"])) {
     return {
-      reply: "Classes need to be canceled at least 12 hours before start time. Package holders lose the reserved credit for late cancels or no-shows, and unlimited members may be charged the applicable fee. Membership or package non-renewal needs 14 days written notice before the next billing date. All sales are final unless Cave approves an exception.",
+      reply: `Classes need to be canceled at least 12 hours before start time. Package holders lose the reserved credit for late cancels, and unlimited members may be charged the applicable late-cancel fee.\n\n${NO_SHOW_POLICY_PARAGRAPHS.join("\n\n")}\n\nMembership or package non-renewal needs 14 days written notice before the next billing date. All sales are final unless Cave approves an exception.`,
       actions: [
         { label: "FAQ", href: "/faq" },
         { label: "Policies", href: "/policies" },
@@ -3839,7 +3896,7 @@ function isMindbodyErrorRedirect(location) {
   }
 }
 
-function startOAuthSignIn(request, response, requestedReturnTo, popup = false, forceLogin = false, mobileReturnUrl = "", appOrigin = "") {
+function startOAuthSignIn(request, response, requestedReturnTo, popup = false, forceLogin = false, mobileReturnUrl = "", appOrigin = "", options = {}) {
   const {
     oauthAuthorizeUrl,
     oauthClientId,
@@ -3854,6 +3911,13 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
   } = getBookingConfig();
 
   if (!oauthConfigured) {
+    if (options.jsonResponse) {
+      sendJson(response, 503, {
+        ok: false,
+        message: "Account signup is temporarily unavailable. Please try again later or contact the studio at (708) 571-5730."
+      });
+      return;
+    }
     redirect(response, "/login?auth=not-ready");
     return;
   }
@@ -3866,6 +3930,8 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
     returnTo,
     popup,
     codeVerifier,
+    signupPhone: options.signupPhone,
+    signupPromotionalTexts: options.signupPromotionalTexts,
     mobileReturnUrl: safeMobileReturnUrl(mobileReturnUrl),
     appOrigin: safeAppOrigin(appOrigin, request)
   });
@@ -3896,6 +3962,10 @@ function startOAuthSignIn(request, response, requestedReturnTo, popup = false, f
 
   setPendingOAuthState({ ...statePayload, state });
   setOAuthCookie(response, { ...statePayload, state });
+  if (options.jsonResponse) {
+    sendJson(response, 200, { ok: true, authorizationUrl: authorizeUrl.toString() });
+    return;
+  }
   redirect(response, authorizeUrl.toString());
 }
 
@@ -3959,10 +4029,17 @@ async function finishOAuthSignIn(request, response, form) {
     const tokenResponse = await exchangeOAuthCode(form.code, oauthSession.codeVerifier);
     console.log(`[auth/callback] token exchange success — accessToken present: ${Boolean(tokenResponse?.access_token)} refreshToken present: ${Boolean(tokenResponse?.refresh_token)}`);
 
-    const session = await hydrateOAuthSession(normalizeOAuthSession(tokenResponse, {
+    const normalizedSession = normalizeOAuthSession(tokenResponse, {
       authorizationIdToken: form.id_token,
       expectedNonce: oauthSession.nonce
-    }));
+    });
+    const signupPhone = normalizeMobilePhone(oauthSession.signupPhone);
+    if (signupPhone) normalizedSession.signupPhone = signupPhone;
+    if (oauthSession.signupPromotionalTexts === true) {
+      normalizedSession.signupPromotionalTexts = true;
+      normalizedSession.signupPromotionalTextsAt = oauthSession.signupPromotionalTextsAt || new Date().toISOString();
+    }
+    const session = await hydrateOAuthSession(normalizedSession);
 
     console.log(`[auth/callback] session hydrated — platformUserId: ${session.platformUserId ? "present" : "missing"} clientId: ${session.clientId ? "present" : "missing"} email: ${session.user?.email ? "present" : "missing"}`);
     setSessionCookie(response, session);
@@ -4028,7 +4105,7 @@ function oauthStateFailureMessage(formState) {
   return "We could not verify the sign-in session. Please try again.";
 }
 
-function createOAuthState({ nonce, returnTo, popup, codeVerifier, mobileReturnUrl, appOrigin }) {
+function createOAuthState({ nonce, returnTo, popup, codeVerifier, mobileReturnUrl, appOrigin, signupPhone, signupPromotionalTexts }) {
   return {
     stateId: randomBytes(16).toString("base64url"),
     nonce,
@@ -4037,6 +4114,11 @@ function createOAuthState({ nonce, returnTo, popup, codeVerifier, mobileReturnUr
     codeVerifier,
     mobileReturnUrl: mobileReturnUrl || "",
     appOrigin: appOrigin || "",
+    ...(signupPhone ? { signupPhone } : {}),
+    ...(signupPromotionalTexts === true ? {
+      signupPromotionalTexts: true,
+      signupPromotionalTextsAt: new Date().toISOString()
+    } : {}),
     exp: Math.floor(Date.now() / 1000) + OAUTH_TTL_SECONDS
   };
 }
@@ -4326,7 +4408,9 @@ async function linkPlatformProfile(accessToken) {
     const linkData = await linkResp.json();
     const profileObj = linkData?.profile || linkData?.Profile || linkData;
     const rawClientId = profileObj?.clientId || profileObj?.ClientId || profileObj?.client_id || profileObj?.studioClientId;
-    const clientId = (rawClientId && !isUUID(String(rawClientId))) ? String(rawClientId) : "";
+    const profileSiteId = profileObj?.businessId || profileObj?.BusinessId || profileObj?.siteId || profileObj?.SiteId;
+    const belongsToStudio = !profileSiteId || String(profileSiteId) === String(siteId);
+    const clientId = (belongsToStudio && rawClientId && !isUUID(String(rawClientId)) && !/^[a-f0-9]{20,}$/i.test(String(rawClientId))) ? String(rawClientId) : "";
 
     return { platformUserId: userId, clientId };
   } catch (_) {
@@ -4430,12 +4514,24 @@ async function refreshAccessToken(refreshToken) {
   }
 }
 
-function findStudioBusinessProfile(profiles, siteId) {
+function findStudioBusinessProfile(profiles, siteId, expectedClientId = "") {
   if (!Array.isArray(profiles) || !profiles.length) return null;
   const id = String(siteId || "");
-  return profiles.find((p) =>
+  const expectedId = String(expectedClientId || "");
+  const matchingProfiles = profiles.filter((p) =>
     String(p?.businessId || p?.BusinessId || p?.siteId || p?.SiteId || "") === id
-  ) || profiles[0] || null;
+  );
+  const clientIdFor = (profile) => String(profile?.clientId || profile?.ClientId || "");
+
+  if (expectedId) {
+    return matchingProfiles.find((profile) => clientIdFor(profile) === expectedId) || null;
+  }
+
+  const matchingIds = new Set(matchingProfiles.map(clientIdFor).filter(Boolean));
+  if (matchingIds.size !== 1) return null;
+  const [clientId] = matchingIds;
+  if (isUUID(clientId) || /^[a-f0-9]{20,}$/i.test(clientId)) return null;
+  return matchingProfiles.find((profile) => clientIdFor(profile) === clientId) || null;
 }
 
 function isUUID(value) {
@@ -4484,29 +4580,9 @@ async function hydrateOAuthSession(session) {
     return { ...mergeSessionClientProfile(session, profile), platformUserId: platformUserId || session.platformUserId || "", hydratedAt };
   }
 
-  // 3. Source credentials: search by email only — no client creation.
-  const foundClientId = await findExistingMindbodyClient(session).catch(() => "");
-
-  if (foundClientId) {
-    return {
-      ...session,
-      clientId: foundClientId,
-      platformUserId: platformUserId || session.platformUserId || "",
-      user: {
-        ...(session.user || {}),
-        ...(profile ? {
-          firstName: profile.firstName || session.user?.firstName || "",
-          lastName: profile.lastName || session.user?.lastName || "",
-          email: profile.email || session.user?.email || "",
-          username: profile.username || profile.email || session.user?.username || ""
-        } : {}),
-        id: foundClientId
-      },
-      hydratedAt
-    };
-  }
-
-  console.log("[mindbody-auth] hydration complete: no clientId resolved for", email || "(no email)");
+  // The strict lookup above already includes a staff lookup. A failed match
+  // must leave the authenticated identity intact instead of choosing a result.
+  console.log("[mindbody-auth] hydration complete: no matching profile resolved for", email || "(no email)");
   return {
     ...(profile ? mergeSessionClientProfile(session, profile) : session),
     platformUserId: platformUserId || session.platformUserId || "",
@@ -4557,6 +4633,7 @@ async function findMindbodyClientByEmail(email) {
 
   let allClients = [];
   let lastError = null;
+  let searchTruncated = false;
 
   for (const params of searchAttempts) {
     try {
@@ -4576,6 +4653,7 @@ async function findMindbodyClientByEmail(email) {
 
       if (list.length) {
         allClients = list;
+        searchTruncated = list.length >= 100 || Number(result?.PaginationResponse?.TotalResults || 0) > list.length;
         break;
       }
     } catch (err) {
@@ -4589,6 +4667,7 @@ async function findMindbodyClientByEmail(email) {
 
           if (list.length) {
             allClients = list;
+            searchTruncated = list.length >= 100 || Number(result?.PaginationResponse?.TotalResults || 0) > list.length;
             break;
           }
         } catch (retryErr) {
@@ -4615,21 +4694,9 @@ async function findMindbodyClientByEmail(email) {
     throw err;
   }
 
-  if (exact.length > 1) {
-    const active = exact.filter((c) => {
-      const status = String(c.Status || c.ClientStatus || "").toLowerCase();
-      return !c.IsProspect && !/inactive|deleted|archived/.test(status);
-    });
-
-    if (active.length >= 1) {
-      const c = active[0];
-      console.log(`[findMindbodyClientByEmail] resolved duplicate clients to active client ${c.Id || c.UniqueId}`);
-      return buildClientResult(c);
-    }
-
-    const c = exact[0];
-    console.log(`[findMindbodyClientByEmail] using first exact duplicate client ${c.Id || c.UniqueId}`);
-    return buildClientResult(c);
+  const matchingIds = new Set(exact.map((client) => String(client.Id || client.ClientId || client.UniqueId || "")));
+  if (searchTruncated || matchingIds.size !== 1 || matchingIds.has("")) {
+    throw httpError(409, "We could not uniquely match your studio profile. Please contact Cave for help.");
   }
 
   const c = exact[0];
@@ -4645,20 +4712,6 @@ function buildClientResult(c) {
     lastName: c.LastName || "",
     email: c.Email || ""
   };
-}
-
-async function findExistingMindbodyClient(session) {
-  const email = session.user?.email || session.user?.username || "";
-  if (!email) return "";
-
-  try {
-    const result = await findMindbodyClientByEmail(email);
-    return result.clientId;
-  } catch (err) {
-    if (err.status === 409) throw err;
-    console.log(`[mindbody-auth] client search: ${err.message}`);
-    return "";
-  }
 }
 
 function shouldHydrateOAuthSession(session) {
@@ -4681,29 +4734,32 @@ async function fetchOAuthClientProfile(session) {
   const email = session.user?.email || session.user?.username || "";
   const attempts = [];
 
+  if (!session.clientId && !email) return null;
+
   // Per MindBody API: consumer OAuth tokens ONLY work with GET ClientCompleteInfo.
   if (consumerToken) {
     if (session.clientId) {
-      attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { ClientId: session.clientId } }]);
+      attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: { "request.clientId": session.clientId } }]);
     }
     attempts.push(["/client/clientcompleteinfo", { consumerIdentityToken: consumerToken, params: {} }]);
   }
 
   // Staff/source credentials: can search clients by email.
-  if (config.actionTokenConfigured && email) {
+  if (config.actionTokenConfigured && (session.clientId || email)) {
     try {
       const staffToken = await getMindbodyActionToken("OAuth profile lookup");
       if (session.clientId) {
-        attempts.push(["/client/clients", { token: staffToken, params: { ClientIds: session.clientId } }]);
+        attempts.push(["/client/clients", { token: staffToken, params: { "request.clientIds": session.clientId } }]);
+      } else {
+        attempts.push(["/client/clients", { token: staffToken, params: { "request.searchText": email, "request.limit": 200 } }]);
       }
-      attempts.push(["/client/clients", { token: staffToken, params: { SearchText: email } }]);
     } catch (_) { /* no staff token available */ }
   }
 
   for (const [path, options] of attempts) {
     try {
       const data = await bookingRequest(path, { ...options, params: compactObject(options.params || {}) });
-      const profile = extractClientProfile(data, email);
+      const profile = extractClientProfile(data, email, session.clientId);
       if (profile?.clientId) return profile;
     } catch (_) {
       continue;
@@ -4715,17 +4771,23 @@ async function fetchOAuthClientProfile(session) {
 
 function mergeSessionClientProfile(session, profile) {
   const user = session.user || {};
+  const clientId = String(session.clientId || "");
+  const email = String(user.email || user.username || "").trim().toLowerCase();
+
+  if (clientId ? profile.clientId !== clientId : !email || profile.email.toLowerCase() !== email) {
+    return session;
+  }
 
   return {
     ...session,
-    clientId: profile.clientId || session.clientId || "",
+    clientId: clientId || profile.clientId || "",
     user: {
       ...user,
-      id: profile.clientId || user.id || session.oauthSubject || "",
+      id: clientId || profile.clientId || user.id || session.oauthSubject || "",
       firstName: profile.firstName || user.firstName || "",
       lastName: profile.lastName || user.lastName || "",
-      email: profile.email || user.email || "",
-      username: profile.username || profile.email || user.username || ""
+      email: user.email || "",
+      username: user.username || user.email || ""
     }
   };
 }
@@ -4748,8 +4810,9 @@ function extractOAuthClientIdFromClaims(claims = {}) {
   );
 }
 
-function extractClientProfile(data, preferredEmail = "") {
+function extractClientProfile(data, preferredEmail = "", expectedClientId = "") {
   const preferred = String(preferredEmail || "").trim().toLowerCase();
+  const expectedId = String(expectedClientId || "");
   const candidates = [
     data?.Client,
     data?.Clients,
@@ -4764,12 +4827,17 @@ function extractClientProfile(data, preferredEmail = "") {
     .map(normalizeClientProfile)
     .filter((profile) => profile.clientId || profile.email);
 
-  if (preferred) {
-    const emailMatch = normalized.find((profile) => profile.email.toLowerCase() === preferred);
+  if (expectedId) {
+    return normalized.find((profile) => profile.clientId === expectedId) || null;
+  }
 
-    if (emailMatch) {
-      return emailMatch;
-    }
+  if (preferred) {
+    const matches = normalized.filter((profile) => profile.clientId && profile.email.toLowerCase() === preferred);
+    const matchingIds = new Set(matches.map((profile) => profile.clientId));
+    const returnedCount = Array.isArray(data?.Clients) ? data.Clients.length : normalized.length;
+    const totalResults = Number(data?.PaginationResponse?.TotalResults || 0);
+    if (matchingIds.size !== 1 || totalResults > returnedCount || returnedCount >= 200) return null;
+    return matches[0];
   }
 
   return normalized[0] || null;
@@ -4778,8 +4846,8 @@ function extractClientProfile(data, preferredEmail = "") {
 function normalizeClientProfile(client) {
   const rawId = firstNonEmpty(client.Id, client.ClientId, client.UniqueId, client.UniqueClientId, client.ContactId);
   // MindBody consumer identity IDs are UUID-format; studio client IDs never are.
-  const clientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId) ? "" : rawId;
-  const email = firstNonEmpty(client.Email, client.email, client.UserName, client.Username, client.username);
+  const clientId = isUUID(rawId) || /^[a-f0-9]{20,}$/i.test(rawId) ? "" : rawId;
+  const email = firstNonEmpty(client.Email, client.EmailAddress, client.email, client.UserName, client.Username, client.username);
 
   return {
     clientId,
@@ -5187,6 +5255,141 @@ async function checkoutServiceItem(clientId, item, body) {
   });
 }
 
+async function fetchMindbodyGiftCards() {
+  const { locationId } = getBookingConfig();
+  const data = await bookingRequest("/sale/giftcards", {
+    params: {
+      "request.locationId": Number(locationId) || 1,
+      "request.soldOnline": true,
+      "request.includeCustomLayouts": true,
+      "request.limit": 100
+    }
+  });
+
+  return firstListByKey(data, "GiftCards")
+    .map((card) => {
+      const value = Number(card.CardValue ?? card.cardValue ?? 0);
+      const salePrice = Number(card.SalePrice ?? card.salePrice ?? value);
+      const layouts = Array.isArray(card.Layouts || card.layouts) ? (card.Layouts || card.layouts) : [];
+
+      return {
+        id: Number(card.Id ?? card.id),
+        description: String(card.Description || card.description || "Cave Gift Card").trim(),
+        cardValue: Number.isFinite(value) ? value : 0,
+        salePrice: Number.isFinite(salePrice) ? salePrice : value,
+        terms: String(card.GiftCardTerms || card.giftCardTerms || "").trim(),
+        layouts: layouts.map((layout) => ({
+          id: Number(layout.LayoutId ?? layout.layoutId ?? 0),
+          name: String(layout.LayoutName || layout.layoutName || "Cave Gift Card").trim(),
+          url: String(layout.LayoutUrl || layout.layoutUrl || "").trim()
+        })).filter((layout) => Number.isFinite(layout.id) && layout.id >= 0)
+      };
+    })
+    .filter((card) => Number.isInteger(card.id) && card.id > 0 && card.cardValue > 0)
+    .sort((a, b) => a.cardValue - b.cardValue);
+}
+
+async function purchaseMindbodyGiftCard(session, body) {
+  if (String(body.website || "").trim()) {
+    throw httpError(400, "Gift card purchase could not be completed.");
+  }
+
+  const purchaserClientId = await resolveSessionClientId(session);
+  const giftCardId = Number(body.giftCardId);
+  const lastFour = normalizeStoredCardLastFour(body);
+  const recipientName = String(body.recipientName || "").trim();
+  const recipientEmail = String(body.recipientEmail || "").trim().toLowerCase();
+  const title = String(body.title || "A gift from Cave").trim();
+  const giftMessage = String(body.giftMessage || "").trim();
+  const deliveryDate = String(body.deliveryDate || "").trim();
+
+  if (!purchaserClientId) {
+    throw httpError(409, "Your Mindbody client profile could not be found. Please sign out and sign back in.");
+  }
+
+  if (!Number.isInteger(giftCardId) || giftCardId <= 0) {
+    throw httpError(400, "Please choose a gift-card amount.");
+  }
+
+  if (!/^\d{4}$/.test(lastFour)) {
+    throw paymentRequiredError("Please select a saved payment card.");
+  }
+
+  if (!recipientName || recipientName.length > 20) {
+    throw httpError(400, "Recipient name is required and must be 20 characters or fewer.");
+  }
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail) || recipientEmail.length > 100) {
+    throw httpError(400, "Enter a valid recipient email address.");
+  }
+
+  if (!title || title.length > 20) {
+    throw httpError(400, "Gift-card title is required and must be 20 characters or fewer.");
+  }
+
+  if (giftMessage.length > 300) {
+    throw httpError(400, "Gift message must be 300 characters or fewer.");
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) || deliveryDate < new Date().toISOString().slice(0, 10)) {
+    throw httpError(400, "Choose today or a future delivery date.");
+  }
+
+  const availableCards = await fetchMindbodyGiftCards();
+  const selectedCard = availableCards.find((card) => card.id === giftCardId);
+
+  if (!selectedCard) {
+    throw httpError(404, "That gift-card option is no longer available.");
+  }
+
+  const amount = selectedCard.salePrice > 0 ? selectedCard.salePrice : selectedCard.cardValue;
+  const requestedLayoutId = Number(body.layoutId);
+  const selectedLayout = selectedCard.layouts.find((layout) => layout.id === requestedLayoutId) || selectedCard.layouts[0];
+  const layoutId = Number(selectedLayout?.id || 0);
+  const staffToken = await getMindbodyActionToken("Gift card purchase");
+  const { locationId, paymentAuthenticationCallbackUrl } = getBookingConfig();
+  const purchaserName = `${session.user?.firstName || ""} ${session.user?.lastName || ""}`.trim().slice(0, 20);
+
+  const result = await bookingRequest("/sale/purchasegiftcard", {
+    method: "POST",
+    token: staffToken,
+    body: {
+      Test: process.env.BOOKING_TEST_MODE === "true",
+      LocationId: Number(locationId) || 1,
+      LayoutId: layoutId,
+      PurchaserClientId: String(purchaserClientId),
+      GiftCardId: selectedCard.id,
+      SendEmailReceipt: true,
+      RecipientEmail: recipientEmail,
+      RecipientName: recipientName,
+      Title: title,
+      GiftMessage: giftMessage,
+      DeliveryDate: `${deliveryDate}T09:00:00`,
+      PaymentInfo: {
+        Type: "StoredCard",
+        Metadata: { Amount: amount, LastFour: lastFour }
+      },
+      ConsumerPresent: true,
+      ...(paymentAuthenticationCallbackUrl ? { PaymentAuthenticationCallbackUrl: paymentAuthenticationCallbackUrl } : {}),
+      ...(purchaserName ? { SenderName: purchaserName } : {})
+    }
+  });
+
+  const failures = Array.isArray(result?.PaymentProcessingFailures) ? result.PaymentProcessingFailures : [];
+
+  if (failures.length) {
+    const firstFailure = failures[0] || {};
+    const error = paymentRequiredError(firstFailure.Message || "The saved card could not be charged.");
+    error.data = {
+      paymentAuthenticationUrl: firstFailure.AuthenticationRedirectUrl || "",
+      failures
+    };
+    throw error;
+  }
+
+  return result;
+}
+
 function buildContractPaymentPayload(body) {
   if (body.useAccountCredit) {
     return { UseAccountCredit: true };
@@ -5207,6 +5410,49 @@ function buildContractPaymentPayload(body) {
   }
 
   return {};
+}
+
+export function normalizeSavedCardsFromClient(data) {
+  const client = data?.ClientCompleteInfo?.Client || data?.Client || {};
+  const candidates = [
+    ...(Array.isArray(data?.CreditCards) ? data.CreditCards : []),
+    ...(Array.isArray(data?.creditCards) ? data.creditCards : []),
+    ...(Array.isArray(client?.CreditCards) ? client.CreditCards : []),
+    ...(client?.ClientCreditCard ? [client.ClientCreditCard] : []),
+    ...(client?.CreditCard ? [client.CreditCard] : [])
+  ];
+  const seen = new Set();
+
+  return candidates.flatMap((card) => {
+    const cardNumber = String(card?.CardNumber || card?.cardNumber || "").replace(/\D/g, "");
+    const lastFour = String(card?.LastFour || card?.lastFour || cardNumber.slice(-4)).trim();
+    if (!/^\d{4}$/.test(lastFour) || seen.has(lastFour)) return [];
+    seen.add(lastFour);
+    return [{
+      lastFour,
+      cardType: String(card?.CardType || card?.cardType || card?.Type || "").trim(),
+      expMonth: String(card?.ExpMonth || card?.expMonth || "").trim(),
+      expYear: String(card?.ExpYear || card?.expYear || "").trim()
+    }];
+  });
+}
+
+export function membershipPaymentFailure(result) {
+  const failures = Array.isArray(result?.PaymentProcessingFailures)
+    ? result.PaymentProcessingFailures
+    : Array.isArray(result?.paymentProcessingFailures)
+      ? result.paymentProcessingFailures
+      : [];
+  if (!failures.length) return null;
+  const authenticationUrl = failures
+    .map((failure) => String(failure?.AuthenticationRedirectUrl || failure?.authenticationRedirectUrl || "").trim())
+    .find((url) => /^https:\/\//i.test(url)) || "";
+  const message = failures
+    .map((failure) => String(failure?.Message || failure?.message || "").trim())
+    .find(Boolean) || (authenticationUrl
+      ? "Your bank needs one more verification step before the membership can be activated."
+      : "The payment could not be completed. No membership was activated.");
+  return { authenticationUrl, message };
 }
 
 function buildCheckoutPaymentPayload(item, body) {
@@ -6003,6 +6249,11 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
     clientId,
     profile: client,
 
+    // A missing unlimited plan is only conclusive when both dedicated
+    // entitlement reads succeeded. Callers can retry instead of treating a
+    // temporary Mindbody failure as an ineligible membership.
+    guestPassEligibilityVerified: serviceData !== null && contractData !== null,
+
     activeServices: usableServices.map((service) => ({
       id: service.Id || service.ClientServiceId || service.id,
       name:
@@ -6351,7 +6602,15 @@ function publicStoreItems(items) {
     return [];
   }
 
-  return items.filter(isPublicStoreItem);
+  return items.filter((item) => !isPrivateStoreItem(item) && isPublicStoreItem(item));
+}
+
+function isPrivateStoreItem(item) {
+  return /\bprivate\s+(session|sessions|lesson|lessons|training)\b/i.test(
+    [item?.name, item?.sourceName, item?.description, item?.serviceType, item?.serviceCategory]
+      .filter(Boolean)
+      .join(" ")
+  );
 }
 
 function isPublicStoreItem(item) {
@@ -6372,7 +6631,7 @@ function isPublicStoreItem(item) {
   }
 
   if (category === "classpacks" || kind === "service") {
-    return /\b(new client|newbie|starter|intro)\b/.test(name) || /\bdrop[- ]?in\b/.test(name) || /\b\d+\s*class\s*(pack|package)?\b/.test(name);
+    return /\b(new client|newbie|starter|intro)\b/.test(name) || /\bdrop[- ]?in\b/.test(name) || /\b(?:\d+|unlimited)\s*class(?:es)?\s*(?:pack|package)?\b/.test(name);
   }
 
   return true;
@@ -6555,14 +6814,7 @@ function compactObject(object) {
 }
 
 function currentBenefitMonth() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Detroit",
-    year: "numeric",
-    month: "2-digit"
-  }).formatToParts(new Date());
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  return `${year}-${month}-01`;
+  return getGuestPassPeriod().benefitMonth;
 }
 
 function currentDetroitDate() {
@@ -6578,7 +6830,7 @@ function currentDetroitDate() {
   return `${year}-${month}-${day}`;
 }
 
-function hasEligibleUnlimitedMembership(clientInfo) {
+export function hasEligibleUnlimitedMembership(clientInfo) {
   const candidates = [
     ...(Array.isArray(clientInfo?.activeMemberships) ? clientInfo.activeMemberships : []),
     ...(Array.isArray(clientInfo?.activeServices) ? clientInfo.activeServices : [])
@@ -6589,13 +6841,12 @@ function hasEligibleUnlimitedMembership(clientInfo) {
     const name = String(item?.name || "");
     const status = String(item?.status || "").toLowerCase();
     const expirationDate = String(item?.expirationDate || "").slice(0, 10);
-    const remainingText = String(item?.remaining ?? "").trim();
-    const remaining = Number(remainingText);
-
     if (!/\bunlimited\b/i.test(name)) return false;
     if (/expired|cancelled|canceled|terminated|inactive|suspended/.test(status)) return false;
     if (expirationDate && expirationDate < today) return false;
-    if (remainingText && Number.isFinite(remaining) && remaining <= 0) return false;
+    // Unlimited contracts do not have a finite class balance. Mindbody can
+    // report Remaining: 0 for a healthy unlimited contract, so using that
+    // field would incorrectly hide the member's monthly guest benefit.
     return true;
   });
 }
@@ -6633,11 +6884,32 @@ function normalizeSupabaseProjectUrl(value) {
   return input;
 }
 
-async function monthlyGuestPassAvailable(clientId) {
-  return Boolean(await guestPassRpc("monthly_guest_pass_available", {
+async function monthlyGuestPassState(clientId, clientInfo) {
+  const period = getGuestPassPeriod();
+  const eligible = hasEligibleUnlimitedMembership(clientInfo);
+  const state = { eligible, available: false, ...period, booking: null, status: "ineligible" };
+  if (!eligible && (!clientInfo || clientInfo.guestPassEligibilityVerified === false)) {
+    return { ...state, status: "unavailable" };
+  }
+  if (!eligible) return state;
+
+  try {
+    const booking = await monthlyGuestPassDetails(clientId, period.benefitMonth);
+    if (booking) return { ...state, status: "used", booking: publicGuestPassBooking(booking) };
+    const available = await monthlyGuestPassAvailable(clientId, period.benefitMonth);
+    return { ...state, available, status: available ? "available" : "reserved" };
+  } catch (_) {
+    return { ...state, status: "unavailable" };
+  }
+}
+
+async function monthlyGuestPassAvailable(clientId, benefitMonth = currentBenefitMonth()) {
+  const available = await guestPassRpc("monthly_guest_pass_available", {
     p_member_client_id: String(clientId),
-    p_benefit_month: currentBenefitMonth()
-  }));
+    p_benefit_month: benefitMonth
+  });
+  if (typeof available !== "boolean") throw httpError(503, "Monthly guest pass tracking is unavailable.");
+  return available;
 }
 
 function guestPassTableConfig() {
@@ -6647,12 +6919,12 @@ function guestPassTableConfig() {
   return { url, key };
 }
 
-async function monthlyGuestPassDetails(clientId) {
+async function monthlyGuestPassDetails(clientId, benefitMonth = currentBenefitMonth()) {
   if (!clientId) return null;
   const { url, key } = guestPassTableConfig();
   const query = new URLSearchParams({
     member_client_id: `eq.${String(clientId)}`,
-    benefit_month: `eq.${currentBenefitMonth()}`,
+    benefit_month: `eq.${benefitMonth}`,
     status: "eq.booked",
     select: "member_client_id,benefit_month,status,guest_first_name,guest_last_name,guest_email,guest_client_id,class_id,booked_at",
     limit: "1"
@@ -6662,7 +6934,8 @@ async function monthlyGuestPassDetails(clientId) {
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) throw httpError(503, data?.message || "Guest pass details are unavailable.");
-  return Array.isArray(data) ? data[0] || null : null;
+  if (!Array.isArray(data)) throw httpError(503, "Guest pass details are unavailable.");
+  return data[0] || null;
 }
 
 async function deleteMonthlyGuestPass(clientId, classId) {
@@ -6952,6 +7225,7 @@ function publicSession(session) {
     hasBusinessProfile: Boolean(session.businessId || session.profileId || session.clientId),
     expiresAt: session.expiresAt || "",
     user: session.user || {},
+    ...(session.signupPhone ? { signupPhone: session.signupPhone } : {}),
     waiver: session.waiver || null
   };
 }
@@ -7484,6 +7758,26 @@ function enforceRateLimit(request) {
 
   if (current.count > AUTH_RATE_LIMIT.count) {
     throw httpError(429, "Too many attempts. Please wait and try again.");
+  }
+}
+
+function enforceGiftCardRateLimit(request) {
+  const forwarded = String(request.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const ip = forwarded || request.socket?.remoteAddress || "unknown";
+  const now = Date.now();
+  const key = `${ip}:gift-card-purchase`;
+  const current = giftCardRateLimitHits.get(key) || { count: 0, resetAt: now + GIFT_CARD_RATE_LIMIT.windowMs };
+
+  if (current.resetAt < now) {
+    current.count = 0;
+    current.resetAt = now + GIFT_CARD_RATE_LIMIT.windowMs;
+  }
+
+  current.count += 1;
+  giftCardRateLimitHits.set(key, current);
+
+  if (current.count > GIFT_CARD_RATE_LIMIT.count) {
+    throw httpError(429, "Too many gift-card attempts. Please wait 15 minutes and try again.");
   }
 }
 

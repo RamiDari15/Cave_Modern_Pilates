@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 8765",
     "vite": "vite --host 127.0.0.1 --port 8765",
     "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 8765",
     "sync": "python3 scripts/sync_booking_api.py"
   },

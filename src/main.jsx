@@ -1,9 +1,23 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
+import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
+import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
+import { getGuestPassPeriod } from "./guestPass";
+import { watchGuestPassRenewal } from "./guestPassRefresh";
+import {
+  normalizeKlaviyoPhone,
+  rememberCaveUpdatesPrompt,
+  rememberCaveUpdatesSubscription,
+  shouldShowCaveUpdatesPrompt,
+  subscribeToCaveUpdates
+} from "./klaviyoSignup";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
+import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
+import stretchLabPartnerLogo from "../assets/local-partner-stretchlab.png";
+import qahwaPartnerLogo from "../assets/local-partner-the-qahwa.png";
 import "./styles.css";
 
 const ROUTES = {
@@ -42,13 +56,13 @@ const FOOTER_LINKS = [
 ];
 
 const PAGE_TITLES = {
-  home: "Women's Pilates & Lagree in Orland Park | Cave Modern Pilates",
+  home: "Women's Reformer Pilates in Orland Park | Cave Modern Pilates",
   pricing: "Pilates Pricing in Orland Park | Cave Modern Pilates",
   newbie: "New Client Pilates Offer in Orland Park | Cave Modern Pilates",
   memberships: "Pilates Memberships in Orland Park | Cave Modern Pilates",
   "class-packs": "Pilates Class Packs in Orland Park | Cave Modern Pilates",
   "drop-in": "Drop-In Pilates Class in Orland Park | Cave Modern Pilates",
-  schedule: "Orland Park Pilates & Lagree Class Schedule | Cave Modern Pilates",
+  schedule: "Orland Park Reformer Pilates Class Schedule | Cave Modern Pilates",
   about: "Women's Pilates Studio in Orland Park | Cave Modern Pilates",
   contact: "Contact Our Orland Park Pilates Studio | Cave Modern Pilates",
   faq: "Pilates Membership & Booking FAQ | Cave Modern Pilates",
@@ -87,9 +101,37 @@ const CONTACT_PHONE_DISPLAY = "(708) 571-5730";
 const INSTAGRAM_URL = "https://www.instagram.com/cavemodernpilates/";
 const TIKTOK_URL = "https://www.tiktok.com/@cavemodernpilates";
 const SOCIAL_HANDLE = "@cavemodernpilates";
-const MINDBODY_GIFT_CARD_URL = "https://clients.mindbodyonline.com/classic/ws?studioid=5753835&stype=42";
-
+const CAVE_UPDATES_SIGNUP_EVENT = "cave:open-updates-signup";
+const CAVE_UPDATES_PREFERENCES_EVENT = "cave:updates-preferences-changed";
+const CAVE_UPDATES_NUDGE_DELAY_MS = 15 * 1000;
+const NEWBIE_POPUP_DISMISSED_KEY = "cave-newbie-popup-dismissed-at";
+const NEWBIE_POPUP_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+const CAVE_UPDATES_NUDGE_PAGES = new Set([
+  "home",
+  "pricing",
+  "memberships",
+  "class-packs",
+  "drop-in",
+  "schedule",
+  "about",
+  "contact",
+  "faq"
+]);
 const PRICING_CATEGORIES = [
+  {
+    key: "newbie",
+    page: "newbie",
+    href: ROUTES.newbie,
+    title: "Newbie Promo",
+    eyebrow: "First visit"
+  },
+  {
+    key: "dropIn",
+    page: "drop-in",
+    href: ROUTES.dropIn,
+    title: "Drop In",
+    eyebrow: "No commitment"
+  },
   {
     key: "memberships",
     page: "memberships",
@@ -103,21 +145,21 @@ const PRICING_CATEGORIES = [
     href: ROUTES.classPacks,
     title: "Class Packs",
     eyebrow: "Flexible credits"
-  },
-  {
-    key: "dropIn",
-    page: "drop-in",
-    href: ROUTES.dropIn,
-    title: "Drop In",
-    eyebrow: "No commitment"
-  },
-  {
-    key: "newbie",
-    page: "newbie",
-    href: ROUTES.newbie,
-    title: "Newbie Promo",
-    eyebrow: "First visit"
   }
+];
+
+const PRIVATE_PRICING_OPTIONS = [
+  {
+    key: "privateEvents",
+    title: "Private Events",
+    description: "Celebrate your special occasion the CAVE way. From birthdays and bridal celebrations to corporate wellness events and intimate gatherings, we’ll create a private Pilates experience tailored to you and your guests."
+  }
+];
+
+const LOCAL_PARTNERS = [
+  { name: "Oxygen Spa and Boutique", logo: oxygenPartnerLogo, className: "oxygen" },
+  { name: "StretchLab Orland Park", logo: stretchLabPartnerLogo, className: "stretchlab" },
+  { name: "The Qahwa", logo: qahwaPartnerLogo, className: "qahwa" }
 ];
 
 const FAQ_CATEGORIES = ["All", "Getting Started", "Booking", "Memberships", "Purchases", "Studio Policy", "Privacy"];
@@ -172,14 +214,7 @@ const FAQ_ITEMS = [
     id: "no-show",
     category: "Booking",
     question: "What happens if I no-show a class?",
-    answer: [
-      "If you do not attend your scheduled class and do not cancel before class begins, you will be considered a no-show.",
-      "Drop-In Guests: You will forfeit the full cost of the class you booked. No refunds will be issued.",
-      "Class Package Members: One class credit will be forfeited.",
-      "Unlimited members receive one (1) complimentary no-show waiver each month. After the monthly waiver has been used, each additional no-show will incur a $30 no-show fee.",
-      "Unlimited members on a 12-month commitment receive two (2) complimentary no-show waivers each month. After both monthly waivers have been used, each additional no-show will incur a $30 no-show fee.",
-      "Repeated no-shows may result in temporary booking restrictions at management's discretion."
-    ]
+    answer: NO_SHOW_POLICY_PARAGRAPHS
   },
   {
     id: "membership-classes",
@@ -489,12 +524,20 @@ function isDropInItem(item) {
   return /\bdrop[- ]?in\b/.test(String(item?.name || item?.sourceName || "").toLowerCase());
 }
 
+function isPrivateSessionItem(item) {
+  return /\bprivate\s+(session|sessions|lesson|lessons|training)\b/i.test(
+    [item?.name, item?.sourceName, item?.description, item?.serviceType, item?.serviceCategory]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
 function filterPublicPricingItems(items) {
   if (!Array.isArray(items)) {
     return [];
   }
 
-  return items.filter(isPublicPricingItem).map((item) => ({
+  return items.filter((item) => !isPrivateSessionItem(item) && isPublicPricingItem(item)).map((item) => ({
     ...item,
     category: item.category === "starter" ? "newbie" : item.category,
     requiresWaiver: item.requiresWaiver !== false,
@@ -520,7 +563,7 @@ function isPublicPricingItem(item) {
   }
 
   if (category === "classpacks" || kind === "service") {
-    return /\b(new client|newbie|starter|intro)\b/.test(name) || /\bdrop[- ]?in\b/.test(name) || /\b\d+\s*class\s*(pack|package)?\b/.test(name);
+    return /\b(new client|newbie|starter|intro)\b/.test(name) || /\bdrop[- ]?in\b/.test(name) || /\b(?:\d+|unlimited)\s*class(?:es)?\s*(?:pack|package)?\b/.test(name);
   }
 
   return true;
@@ -793,6 +836,8 @@ function App() {
       <Footer location={cache.location} />
       <AiAssistant page={page} bookingUrl={bookingUrl} clientSession={clientSession} />
       <NewbieSignupPopup page={page} clientSession={clientSession} />
+      <CaveUpdatesNudge page={page} />
+      <CaveUpdatesSignupModal />
     </div>
   );
 }
@@ -814,26 +859,26 @@ function BackToSchoolBanner() {
 
 function NewbieSignupPopup({ page, clientSession }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [email, setEmail] = useState("");
 
   useEffect(() => {
     if (clientSession?.signedIn || !["home", "pricing", "newbie"].includes(page)) return undefined;
-    if (window.sessionStorage.getItem("cave-newbie-popup-dismissed") === "1") return undefined;
-    const timer = window.setTimeout(() => setIsOpen(true), 1400);
+    const dismissedAt = Number(window.localStorage.getItem(NEWBIE_POPUP_DISMISSED_KEY)) || 0;
+    if (Date.now() - dismissedAt < NEWBIE_POPUP_COOLDOWN_MS) return undefined;
+    const timer = window.setTimeout(() => {
+      window.sessionStorage.setItem("cave-newbie-popup-shown", "1");
+      setIsOpen(true);
+    }, 1400);
     return () => window.clearTimeout(timer);
   }, [clientSession?.signedIn, page]);
 
   const close = () => {
-    window.sessionStorage.setItem("cave-newbie-popup-dismissed", "1");
+    window.localStorage.setItem(NEWBIE_POPUP_DISMISSED_KEY, String(Date.now()));
     setIsOpen(false);
   };
 
-  const submit = (event) => {
-    event.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) return;
-    window.sessionStorage.setItem("cave-newbie-email", cleanEmail);
-    window.location.href = `${ROUTES.signup}?email=${encodeURIComponent(cleanEmail)}`;
+  const openUpdatesSignup = () => {
+    close();
+    window.setTimeout(openCaveUpdatesSignup, 0);
   };
 
   if (!isOpen) return null;
@@ -844,16 +889,13 @@ function NewbieSignupPopup({ page, clientSession }) {
       <article className="newbie-popup">
         <button className="newbie-popup-close" type="button" aria-label="Close" onClick={close}><X size={22} /></button>
         <p className="newbie-popup-kicker">New to Cave?</p>
-        <h2 id="newbie-popup-title">Start with our new-client offer.</h2>
-        <p>Enter your email to create your Cave account and see the introductory class packages available to first-time clients.</p>
-        <form onSubmit={submit}>
-          <label>
-            <span>Email address</span>
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required />
-          </label>
-          <button className="pill-button black" type="submit">Create My Account</button>
-        </form>
-        <a className="newbie-popup-link" href={ROUTES.newbie}>View the new-client offer</a>
+        <h2 id="newbie-popup-title">Start with 3 classes.</h2>
+        <p>See the Newbie package made for first-time Cave clients, then create your account when you’re ready to book.</p>
+        <div className="newbie-popup-actions">
+          <a className="pill-button black" href={ROUTES.newbie}>View Newbie Offer</a>
+          <button className="pill-button outline" type="button" onClick={openUpdatesSignup}>Join Email &amp; Texts</button>
+        </div>
+        <p className="newbie-popup-note">Email and text updates are optional.</p>
       </article>
     </div>
   );
@@ -946,7 +988,7 @@ function setStructuredData(page) {
       "@type": "City",
       name
     })),
-    knowsAbout: ["Pilates", "Reformer Pilates", "Lagree", "Women's fitness", "Low-impact strength training"],
+    knowsAbout: ["Pilates", "Reformer Pilates", "Modern Pilates", "Women's fitness", "Low-impact strength training"],
     sameAs: [INSTAGRAM_URL, TIKTOK_URL],
     mainEntityOfPage: page === "home" ? SITE_URL : `${SITE_URL}/${page}`
   };
@@ -1112,7 +1154,7 @@ function HomePage({ memberships, store, bookingUrl }) {
   return (
     <>
       <section className="hero" id="home" aria-label="Cave Modern Pilates home">
-        <h1 className="sr-only">Women's Pilates and Lagree-style fitness in Orland Park</h1>
+        <h1 className="sr-only">Women's reformer Pilates and low-impact fitness in Orland Park</h1>
         <video className="hero-video" autoPlay muted loop playsInline poster={homeHeroPoster} aria-hidden="true">
           <source src={homeHeroVideo} type="video/mp4" />
         </video>
@@ -1294,7 +1336,27 @@ function TermsPage() {
           <p>Unused classes expire at the end of each billing cycle and do not roll over. Memberships are non-transferable, non-refundable, and may not be shared.</p>
           <p>Members who cancel before completing their commitment term remain responsible for the remaining payments due under the agreement.</p>
         </div>
+        <div className="policy-copy" id="mobile-messaging-terms">
+          <h2>Mobile Messaging Terms</h2>
+          <p>By opting in to Cave Modern Pilates text messages, you agree to receive recurring promotional and informational messages, including studio news, offers, booking reminders, and account updates, at the mobile number you provide. Messages may be sent using automated technology. Consent is not a condition of purchase.</p>
+          <p>Message frequency varies. Message and data rates may apply. Reply STOP to any message to unsubscribe or HELP for assistance. You may also contact <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> or <a href={`tel:${CONTACT_PHONE}`}>{CONTACT_PHONE_DISPLAY}</a>. Carriers are not liable for delayed or undelivered messages.</p>
+          <p>You represent that you are the subscriber or customary user of the mobile number provided and will notify Cave if that number changes. Cave may change or end the messaging program at any time. Your participation is also governed by our <a href={`${ROUTES.policies}#privacy`}>Privacy Policy</a>.</p>
+        </div>
       </section>
+    </>
+  );
+}
+
+function NoShowPolicy() {
+  return (
+    <>
+      <p>{NO_SHOW_POLICY.introduction}</p>
+      <ul className="no-show-policy-tiers">
+        {NO_SHOW_POLICY.tiers.map(({ label, description }) => (
+          <li key={label}><strong>{label}:</strong> {description}</li>
+        ))}
+      </ul>
+      <p>{NO_SHOW_POLICY.conclusion}</p>
     </>
   );
 }
@@ -1340,9 +1402,25 @@ function PoliciesPage() {
 
       <section className="policy-section section page-section">
         <div className="policy-copy">
-          <h2>Cancellation and No-Show Policy</h2>
+          <h2>Cancellation Policy</h2>
           <p>Reservations canceled less than twelve hours before class are treated as late cancellations. Package holders forfeit the reserved class credit.</p>
-          <p>Clients who reserve a class and do not attend without canceling are considered no-shows.</p>
+        </div>
+        <div className="policy-copy" id="no-show-policy">
+          <h2>No-Show Policy</h2>
+          <NoShowPolicy />
+        </div>
+        <div className="policy-copy" id="privacy">
+          <h2>Privacy Policy</h2>
+          <p>Cave uses the information you provide to create and manage your studio account, process purchases, schedule classes, provide support, and send communications you request.</p>
+          <p>If you choose promotional text updates, Cave records that choice with its studio-management provider. Message frequency varies, message and data rates may apply, and you may reply STOP to opt out or HELP for help. Promotional-text consent is not required to purchase a class, package, or membership.</p>
+          <p>Mobile information and text-message consent are not shared with third parties or affiliates for marketing or promotional purposes. Text-message originator opt-in data and consent are excluded from all other data sharing.</p>
+          <p>Cave does not sell personal information. Information is shared only with service providers needed for studio operations, payment processing, scheduling, customer support, and communications, or when required by law.</p>
+        </div>
+        <div className="policy-copy" id="account-deletion">
+          <h2>Cave app account deletion</h2>
+          <p>To request deletion of your Cave Modern Pilates app account and its associated personal data, open Profile → Settings → Request account deletion in the app, or email <a href={`mailto:${CONTACT_EMAIL}?subject=Cave%20app%20account%20deletion%20request`}>{CONTACT_EMAIL}</a> from the address on your account. You can use the email option even if you cannot sign in. We will verify that the request belongs to you and explain the next steps by email.</p>
+          <p>The in-app action deactivates your studio profile and signs you out; it does not by itself erase all records held by Cave or Mindbody. We will process a verified deletion request with our studio-management and service providers, remove account and profile data that is no longer needed, and tell you when that work is complete. You may also request deletion of particular personal data without closing the account by emailing us.</p>
+          <p>Active membership, booking, payment, dispute, and legal records may need to be retained. Illinois law requires original fitness-service contracts to be kept while in effect and for three years afterward. Other records are kept only for the period required by applicable law or a pending transaction or dispute. Account deletion does not cancel an active membership or waive amounts due; contact the studio separately to discuss cancellation.</p>
         </div>
       </section>
     </>
@@ -1377,8 +1455,8 @@ function usePricingCatalog(store, memberships) {
   const groups = pricingStoreGroups(store, memberships);
 
   const membershipItems = sortMembershipItems(
-    catalog
-      ? catalog.memberships || []
+    catalog?.memberships?.length
+      ? catalog.memberships
       : groups.memberships || []
   );
 
@@ -1388,11 +1466,11 @@ function usePricingCatalog(store, memberships) {
       : groups.newbie || [],
 
     classPacks: catalog?.classPacks?.length
-      ? catalog.classPacks
+      ? sortBySessionsAsc(filterPublicPricingItems(catalog.classPacks))
       : groups.classPacks || [],
 
     dropIn: catalog?.dropIn?.length
-      ? catalog.dropIn
+      ? filterPublicPricingItems(catalog.dropIn)
       : groups.dropIn || [],
 
     memberships: membershipItems,
@@ -1434,6 +1512,8 @@ const PRICING_TABS = [
 ];
 
 function PricingLandingPage({ store, memberships, clientSession }) {
+  const [selectedPrivateOption, setSelectedPrivateOption] = useState(null);
+
   return (
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
@@ -1446,15 +1526,149 @@ function PricingLandingPage({ store, memberships, clientSession }) {
             </div>
           </a>
         ))}
+        {PRIVATE_PRICING_OPTIONS.map((option) => (
+          <button
+            className={`pricing-choice-card private-option ${option.key}`}
+            key={option.key}
+            type="button"
+            aria-haspopup="dialog"
+            onClick={() => setSelectedPrivateOption(option)}
+          >
+            <div className="pricing-choice-image" role="img" aria-label={option.title} />
+            <div className="pricing-choice-copy">
+              <strong>{option.title}</strong>
+            </div>
+          </button>
+        ))}
       </div>
-      <GiftCardPurchaseSection />
+      {selectedPrivateOption && (
+        <div className="private-details-overlay" role="presentation" onMouseDown={() => setSelectedPrivateOption(null)}>
+          <section
+            className="private-details-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="private-details-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="private-details-close" type="button" aria-label="Close" onClick={() => setSelectedPrivateOption(null)}>
+              ×
+            </button>
+            <div className={`private-details-image ${selectedPrivateOption.key}`} role="img" aria-label={selectedPrivateOption.title} />
+            <div className="private-details-content">
+              <span>Personalized Cave experiences</span>
+              <h2 id="private-details-title">{selectedPrivateOption.title}</h2>
+              <p>{selectedPrivateOption.description}</p>
+              <p className="private-details-contact">For availability, pricing, and more information, please email our team.</p>
+              <a href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`${selectedPrivateOption.title} inquiry`)}`}>
+                Email {CONTACT_EMAIL}
+              </a>
+            </div>
+          </section>
+        </div>
+      )}
+      <GiftCardPurchaseSection clientSession={clientSession} />
     </section>
   );
 }
 
-function GiftCardPurchaseSection() {
+function GiftCardPurchaseSection({ clientSession }) {
+  const { cards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
+  const [showModal, setShowModal] = useState(false);
+  const [showCardForm, setShowCardForm] = useState(false);
+  const [giftCards, setGiftCards] = useState([]);
+  const [optionsState, setOptionsState] = useState({ type: "idle", message: "" });
+  const [purchaseState, setPurchaseState] = useState({ type: "idle", message: "" });
+  const [selectedCard, setSelectedCard] = useState("");
+  const [form, setForm] = useState({
+    giftCardId: "",
+    layoutId: "",
+    recipientName: "",
+    recipientEmail: "",
+    title: "A gift from Cave",
+    giftMessage: "",
+    deliveryDate: new Date().toISOString().slice(0, 10),
+    website: ""
+  });
+
+  useEffect(() => {
+    if (!showModal || giftCards.length || optionsState.type === "loading") return;
+    setOptionsState({ type: "loading", message: "Loading gift-card options..." });
+    apiRequest("/api/gift-cards/options")
+      .then((data) => {
+        const options = Array.isArray(data.giftCards) ? data.giftCards : [];
+        setGiftCards(options);
+        setForm((current) => ({
+          ...current,
+          giftCardId: current.giftCardId || String(options[0]?.id || ""),
+          layoutId: current.layoutId || String(options[0]?.layouts?.[0]?.id || 0)
+        }));
+        setOptionsState(options.length
+          ? { type: "success", message: "" }
+          : { type: "error", message: "No online gift cards are currently available in Mindbody." });
+      })
+      .catch((error) => setOptionsState({ type: "error", message: friendlyApiErrorMessage(error, "Gift cards are temporarily unavailable.") }));
+  }, [showModal, giftCards.length, optionsState.type]);
+
+  useEffect(() => {
+    if (showModal && cards.length && !selectedCard) setSelectedCard(cards[0].lastFour);
+  }, [showModal, cards, selectedCard]);
+
+  const openPurchase = () => {
+    if (!clientSession?.signedIn) {
+      window.location.href = `/api/auth/start?returnTo=${encodeURIComponent("/pricing#gift-cards")}`;
+      return;
+    }
+    setPurchaseState({ type: "idle", message: "" });
+    setShowModal(true);
+  };
+
+  const closePurchase = () => {
+    if (purchaseState.type !== "loading") {
+      setShowModal(false);
+      setShowCardForm(false);
+    }
+  };
+
+  const submitPurchase = async (event) => {
+    event.preventDefault();
+    setPurchaseState({ type: "idle", message: "" });
+
+    if (!/^\d{4}$/.test(selectedCard)) {
+      setPurchaseState({ type: "error", message: "Please select or add a saved payment card." });
+      return;
+    }
+
+    setPurchaseState({ type: "loading", message: "Purchasing and scheduling your gift card..." });
+    try {
+      const selectedGiftCard = giftCards.find((card) => String(card.id) === String(form.giftCardId));
+      const data = await apiRequest("/api/gift-cards/purchase", {
+        method: "POST",
+        body: {
+          ...form,
+          giftCardId: Number(form.giftCardId),
+          layoutId: Number(form.layoutId || selectedGiftCard?.layouts?.[0]?.id || 0),
+          storedCardLastFour: selectedCard
+        }
+      });
+      setPurchaseState({
+        type: "success",
+        message: `Gift card purchased${data.purchase?.RecipientEmail ? ` for ${data.purchase.RecipientEmail}` : ""}. Mindbody will deliver it on the selected date.`
+      });
+    } catch (error) {
+      if (error.loginUrl) {
+        window.location.href = error.loginUrl;
+        return;
+      }
+      if (error.data?.paymentAuthenticationUrl) {
+        window.location.href = error.data.paymentAuthenticationUrl;
+        return;
+      }
+      setPurchaseState({ type: "error", message: friendlyApiErrorMessage(error, "Gift card purchase could not be completed.") });
+    }
+  };
+
   return (
-    <section className="gift-card-purchase" aria-labelledby="gift-card-title">
+    <section className="gift-card-purchase" id="gift-cards" aria-labelledby="gift-card-title">
       <div className="gift-card-visual" aria-hidden="true">
         <span className="gift-card-mark"><Gift size={30} strokeWidth={1.7} /></span>
         <span className="gift-card-brand">CAVE</span>
@@ -1463,11 +1677,127 @@ function GiftCardPurchaseSection() {
       <div className="gift-card-copy">
         <p className="gift-card-eyebrow">Give the gift of movement</p>
         <h2 id="gift-card-title">Cave Gift Cards</h2>
-        <p>Choose an amount and send a Cave Modern Pilates gift card to someone special. Recipient details, payment, and delivery are completed securely through Mindbody.</p>
-        <a className="pill-button black gift-card-button" href={MINDBODY_GIFT_CARD_URL} target="_blank" rel="noreferrer">
-          Buy a Gift Card
-        </a>
+        <button className="pill-button black gift-card-button" type="button" onClick={openPurchase}>
+          {clientSession?.signedIn ? "Buy a Gift Card" : "Sign In to Buy"}
+        </button>
       </div>
+
+      {showModal ? (
+        <div className="purchase-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="gift-card-modal-title">
+          <button className="purchase-modal-backdrop" type="button" onClick={closePurchase} aria-label="Close gift card checkout" />
+          <div className="purchase-modal gift-card-modal">
+            <div className="purchase-modal-header">
+              <div>
+                <p className="gift-card-eyebrow">Secure Mindbody checkout</p>
+                <h3 className="gift-card-modal-title" id="gift-card-modal-title">Send a Cave Gift Card</h3>
+              </div>
+              <button className="cart-close" type="button" onClick={closePurchase} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
+            </div>
+
+            {purchaseState.type === "success" ? (
+              <div className="purchase-modal-success">
+                <div className="gift-card-success-mark"><Gift size={28} /></div>
+                <p className="form-status success">{purchaseState.message}</p>
+                <button className="pill-button black" type="button" onClick={closePurchase}>Done</button>
+              </div>
+            ) : showCardForm ? (
+              <AddCardForm
+                clientSession={clientSession}
+                onCancel={() => setShowCardForm(false)}
+                onSuccess={() => {
+                  refreshCards();
+                  setSelectedCard("");
+                  setShowCardForm(false);
+                }}
+              />
+            ) : (
+              <form className="gift-card-form" onSubmit={submitPurchase}>
+                <label className="payment-safe-field">
+                  <span>Gift-card amount</span>
+                  <select required value={form.giftCardId} onChange={(event) => {
+                    const selected = giftCards.find((card) => String(card.id) === event.target.value);
+                    setForm({ ...form, giftCardId: event.target.value, layoutId: String(selected?.layouts?.[0]?.id || 0) });
+                  }} disabled={optionsState.type === "loading"}>
+                    <option value="">Choose an amount</option>
+                    {giftCards.map((card) => (
+                      <option key={card.id} value={card.id}>
+                        ${Number(card.cardValue).toFixed(2)}{card.description && !/^gift card$/i.test(card.description) ? ` — ${card.description}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {giftCards.find((card) => String(card.id) === String(form.giftCardId))?.layouts?.length > 1 ? (
+                  <label className="payment-safe-field">
+                    <span>Email design</span>
+                    <select value={form.layoutId} onChange={(event) => setForm({ ...form, layoutId: event.target.value })}>
+                      {giftCards.find((card) => String(card.id) === String(form.giftCardId)).layouts.map((layout) => (
+                        <option key={layout.id} value={layout.id}>{layout.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                <div className="gift-card-form-row">
+                  <label className="payment-safe-field">
+                    <span>Recipient name</span>
+                    <input required maxLength={20} value={form.recipientName} onChange={(event) => setForm({ ...form, recipientName: event.target.value })} placeholder="First name" />
+                  </label>
+                  <label className="payment-safe-field">
+                    <span>Delivery date</span>
+                    <input required type="date" min={new Date().toISOString().slice(0, 10)} value={form.deliveryDate} onChange={(event) => setForm({ ...form, deliveryDate: event.target.value })} />
+                  </label>
+                </div>
+
+                <label className="payment-safe-field">
+                  <span>Recipient email</span>
+                  <input required type="email" maxLength={100} autoComplete="email" value={form.recipientEmail} onChange={(event) => setForm({ ...form, recipientEmail: event.target.value })} placeholder="recipient@email.com" />
+                </label>
+
+                <label className="payment-safe-field">
+                  <span>Gift-card title</span>
+                  <input required maxLength={20} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+                </label>
+
+                <label className="payment-safe-field">
+                  <span>Personal message <small>{form.giftMessage.length}/300</small></span>
+                  <textarea maxLength={300} rows={3} value={form.giftMessage} onChange={(event) => setForm({ ...form, giftMessage: event.target.value })} placeholder="Add a note for the recipient" />
+                </label>
+
+                <input className="gift-card-honeypot" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" value={form.website} onChange={(event) => setForm({ ...form, website: event.target.value })} />
+
+                <div className="payment-safe-box gift-card-payment">
+                  {cardsLoaded && cards.length ? (
+                    <label className="payment-safe-field">
+                      <span>Payment card</span>
+                      <select required value={selectedCard} onChange={(event) => setSelectedCard(event.target.value)}>
+                        <option value="">Select a saved card</option>
+                        {cards.map((card) => (
+                          <option key={`${card.cardType}-${card.lastFour}`} value={card.lastFour}>
+                            {card.cardType ? `${card.cardType} ` : "Card "}ending in {card.lastFour}
+                            {card.expMonth && card.expYear ? ` (exp ${card.expMonth}/${card.expYear})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : cardsLoaded ? (
+                    <p>No saved payment card is on your Mindbody account.</p>
+                  ) : <p>Loading saved cards...</p>}
+                  <button className="text-button" type="button" onClick={() => setShowCardForm(true)}>{cards.length ? "Add another card" : "Add a payment card"}</button>
+                </div>
+
+                {optionsState.message ? <p className={`form-status ${optionsState.type === "error" ? "error" : ""}`}>{optionsState.message}</p> : null}
+                {purchaseState.message ? <p className={`form-status ${purchaseState.type === "error" ? "error" : ""}`}>{purchaseState.message}</p> : null}
+
+                <button className="pill-button black gift-card-confirm" type="submit" disabled={purchaseState.type === "loading" || optionsState.type !== "success"}>
+                  {purchaseState.type === "loading" ? "Processing securely..." : "Purchase Gift Card"}
+                </button>
+                <p className="gift-card-security">Payment is processed by Mindbody using your saved card. The recipient receives the gift card by email.</p>
+              </form>
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1888,7 +2218,12 @@ function membershipSearchText(item) {
 }
 
 function membershipIdentity(item) {
-  const text = membershipSearchText(item);
+  const text = [item?.name, item?.Name, item?.sourceName, item?.SourceName]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
   const commitment = text.match(/\b(3|6|12)\s*[- ]*months?\b/)?.[1] || "";
   const classCount = text.match(/\b(4|8)\s*[- ]*class(?:es)?\b/)?.[1] || "";
   const plan = /\bunlimited\b/.test(text)
@@ -1915,7 +2250,11 @@ function membershipsMatch(catalogMembership, activeMembership) {
 }
 
 function membershipCommitmentMonths(item) {
-  const text = membershipSearchText(item);
+  const text = [item?.name, item?.Name, item?.sourceName, item?.SourceName]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // Prefer the displayed text because Mindbody fields may be inconsistent.
   const textMatch = text.match(/\b(3|6|12)\s*[- ]?\s*months?\b/i);
@@ -1939,18 +2278,18 @@ function membershipCommitmentMonths(item) {
 }
 
 function membershipGroup(item) {
-  const text = membershipSearchText(item);
+  const plan = membershipIdentity(item).plan;
 
   // Force each membership type into its own row.
-  if (/\bunlimited\b/i.test(text)) {
+  if (plan === "unlimited") {
     return 3;
   }
 
-  if (/\b4\s*class(?:es)?(?:\s*pack)?\b/i.test(text)) {
+  if (plan === "4-class") {
     return 1;
   }
 
-  if (/\b8\s*class(?:es)?(?:\s*pack)?\b/i.test(text)) {
+  if (plan === "8-class") {
     return 2;
   }
 
@@ -1974,7 +2313,10 @@ function sortMembershipItems(items = []) {
 }
 
 function sortBySessionsAsc(items) {
-  return [...items].sort((a, b) => (Number(a.sessions) || 0) - (Number(b.sessions) || 0));
+  const sessionCount = (item) => /\bunlimited\b/i.test(String(item?.name || ""))
+    ? Number.POSITIVE_INFINITY
+    : Number(item?.sessions) || 0;
+  return [...items].sort((a, b) => sessionCount(a) - sessionCount(b));
 }
 
 const CLASS_PACK_PROMO_CODES = new Set([
@@ -2018,8 +2360,42 @@ function moneyValue(value) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function membershipDetails(item) {
+  const identity = membershipIdentity(item);
+  const directMonths = Number(item?.commitmentMonths ?? item?.termMonths ?? item?.contractLengthMonths);
+  const commitmentMonths = Number.isFinite(directMonths) && directMonths > 0 && directMonths < 120
+    ? directMonths
+    : Number(identity.commitment || 0);
+  const unlimited = identity.plan === "unlimited";
+  const classes = unlimited
+    ? "Unlimited classes each month"
+    : `${Number(item?.sessions) || Number(identity.plan?.match(/\d+/)?.[0]) || "—"} classes each month`;
+  const description = item?.description && !/^(?:unlimited|\d+)\s+classes?\/month$/i.test(String(item.description).trim())
+    ? item.description
+    : unlimited
+      ? "Designed for members who want maximum consistency and the flexibility to practice throughout the month."
+      : identity.plan === "8-class"
+        ? "A consistent twice-weekly rhythm for members who want to build strength, control, and lasting progress."
+        : "A steady weekly rhythm for members who want consistency while keeping room in their schedule.";
+
+  return {
+    classes,
+    billing: item?.billingPeriod === "month" && Number(item?.billingInterval || 1) > 1
+      ? `Every ${item.billingInterval} months`
+      : "Every month",
+    commitment: commitmentMonths ? `${commitmentMonths} months` : "Month to month",
+    renewal: commitmentMonths
+      ? `Continues monthly during the ${commitmentMonths}-month commitment. Written notice is required at least 30 days before a later renewal.`
+      : "Continues monthly until canceled with the notice required by the membership agreement.",
+    guestAllowance: unlimited ? "1 guest pass each month" : "Not included",
+    rollover: unlimited ? "Not applicable" : "Unused classes expire at the end of each billing cycle",
+    description
+  };
+}
+
 function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess, isCurrentMembership = false }) {
   const [showModal, setShowModal] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -2036,6 +2412,10 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const itemAmount = moneyValue(item.price);
   const discountedAmount = appliedPromo && promoEligible ? itemAmount * 0.85 : itemAmount;
   const titleLines = pricingTitleLines(item, category);
+  const details = category.key === "memberships" ? membershipDetails(item) : null;
+  const cardDescription = category.key === "classPacks" && /^expires?\s+in\s+1\s+months?$/i.test(String(item.description || "").trim())
+    ? ""
+    : item.description;
 const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
   ? manualLastFour
   : selectedCard;
@@ -2053,6 +2433,15 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     setShowModal(true);
   };
   const closeModal = () => { if (!isLoading) setShowModal(false); };
+
+  useEffect(() => {
+    if (!showDetails) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setShowDetails(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [showDetails]);
 
   const applyPromo = () => {
     const code = normalizePromoCode(promoInput);
@@ -2126,15 +2515,23 @@ const payload = isContract
   return (
     <>
       <article className={`pricing-card ${category.key}${isCurrentMembership ? " current-membership" : ""}`}>
-        <div>
+        <div className="pricing-card-summary">
           {isCurrentMembership ? <span className="pricing-current-badge">Your current membership</span> : null}
           {item.isNewbiePromo ? <span className="pricing-badge">New Client</span> : null}
-          <p className="pricing-card-price">{item.price || "Ask studio"}</p>
+          <p className="pricing-card-price">
+            {item.price || "Ask studio"}
+            {category.key === "memberships" && item.price ? <small className="pricing-price-period">per month</small> : null}
+          </p>
           <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
-          {item.description ? <p className="pricing-card-desc">{item.description}</p> : null}
+          {cardDescription ? <p className="pricing-card-desc">{cardDescription}</p> : null}
           {category.key === "classPacks" ? (
   <p className="pricing-card-expiry">Expires 1 month after purchase</p>
 ) : null}
+          {category.key === "memberships" ? (
+            <button className="membership-details-trigger" type="button" onClick={() => setShowDetails(true)}>
+              View Membership Details
+            </button>
+          ) : null}
         </div>
 
         <div className="pricing-card-actions">
@@ -2157,6 +2554,45 @@ const payload = isContract
         </div>
       </article>
 
+      {showDetails ? (
+        <div className="purchase-modal-overlay membership-details-overlay" role="dialog" aria-modal="true" aria-labelledby={`membership-details-${item.id}`}>
+          <button className="purchase-modal-backdrop" type="button" aria-label="Close membership details" onClick={() => setShowDetails(false)} />
+          <section className="purchase-modal membership-details-modal">
+            <div className="membership-details-header">
+              <div>
+                <p className="membership-details-kicker">Membership Details</p>
+                <h2 id={`membership-details-${item.id}`}>{titleLines.join(" · ")}</h2>
+                <p className="membership-details-price">{item.price || "Ask studio"}<small>per month</small></p>
+              </div>
+              <button className="cart-close" type="button" onClick={() => setShowDetails(false)} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
+            </div>
+
+            <dl className="membership-details-grid">
+              <div><dt>Classes</dt><dd>{details.classes}</dd></div>
+              <div><dt>Billing Frequency</dt><dd>{details.billing}</dd></div>
+              <div><dt>Commitment</dt><dd>{details.commitment}</dd></div>
+              <div><dt>Guest Allowance</dt><dd>{details.guestAllowance}</dd></div>
+              <div><dt>Class Rollover</dt><dd>{details.rollover}</dd></div>
+              <div className="membership-details-wide"><dt>Renewal</dt><dd>{details.renewal}</dd></div>
+              <div className="membership-details-wide"><dt>About This Plan</dt><dd>{details.description}</dd></div>
+            </dl>
+
+            <div className="membership-details-actions">
+              {isCurrentMembership ? (
+                <span className="pricing-current-status">Your active membership</span>
+              ) : clientSession?.signedIn ? (
+                <button className="pill-button black" type="button" onClick={() => { setShowDetails(false); openModal(); }}>Buy Membership</button>
+              ) : (
+                <>
+                  <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/memberships")}`}>Sign In to Purchase</a>
+                  <a className="membership-create-link" href={ROUTES.signup}>Don’t have an account? Create one.</a>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {showModal ? (
         <div className="purchase-modal-overlay" role="dialog" aria-modal="true" aria-label={`Purchase ${item.name}`}>
           <div className="purchase-modal-backdrop" onClick={closeModal} />
@@ -2167,6 +2603,7 @@ const payload = isContract
                   {appliedPromo && promoEligible && itemAmount > 0
                     ? `$${discountedAmount.toFixed(2)}`
                     : (item.price || "Ask studio")}
+                  {category.key === "memberships" && item.price ? <small className="pricing-price-period">per month</small> : null}
                 </p>
                 <h3 className="purchase-modal-name">{titleLines.join(" · ")}</h3>
               </div>
@@ -2515,7 +2952,7 @@ function pricingTitleLines(item, category) {
 function SchedulePage({ schedule, bookingUrl, clientSession, spotsLoading }) {
   return (
     <section className="schedule section page-section">
-      <h1 className="sr-only">Orland Park Pilates and Lagree class schedule</h1>
+      <h1 className="sr-only">Orland Park reformer Pilates class schedule</h1>
       <ScheduleList schedule={schedule} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={spotsLoading} />
     </section>
   );
@@ -2804,7 +3241,7 @@ function FaqPage() {
                     </div>
                     {isOpen ? (
                       <div className="faq-answer" id={`faq-answer-${item.id}`}>
-                        {item.answer.map((paragraph) => (
+                        {item.id === "no-show" ? <NoShowPolicy /> : item.answer.map((paragraph) => (
                           <p key={paragraph}>{paragraph}</p>
                         ))}
                       </div>
@@ -2977,10 +3414,46 @@ function buildWaiverPayload(form) {
 }
 
 function SignupPage({ clientSession, bookingUrl }) {
-  if (clientSession?.signedIn) {
-    window.location.replace(ROUTES.account);
-    return null;
-  }
+  const signupParams = new URLSearchParams(window.location.search);
+  const initialPhone = signupParams.get("phone") || window.sessionStorage.getItem("cave-newbie-phone") || "";
+  const promotionalTexts = signupParams.get("sms") === "1" || window.sessionStorage.getItem("cave-newbie-sms-consent") === "1";
+  const [phone, setPhone] = useState(initialPhone);
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (initialPhone && !phone) setPhone(initialPhone);
+  }, [initialPhone, phone]);
+
+  useEffect(() => {
+    if (clientSession?.signedIn) window.location.replace(ROUTES.account);
+  }, [clientSession?.signedIn]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    const normalizedPhone = normalizeMobilePhone(phone);
+    if (!normalizedPhone) {
+      setError(MOBILE_PHONE_ERROR);
+      return;
+    }
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const result = await apiRequest("/api/auth/start", {
+        method: "POST",
+        body: { phone: normalizedPhone, promotionalTexts, returnTo: ROUTES.account }
+      });
+      if (!result.ok || !result.authorizationUrl) {
+        throw new Error("Account creation could not start. Please try again.");
+      }
+      window.location.assign(result.authorizationUrl);
+    } catch (error) {
+      setError(friendlyApiErrorMessage(error, "Account creation could not start. Please try again."));
+      setIsSubmitting(false);
+    }
+  };
+
+  if (clientSession?.signedIn) return null;
 
   const email = new URLSearchParams(window.location.search).get("email") || window.sessionStorage.getItem("cave-newbie-email") || "";
 
@@ -2988,14 +3461,20 @@ function SignupPage({ clientSession, bookingUrl }) {
     <section className="login-page signup-page">
       <div className="login-copy">
         <h1>Start your Cave account.</h1>
-        <p>Sign in or create a Mindbody account, then complete your studio profile to book classes and sign the liability waiver.</p>
+        <p>Enter your phone number, then create your Mindbody account and complete your Cave studio profile.</p>
       </div>
-      <div className="login-panel">
+      <form className="login-panel signup-panel" onSubmit={submit}>
         {email ? <p className="signup-email-note">Creating an account for <strong>{email}</strong></p> : null}
-        <a className="pill-button black" href={authStartHref(ROUTES.account)}>Create Account</a>
+        <MobilePhoneField value={phone} onChange={(event) => { setPhone(event.target.value); setError(""); }} disabled={isSubmitting} />
+        {promotionalTexts ? <p className="signup-phone-note">Text updates selected. You can reply STOP at any time.</p> : null}
+        <p className="signup-phone-note">We’ll carry this number into your studio profile so you can confirm it after signing in.</p>
+        {error ? <p className="form-status error" role="alert">{error}</p> : null}
+        <button className="pill-button black" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Connecting to Mindbody…" : "Create Account"}
+        </button>
         <a className="pill-button outline" href={ROUTES.login}>Already Have an Account</a>
         {bookingUrl && <a className="pill-button outline" href={bookingUrl}>View Schedule</a>}
-      </div>
+      </form>
     </section>
   );
 }
@@ -3031,23 +3510,23 @@ function LiabilityWaiverForm({ form, onChange }) {
 }
 
 function StandaloneWaiverForm() {
-const [form, setForm] = useState({
-  firstName: accountData?.firstName || clientSession?.user?.firstName || "",
-  lastName: accountData?.lastName || clientSession?.user?.lastName || "",
-  email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
-  phone: "",
-  addressLine1: "",
-  addressLine2: "",
-  city: "",
-  state: "",
-  postalCode: "",
-  birthDate: "",
-  emergencyContactName: "",
-  emergencyContactPhone: "",
-  emergencyContactRelationship: "",
-  gender: "",
-  referredBy: ""
-});
+  const [form, setForm] = useState({
+    email: "",
+    phone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    birthDate: "",
+    waiverParticipantName: "",
+    waiverSignature: "",
+    waiverDate: defaultWaiverDate(),
+    guardianName: "",
+    guardianSignature: "",
+    mediaOptOut: false,
+    acceptWaiver: false
+  });
   const [status, setStatus] = useState({ type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -3106,6 +3585,23 @@ const [form, setForm] = useState({
   );
 }
 
+function useMonthlyGuestPassRefresh(clientSession, benefit, refresh) {
+  const benefitRef = useRef(benefit);
+  const refreshRef = useRef(refresh);
+  benefitRef.current = benefit;
+  refreshRef.current = refresh;
+
+  useEffect(() => {
+    if (!clientSession?.signedIn) return;
+    return watchGuestPassRenewal({
+      window,
+      document,
+      getBenefitMonth: () => ["unavailable", "reserved"].includes(benefitRef.current?.status) ? "" : benefitRef.current?.benefitMonth,
+      refresh: (isActive) => refreshRef.current(isActive)
+    });
+  }, [clientSession?.signedIn, clientSession?.clientId]);
+}
+
 function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoading }) {
   const [accountData, setAccountData] = useState(null);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -3113,6 +3609,19 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const accountLoadedRef = useRef(false);
+
+  useMonthlyGuestPassRefresh(clientSession, dashboard?.monthlyGuestPass, async (isActive) => {
+    try {
+      const result = await apiRequest("/api/client/eligibility");
+      if (!result?.ok || !result.data?.monthlyGuestPass) throw new Error("Guest pass unavailable");
+      if (isActive()) setDashboard((current) => ({ ...current, monthlyGuestPass: result.data.monthlyGuestPass }));
+    } catch {
+      if (isActive()) setDashboard((current) => ({
+        ...current,
+        monthlyGuestPass: { ...current?.monthlyGuestPass, available: false, status: "unavailable" }
+      }));
+    }
+  });
 
   useEffect(() => {
     if (!clientSession?.signedIn) return;
@@ -3208,7 +3717,20 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         <CompleteStudioProfile
           accountData={accountData}
           clientSession={clientSession}
-          onComplete={(updated) => setAccountData(updated)}
+          onComplete={(updated, session) => {
+            setAccountData(updated);
+            if (session) setClientSession(session);
+          }}
+        />
+      )}
+
+      {!accountLoading && accountData?.hasBusinessProfile && clientSession.signupPhone && (
+        <SignupPhoneConfirmation
+          phone={clientSession.signupPhone}
+          onSaved={(result) => {
+            setAccountData((current) => ({ ...current, phone: result.phone }));
+            setClientSession(result.session);
+          }}
         />
       )}
 
@@ -3256,6 +3778,8 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
         </>
       )}
 
+      <KlaviyoSignupCard variant="account" />
+
       <div className="account-grid">
        <AccountCard title="Upcoming Classes" type="schedule" data={dashboard?.schedule} loading={dashboardLoading} empty="No upcoming bookings or waitlists. Head to the schedule to choose a class." />
 
@@ -3268,15 +3792,7 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
 />
 
 <AccountCard title="Memberships" type="contracts" data={dashboard?.contracts} loading={dashboardLoading} empty="No active memberships. View Memberships to learn more." />
-<AccountCard
-  title="Monthly Guest Pass"
-  type="guest-pass"
-  data={dashboard?.monthlyGuestPass?.booking ? [dashboard.monthlyGuestPass.booking] : []}
-  loading={dashboardLoading}
-  empty={dashboard?.monthlyGuestPass?.eligible
-    ? "Your monthly guest pass is available to use."
-    : "No monthly guest pass is available on your membership."}
-/>
+<MonthlyGuestPassCard benefit={dashboard?.monthlyGuestPass} loading={dashboardLoading} />
 <AccountCard title="Rewards" type="rewards" data={dashboard?.rewards} loading={dashboardLoading} empty="No reward points on file." /></div>
 
       <a className="pill-button outline account-edit-toggle" href={bookingUrl}>View Schedule</a>
@@ -3378,13 +3894,83 @@ function AccountInfoField({ label, value, mono }) {
   );
 }
 
+function MobilePhoneField({ value, onChange, disabled = false }) {
+  const hintId = useId();
+  return (
+    <div className="mobile-phone-field">
+      <label>
+        Phone Number
+        <input
+          name="phone"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          maxLength={32}
+          value={value}
+          onChange={(event) => {
+            event.target.setCustomValidity(event.target.value && !normalizeMobilePhone(event.target.value) ? MOBILE_PHONE_ERROR : "");
+            onChange(event);
+          }}
+          aria-describedby={hintId}
+          disabled={disabled}
+          required
+        />
+      </label>
+      <span className="phone-field-hint" id={hintId}>Include the country code for international numbers, for example +44.</span>
+    </div>
+  );
+}
+
+function SignupPhoneConfirmation({ phone: initialPhone, onSaved }) {
+  const [phone, setPhone] = useState(initialPhone);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    const normalizedPhone = normalizeMobilePhone(phone);
+    if (!normalizedPhone) {
+      setError(MOBILE_PHONE_ERROR);
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const result = await apiRequest("/api/account/signup-phone", {
+        method: "POST",
+        body: { phone: normalizedPhone }
+      });
+      if (!result.ok || !result.phone || !result.session?.signedIn) {
+        throw new Error("Mindbody did not confirm that your phone number was saved.");
+      }
+      onSaved(result);
+    } catch (error) {
+      setError(friendlyApiErrorMessage(error, "Your phone number could not be saved. Please try again."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="complete-profile-banner">
+      <div className="complete-profile-header"><strong>Confirm your phone number</strong></div>
+      <form onSubmit={submit}>
+        <p>Save the number you entered during sign-up to your Cave studio profile.</p>
+        <MobilePhoneField value={phone} onChange={(event) => { setPhone(event.target.value); setError(""); }} disabled={saving} />
+        {error ? <p className="form-status error" role="alert">{error}</p> : null}
+        <button className="pill-button black" type="submit" disabled={saving}>{saving ? "Saving…" : "Save Phone Number"}</button>
+      </form>
+    </div>
+  );
+}
+
 function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
   const user = clientSession?.user || {};
   const [form, setForm] = useState({
   firstName: accountData?.firstName || clientSession?.user?.firstName || "",
   lastName: accountData?.lastName || clientSession?.user?.lastName || "",
-  email: accountData?.email || clientSession?.user?.email || clientSession?.user?.username || "",
-  phone: "",
+  email: clientSession?.user?.email || clientSession?.user?.username || accountData?.email || "",
+  phone: clientSession?.signupPhone || accountData?.phone || "",
   addressLine1: "",
   addressLine2: "",
   city: "",
@@ -3408,6 +3994,11 @@ function CompleteStudioProfile({ accountData, clientSession, onComplete }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    const phoneNumber = normalizeMobilePhone(form.phone);
+    if (!phoneNumber) {
+      setStatus({ type: "error", message: MOBILE_PHONE_ERROR });
+      return;
+    }
     setSaving(true);
     setStatus({ type: "", message: "" });
 
@@ -3420,9 +4011,10 @@ body: {
   lastName: form.lastName,
   email: form.email,
 
-  phone: form.phone,
-  mobilePhone: form.phone,
-  mobileNumber: form.phone,
+  phone: phoneNumber,
+  mobilePhone: phoneNumber,
+  mobileNumber: phoneNumber,
+  homePhone: accountData?.homePhone || phoneNumber,
 
   addressLine1: form.addressLine1,
   addressLine2: form.addressLine2,
@@ -3442,10 +4034,12 @@ body: {
           // Reload account data with updated profile
           const updated = await apiRequest("/api/account/me").catch(() => null);
           if (updated?.data) {
-            onComplete(updated.data);
+            onComplete(updated.data, result.session);
           } else {
-            onComplete({ ...accountData, hasBusinessProfile: true, clientId: result.clientId || accountData?.clientId });
+            onComplete({ ...accountData, phone: phoneNumber, hasBusinessProfile: true, clientId: result.clientId || accountData?.clientId }, result.session);
           }
+        } else {
+          throw new Error("Mindbody did not confirm that your studio profile was saved.");
         }
     } catch (err) {
       setStatus({ type: "error", message: err.message || "Profile could not be saved. Please try again." });
@@ -3463,10 +4057,10 @@ body: {
         <div className="form-grid three">
         <FormField label="First Name" name="firstName" value={form.firstName} onChange={updateField} autoComplete="given-name" required />
         <FormField label="Last Name" name="lastName" value={form.lastName} onChange={updateField} autoComplete="family-name" required />
-        <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" required />
+        <FormField label="Email" name="email" type="email" value={form.email} onChange={updateField} autoComplete="email" readOnly required />
       </div>
         <div className="form-grid two">
-          <FormField label="Mobile Phone" name="phone" type="tel" value={form.phone} onChange={updateField} autoComplete="tel" required />
+          <MobilePhoneField value={form.phone} onChange={updateField} disabled={saving} />
           <FormField label="Birth Date" name="birthDate" type="date" value={form.birthDate} onChange={updateField} />
         </div>
         <FormField label="Address" name="addressLine1" value={form.addressLine1} onChange={updateField} autoComplete="address-line1" required />
@@ -3702,6 +4296,38 @@ function CompleteProfileBanner({ pendingProfile, clientSession, setClientSession
         </div>
       </form>
     </div>
+  );
+}
+
+function MonthlyGuestPassCard({ benefit, loading }) {
+  const stale = benefit?.benefitMonth && benefit.benefitMonth !== getGuestPassPeriod().benefitMonth;
+  const unavailable = !benefit || benefit.status === "unavailable";
+  const renewalDate = benefit?.renewsOn && /^\d{4}-\d{2}-01$/.test(benefit.renewsOn)
+    ? new Date(`${benefit.renewsOn}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+    : "";
+  let message = "This benefit is included with active unlimited memberships.";
+  if (loading || stale) message = "Checking your monthly guest pass…";
+  else if (unavailable) message = "We couldn’t check your guest pass. We’ll try again shortly.";
+  else if (benefit.eligible && benefit.available) message = "1 guest pass available to use.";
+  else if (benefit.eligible && benefit.booking) message = "Your guest pass has been used this month.";
+  else if (benefit.eligible) message = "A guest booking is being processed. We’ll check again shortly.";
+
+  return (
+    <article className="account-card monthly-guest-pass" aria-live="polite">
+      <h2>Monthly Guest Pass</h2>
+      <p>{message}</p>
+      {!loading && !stale && !unavailable && benefit?.booking ? (
+        <div className="account-list">
+          <div className="account-list-item">
+            <strong>{[benefit.booking.guestFirstName, benefit.booking.guestLastName].filter(Boolean).join(" ") || "Guest"} · Guest Pass</strong>
+            {benefit.booking.guestEmail ? <small>{benefit.booking.guestEmail}</small> : null}
+          </div>
+        </div>
+      ) : null}
+      {benefit?.eligible && renewalDate && !stale ? (
+        <p className="guest-pass-renewal">Renews automatically on {renewalDate} while your membership is active.</p>
+      ) : null}
+    </article>
   );
 }
 
@@ -4005,11 +4631,11 @@ function formatAccountDate(value) {
   });
 }
 
-function FormField({ label, name, type = "text", value, onChange, required = false, autoComplete }) {
+function FormField({ label, name, type = "text", value, onChange, required = false, readOnly = false, autoComplete }) {
   return (
     <label>
       {label}
-      <input name={name} type={type} value={value} onChange={onChange} required={required} autoComplete={autoComplete} />
+      <input name={name} type={type} value={value} onChange={onChange} required={required} readOnly={readOnly} autoComplete={autoComplete} />
     </label>
   );
 }
@@ -4046,6 +4672,18 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   const [liveLoading, setLiveLoading] = useState(true);
   const [clientSchedule, setClientSchedule] = useState(new Map()); // classId → {visitId, status}
   const [eligibility, setEligibility] = useState(null); // {hasUsablePricingOption, ...}
+  useMonthlyGuestPassRefresh(clientSession, eligibility?.monthlyGuestPass, async (isActive) => {
+    try {
+      const result = await apiRequest("/api/client/eligibility");
+      if (!result?.ok || !result.data?.monthlyGuestPass) throw new Error("Guest pass unavailable");
+      if (isActive()) setEligibility(result.data);
+    } catch {
+      if (isActive()) setEligibility((current) => current ? {
+        ...current,
+        monthlyGuestPass: { ...current.monthlyGuestPass, available: false, status: "unavailable" }
+      } : current);
+    }
+  });
   const [dataLoading, setDataLoading] = useState(false);
   const [bookingState, setBookingState] = useState({ classId: null, operation: "", type: "", message: "" });
   const [guestBookingClass, setGuestBookingClass] = useState(null);
@@ -4640,7 +5278,7 @@ let spotsText = "Available";
 
 if (isDataLoading) {
   spotsClass = "spots-badge spots-loading";
-  spotsText = "Checking…";
+  spotsText = "—";
 } else if (isWaitlisted || isThisWaitlistSuccess) {
   spotsClass = "spots-badge spots-low";
   spotsText = "Waitlisted";
@@ -4684,9 +5322,10 @@ if (isDataLoading) {
       className="book-class book-unbook"
       type="button"
       disabled={isBusy}
+      aria-busy={isBusy && isThisUnbook}
       onClick={() => unbookClass(classItem)}
     >
-      {isBusy && isThisUnbook ? "Cancelling…" : "Unbook"}
+      Unbook
     </button>
   );
 } else if (isWaitlisted) {
@@ -4695,9 +5334,10 @@ if (isDataLoading) {
       className="book-class book-waitlist"
       type="button"
       disabled={isBusy}
+      aria-busy={isBusy && bookingState.operation === "remove-waitlist"}
       onClick={() => removeFromWaitlist(classItem)}
     >
-      {isBusy ? "Removing…" : "Remove Waitlist"}
+      Remove Waitlist
     </button>
   );
 } else if (isThisWaitlistSuccess) {
@@ -4731,15 +5371,16 @@ if (isDataLoading) {
       className="book-class book-waitlist"
       type="button"
       disabled={isBusy}
+      aria-busy={isBusy && bookingState.operation === "waitlist"}
       onClick={() => joinWaitlist(classItem)}
     >
-      {isBusy ? "Joining…" : "Waitlist"}
+      Waitlist
     </button>
   );
-} else if (dataLoading) {
+} else if (dataLoading || isDataLoading) {
   actionButton = (
     <button className="book-class" type="button" disabled>
-      Checking…
+      Book
     </button>
   );
 } else {
@@ -4748,9 +5389,10 @@ if (isDataLoading) {
       className="book-class book-available"
       type="button"
       disabled={isBusy}
+      aria-busy={isBusy && bookingState.operation === "book"}
       onClick={() => bookClass(classItem)}
     >
-      {isBusy && !isThisUnbook ? "Booking…" : "Book"}
+      Book
     </button>
   );
 }
@@ -4785,9 +5427,10 @@ if (isDataLoading) {
                     className="book-class book-guest book-unbook-guest"
                     type="button"
                     disabled={isBusy}
+                    aria-busy={isBusy && bookingState.operation === "unbook-guest"}
                     onClick={() => unbookGuest(classItem)}
                   >
-                    {isBusy && bookingState.operation === "unbook-guest" ? "Cancelling Guest…" : "Unbook Guest"}
+                    Unbook Guest
                   </button>
                 ) : canBookGuest ? (
                   <button
@@ -4796,11 +5439,11 @@ if (isDataLoading) {
                     disabled={isBusy}
                     onClick={() => openGuestBooking(classItem)}
                   >
-                    {isBusy && bookingState.operation === "book-guest" ? "Booking Guest…" : "Book Guest"}
+                    Book Guest
                   </button>
                 ) : null}
-                {bookingState.classId === classItem.id && bookingState.message ? (
-                  <p className={`row-status ${bookingState.type}`}>{bookingState.message}</p>
+                {bookingState.classId === classItem.id && bookingState.type !== "loading" && bookingState.message ? (
+                  <p className={`row-status ${bookingState.type}`} role={bookingState.type === "error" ? "alert" : "status"}>{bookingState.message}</p>
                 ) : null}
               </div>
             </article>
@@ -5048,6 +5691,229 @@ function cleanFooterAddress(address) {
     .trim();
 }
 
+function openCaveUpdatesSignup() {
+  window.dispatchEvent(new CustomEvent(CAVE_UPDATES_SIGNUP_EVENT));
+}
+
+function KlaviyoSignupCard({ variant = "footer" }) {
+  return (
+    <section className={`klaviyo-signup-card ${variant}`} aria-labelledby={`klaviyo-signup-${variant}`}>
+      <div className="klaviyo-signup-copy">
+        <span className="footer-label">Cave Updates</span>
+        <h2 id={`klaviyo-signup-${variant}`}>Stay in the loop.</h2>
+        <p>Get studio news, schedule updates, and special offers by email. Add texts if you want them too.</p>
+      </div>
+      <div className="klaviyo-signup-action">
+        <button className="pill-button klaviyo-signup-button" type="button" onClick={openCaveUpdatesSignup}>
+          Join Email &amp; Texts
+        </button>
+        <p>
+          Email is required and texts are optional. Unsubscribe anytime. Message and data rates may apply. See our{" "}
+          <a href={`${ROUTES.policies}#privacy`}>Privacy Policy</a> and{" "}
+          <a href={`${ROUTES.terms}#mobile-messaging-terms`}>Mobile Terms</a>.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function CaveUpdatesNudge({ page }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!CAVE_UPDATES_NUDGE_PAGES.has(page)) {
+      setIsVisible(false);
+      return undefined;
+    }
+
+    let delayComplete = false;
+    let hasOpened = false;
+
+    const hideForKnownSubscriber = () => {
+      if (!shouldShowCaveUpdatesPrompt()) setIsVisible(false);
+    };
+
+    const maybeOpen = () => {
+      if (hasOpened || !delayComplete || !shouldShowCaveUpdatesPrompt()) return;
+      if (window.sessionStorage.getItem("cave-newbie-popup-shown") === "1") return;
+
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const hasEngaged = maxScroll < 500 || window.scrollY >= Math.min(420, maxScroll * 0.28);
+      if (!hasEngaged) return;
+
+      hasOpened = true;
+      rememberCaveUpdatesPrompt();
+      setIsVisible(true);
+    };
+
+    const timer = window.setTimeout(() => {
+      delayComplete = true;
+      maybeOpen();
+    }, CAVE_UPDATES_NUDGE_DELAY_MS);
+
+    window.addEventListener("scroll", maybeOpen, { passive: true });
+    window.addEventListener(CAVE_UPDATES_PREFERENCES_EVENT, hideForKnownSubscriber);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("scroll", maybeOpen);
+      window.removeEventListener(CAVE_UPDATES_PREFERENCES_EVENT, hideForKnownSubscriber);
+    };
+  }, [page]);
+
+  if (!isVisible) return null;
+
+  const openSignup = () => {
+    setIsVisible(false);
+    openCaveUpdatesSignup();
+  };
+
+  return (
+    <aside className="cave-updates-nudge" aria-label="Cave email and text updates">
+      <button className="cave-updates-nudge-close" type="button" aria-label="Dismiss updates reminder" onClick={() => setIsVisible(false)}>
+        <X size={18} aria-hidden="true" />
+      </button>
+      <p className="cave-updates-nudge-kicker">Cave Updates</p>
+      <strong>Want studio news?</strong>
+      <p>Get schedule updates and occasional offers by email. Texts are optional.</p>
+      <button className="cave-updates-nudge-link" type="button" onClick={openSignup}>Join the list</button>
+    </aside>
+  );
+}
+
+function CaveUpdatesSignupModal() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailConsent, setEmailConsent] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [smsConsent, setSmsConsent] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState("");
+  const emailInputRef = useRef(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  const close = () => setIsOpen(false);
+
+  useEffect(() => {
+    const open = () => {
+      setEmail("");
+      setEmailConsent(false);
+      setPhone("");
+      setSmsConsent(false);
+      setStatus("idle");
+      setError("");
+      setIsOpen(true);
+      window.requestAnimationFrame(() => emailInputRef.current?.focus());
+    };
+
+    window.addEventListener(CAVE_UPDATES_SIGNUP_EVENT, open);
+    return () => window.removeEventListener(CAVE_UPDATES_SIGNUP_EVENT, open);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isOpen]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+
+    if (!emailConsent) {
+      setError("Please confirm that you want Cave emails.");
+      return;
+    }
+
+    const phoneNumber = normalizeKlaviyoPhone(phone);
+    if (phone.trim() && !phoneNumber) {
+      setError("Enter a valid mobile number, including the area code.");
+      return;
+    }
+    if (phone.trim() && !smsConsent) {
+      setError("Please check the text consent box or remove the phone number.");
+      return;
+    }
+    if (smsConsent && !phoneNumber) {
+      setError("Enter your mobile number to receive texts.");
+      return;
+    }
+
+    setStatus("submitting");
+    try {
+      await subscribeToCaveUpdates({
+        email,
+        phoneNumber,
+        includeSms: smsConsent
+      });
+      rememberCaveUpdatesSubscription({ includeSms: smsConsent });
+      window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
+      setStatus("success");
+    } catch {
+      setStatus("idle");
+      setError("We couldn’t save your signup. Please try again.");
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="cave-updates-overlay" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+      <button className="cave-updates-backdrop" type="button" aria-label="Close Cave updates signup" onClick={close} />
+      <section className="cave-updates-modal">
+        <button className="cave-updates-close" type="button" aria-label="Close" onClick={close}><X size={22} /></button>
+        {status === "success" ? (
+          <div className="cave-updates-success" aria-live="polite">
+            <p className="cave-updates-kicker">You’re on the list</p>
+            <h2 id={titleId}>Welcome to Cave updates.</h2>
+            <p id={descriptionId}>Watch your inbox{smsConsent ? " and phone" : ""} for studio news and offers.</p>
+            <button className="pill-button black" type="button" onClick={close}>Done</button>
+          </div>
+        ) : (
+          <>
+            <p className="cave-updates-kicker">Cave Updates</p>
+            <h2 id={titleId}>Stay in the loop.</h2>
+            <p id={descriptionId} className="cave-updates-intro">Get studio news, schedule updates, and special offers. Add texts if you want them too.</p>
+            <form className="cave-updates-form" onSubmit={submit}>
+              <label className="cave-updates-field">
+                <span>Email address</span>
+                <input ref={emailInputRef} type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required />
+              </label>
+              <label className="cave-updates-check">
+                <input type="checkbox" checked={emailConsent} onChange={(event) => setEmailConsent(event.target.checked)} />
+                <span>Email me Cave news, schedule updates, and special offers.</span>
+              </label>
+              <label className="cave-updates-field">
+                <span>Mobile number <small>Optional</small></span>
+                <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(708) 555-0123" />
+              </label>
+              <label className="cave-updates-check cave-updates-sms-check">
+                <input type="checkbox" checked={smsConsent} onChange={(event) => setSmsConsent(event.target.checked)} />
+                <span>Text me recurring automated marketing messages from Cave Modern Pilates. Consent is not a condition of purchase. Message frequency varies. Msg &amp; data rates may apply. Reply STOP to cancel or HELP for help.</span>
+              </label>
+              {error ? <p className="cave-updates-error" role="alert">{error}</p> : null}
+              <button className="pill-button black cave-updates-submit" type="submit" disabled={status === "submitting"}>
+                {status === "submitting" ? "Joining…" : "Join Cave Updates"}
+              </button>
+              <p className="cave-updates-legal">
+                By signing up, you agree to our <a href={`${ROUTES.policies}#privacy`}>Privacy Policy</a>. Text subscribers also agree to our <a href={`${ROUTES.terms}#mobile-messaging-terms`}>Mobile Terms</a>.
+              </p>
+            </form>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function Footer({ location }) {
   const address = cleanFooterAddress(location?.address) || "Launch address coming soon";
   const email = location?.email || CONTACT_EMAIL;
@@ -5067,6 +5933,19 @@ function Footer({ location }) {
             {address}
           </p>
         </div>
+
+        <section className="footer-partners" aria-labelledby="local-partners-title">
+          <span className="footer-label" id="local-partners-title">Local Partners</span>
+          <div className="footer-partner-grid">
+            {LOCAL_PARTNERS.map((partner) => (
+              <div className={`footer-partner-logo ${partner.className}`} key={partner.name}>
+                <img src={partner.logo} alt={`${partner.name} logo`} loading="lazy" />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <KlaviyoSignupCard />
 
         <div className="footer-meta">
           <nav className="footer-nav" aria-label="Footer navigation">

@@ -47,6 +47,14 @@ Build production files:
 npm run build
 ```
 
+Verify phone validation, OAuth handoff, and profile-save behavior with mocked Mindbody responses:
+
+```bash
+npm test
+```
+
+These tests do not contact Mindbody or create clients. A live signup test still needs a configured Mindbody connection.
+
 Run the production-style server locally:
 
 ```bash
@@ -88,6 +96,10 @@ BOOKING_CACHE_REFRESH_MINUTES=15
 Use a 5-15 minute interval for public schedule data. This starter refreshes pricing, contracts, staff, and location data with the same job; split those into slower scheduled jobs later if traffic grows.
 
 ## Account API Proxy
+
+`/signup` collects a required phone number before sending the visitor to Mindbody. The number travels in encrypted OAuth state and the signed session, then prefills the new studio profile on `/account`. Existing clients confirm the number before it is saved through `/api/account/signup-phone`. Failed saves keep the pending number available for retry.
+
+The server reads `.env.local` before `.env`; existing process environment variables take precedence over both files.
 
 Client sign-up and account dashboard requests go through the Vite dev server proxy:
 
