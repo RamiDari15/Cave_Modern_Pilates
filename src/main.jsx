@@ -7,6 +7,7 @@ import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
 import {
+  getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
   rememberCaveUpdatesPrompt,
   rememberCaveUpdatesSubscription,
@@ -104,8 +105,8 @@ const SOCIAL_HANDLE = "@cavemodernpilates";
 const CAVE_UPDATES_SIGNUP_EVENT = "cave:open-updates-signup";
 const CAVE_UPDATES_PREFERENCES_EVENT = "cave:updates-preferences-changed";
 const CAVE_UPDATES_NUDGE_DELAY_MS = 15 * 1000;
-const NEWBIE_POPUP_DISMISSED_KEY = "cave-newbie-popup-dismissed-at";
-const NEWBIE_POPUP_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+const CAVE_UPDATES_INITIAL_POPUP_KEY = "cave-updates-initial-popup-shown-at";
+const CAVE_UPDATES_INITIAL_POPUP_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 const CAVE_UPDATES_NUDGE_PAGES = new Set([
   "home",
   "pricing",
@@ -149,6 +150,11 @@ const PRICING_CATEGORIES = [
 ];
 
 const PRIVATE_PRICING_OPTIONS = [
+  {
+    key: "privateSessions",
+    title: "Private Sessions",
+    description: "Personalized one-on-one Pilates instruction at Cave, with a session shaped around your goals and experience level."
+  },
   {
     key: "privateEvents",
     title: "Private Events",
@@ -835,7 +841,7 @@ function App() {
       </main>
       <Footer location={cache.location} />
       <AiAssistant page={page} bookingUrl={bookingUrl} clientSession={clientSession} />
-      <NewbieSignupPopup page={page} clientSession={clientSession} />
+      <CaveUpdatesInitialPopup page={page} clientSession={clientSession} />
       <CaveUpdatesNudge page={page} />
       <CaveUpdatesSignupModal />
     </div>
@@ -857,48 +863,21 @@ function BackToSchoolBanner() {
   );
 }
 
-function NewbieSignupPopup({ page, clientSession }) {
-  const [isOpen, setIsOpen] = useState(false);
-
+function CaveUpdatesInitialPopup({ page, clientSession }) {
   useEffect(() => {
     if (clientSession?.signedIn || !["home", "pricing", "newbie"].includes(page)) return undefined;
-    const dismissedAt = Number(window.localStorage.getItem(NEWBIE_POPUP_DISMISSED_KEY)) || 0;
-    if (Date.now() - dismissedAt < NEWBIE_POPUP_COOLDOWN_MS) return undefined;
+    if (getCaveUpdatesPreferences().emailSubscribed) return undefined;
+    const lastShownAt = Number(window.localStorage.getItem(CAVE_UPDATES_INITIAL_POPUP_KEY)) || 0;
+    if (Date.now() - lastShownAt < CAVE_UPDATES_INITIAL_POPUP_COOLDOWN_MS) return undefined;
     const timer = window.setTimeout(() => {
-      window.sessionStorage.setItem("cave-newbie-popup-shown", "1");
-      setIsOpen(true);
+      if (getCaveUpdatesPreferences().emailSubscribed) return;
+      window.localStorage.setItem(CAVE_UPDATES_INITIAL_POPUP_KEY, String(Date.now()));
+      rememberCaveUpdatesPrompt();
+      openCaveUpdatesSignup();
     }, 1400);
     return () => window.clearTimeout(timer);
   }, [clientSession?.signedIn, page]);
-
-  const close = () => {
-    window.localStorage.setItem(NEWBIE_POPUP_DISMISSED_KEY, String(Date.now()));
-    setIsOpen(false);
-  };
-
-  const openUpdatesSignup = () => {
-    close();
-    window.setTimeout(openCaveUpdatesSignup, 0);
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="newbie-popup-overlay" role="dialog" aria-modal="true" aria-labelledby="newbie-popup-title">
-      <button className="newbie-popup-backdrop" type="button" aria-label="Close new client offer" onClick={close} />
-      <article className="newbie-popup">
-        <button className="newbie-popup-close" type="button" aria-label="Close" onClick={close}><X size={22} /></button>
-        <p className="newbie-popup-kicker">New to Cave?</p>
-        <h2 id="newbie-popup-title">Start with 3 classes.</h2>
-        <p>See the Newbie package made for first-time Cave clients, then create your account when you’re ready to book.</p>
-        <div className="newbie-popup-actions">
-          <a className="pill-button black" href={ROUTES.newbie}>View Newbie Offer</a>
-          <button className="pill-button outline" type="button" onClick={openUpdatesSignup}>Join Email &amp; Texts</button>
-        </div>
-        <p className="newbie-popup-note">Email and text updates are optional.</p>
-      </article>
-    </div>
-  );
+  return null;
 }
 
 function updatePageMeta(page) {
@@ -2367,6 +2346,7 @@ function membershipDetails(item) {
     ? directMonths
     : Number(identity.commitment || 0);
   const unlimited = identity.plan === "unlimited";
+  const annualUnlimited = unlimited && (identity.commitment === "12" || commitmentMonths === 12);
   const classes = unlimited
     ? "Unlimited classes each month"
     : `${Number(item?.sessions) || Number(identity.plan?.match(/\d+/)?.[0]) || "—"} classes each month`;
@@ -2388,6 +2368,11 @@ function membershipDetails(item) {
       ? `Continues monthly during the ${commitmentMonths}-month commitment. Written notice is required at least 30 days before a later renewal.`
       : "Continues monthly until canceled with the notice required by the membership agreement.",
     guestAllowance: unlimited ? "1 guest pass each month" : "Not included",
+    waiverAllowance: unlimited
+      ? annualUnlimited
+        ? "2 complimentary late-cancellation waivers and 2 complimentary no-show waivers each month"
+        : "1 complimentary late-cancellation waiver and 1 complimentary no-show waiver each month"
+      : "",
     rollover: unlimited ? "Not applicable" : "Unused classes expire at the end of each billing cycle",
     description
   };
@@ -2524,6 +2509,7 @@ const payload = isContract
           </p>
           <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
           {cardDescription ? <p className="pricing-card-desc">{cardDescription}</p> : null}
+          {details?.waiverAllowance ? <p className="pricing-card-perks"><strong>Monthly waivers</strong>{details.waiverAllowance}</p> : null}
           {category.key === "classPacks" ? (
   <p className="pricing-card-expiry">Expires 1 month after purchase</p>
 ) : null}
@@ -2573,6 +2559,7 @@ const payload = isContract
               <div><dt>Commitment</dt><dd>{details.commitment}</dd></div>
               <div><dt>Guest Allowance</dt><dd>{details.guestAllowance}</dd></div>
               <div><dt>Class Rollover</dt><dd>{details.rollover}</dd></div>
+              {details.waiverAllowance ? <div className="membership-details-wide"><dt>Monthly Waivers</dt><dd>{details.waiverAllowance}</dd></div> : null}
               <div className="membership-details-wide"><dt>Renewal</dt><dd>{details.renewal}</dd></div>
               <div className="membership-details-wide"><dt>About This Plan</dt><dd>{details.description}</dd></div>
             </dl>
@@ -5735,7 +5722,6 @@ function CaveUpdatesNudge({ page }) {
 
     const maybeOpen = () => {
       if (hasOpened || !delayComplete || !shouldShowCaveUpdatesPrompt()) return;
-      if (window.sessionStorage.getItem("cave-newbie-popup-shown") === "1") return;
 
       const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
       const hasEngaged = maxScroll < 500 || window.scrollY >= Math.min(420, maxScroll * 0.28);

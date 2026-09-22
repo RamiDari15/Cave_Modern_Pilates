@@ -545,96 +545,6 @@ body.interior:has(.page-policies),
   letter-spacing: 0.08em;
 }
 
-.newbie-popup-overlay {
-  position: fixed;
-  z-index: 1500;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-}
-
-.newbie-popup-backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: rgba(0, 0, 0, 0.62);
-  backdrop-filter: blur(8px);
-}
-
-.newbie-popup {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 540px);
-  padding: clamp(30px, 5vw, 52px);
-  border-radius: 36px;
-  color: #070707;
-  background: #f7f7f4;
-  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.36);
-}
-
-.newbie-popup-close {
-  position: absolute;
-  top: 22px;
-  right: 22px;
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  color: #555;
-  background: transparent;
-  cursor: pointer;
-}
-
-.newbie-popup-kicker {
-  margin: 0 0 12px;
-  color: #167d58;
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.newbie-popup h2 {
-  max-width: 12ch;
-  margin: 0 0 16px;
-  font-size: clamp(2rem, 6vw, 3.1rem);
-  line-height: 0.98;
-}
-
-.newbie-popup > p:not(.newbie-popup-kicker) {
-  margin: 0 0 24px;
-  color: #5e5e5b;
-  line-height: 1.55;
-}
-
-.newbie-popup-actions {
-  display: grid;
-  gap: 12px;
-}
-
-.newbie-popup-actions .pill-button {
-  display: inline-flex;
-  width: 100%;
-  min-height: 54px;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  border-radius: 999px;
-  font-size: 0.9rem;
-  font-weight: 800;
-}
-
-.newbie-popup .newbie-popup-note {
-  margin: 16px 0 0;
-  color: #74746f;
-  text-align: center;
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
 .cave-updates-nudge {
   position: fixed;
   z-index: 1400;
@@ -2304,6 +2214,23 @@ body.interior:has(.page-policies),
 
 .pricing-card-summary {
   width: 100%;
+}
+
+.pricing-card-perks {
+  max-width: 30ch;
+  margin: 18px auto 0;
+  color: rgba(5, 5, 5, 0.72);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.pricing-card-perks strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--black);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .membership-details-trigger {
