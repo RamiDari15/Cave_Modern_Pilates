@@ -6,6 +6,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
+import { isPricingItemCurrentlyVisible } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -543,7 +544,7 @@ function filterPublicPricingItems(items) {
     return [];
   }
 
-  return items.filter((item) => !isPrivateSessionItem(item) && isPublicPricingItem(item)).map((item) => ({
+  return items.filter((item) => !isPrivateSessionItem(item) && isPublicPricingItem(item) && isPricingItemCurrentlyVisible(item)).map((item) => ({
     ...item,
     category: item.category === "starter" ? "newbie" : item.category,
     requiresWaiver: item.requiresWaiver !== false,

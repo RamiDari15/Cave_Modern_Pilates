@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { NO_SHOW_POLICY_PARAGRAPHS } from "../src/studioPolicies.js";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
 import { getGuestPassPeriod } from "../src/guestPass.js";
+import { isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 
 const ROOT_DIR = resolve(import.meta.dirname, "..");
@@ -2799,7 +2800,7 @@ const isSoldOnlineValue = (item) => {
         const isUnlimitedService = (s) =>
   /\bunlimited\b/i.test(String(s.name || s.description || ""));
 
-const publicServices = services.filter((s) => !isPrivateStoreItem(s));
+const publicServices = services.filter((s) => !isPrivateStoreItem(s) && isPricingItemCurrentlyVisible(s));
 
 const regularServices = publicServices.filter((s) =>
   !s.isNewbiePromo &&
@@ -6602,7 +6603,7 @@ function publicStoreItems(items) {
     return [];
   }
 
-  return items.filter((item) => !isPrivateStoreItem(item) && isPublicStoreItem(item));
+  return items.filter((item) => !isPrivateStoreItem(item) && isPublicStoreItem(item) && isPricingItemCurrentlyVisible(item));
 }
 
 function isPrivateStoreItem(item) {
