@@ -13,7 +13,8 @@ import {
   rememberCaveUpdatesPrompt,
   rememberCaveUpdatesSubscription,
   shouldShowCaveUpdatesPrompt,
-  subscribeToCaveUpdates
+  subscribeToCaveUpdates,
+  subscribeToCaveTexts
 } from "./klaviyoSignup";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
@@ -35,6 +36,7 @@ const ROUTES = {
   faq: "/faq",
   login: "/login",
   signup: "/signup",
+  sms: "/sms",
   account: "/account",
   terms: "/terms",
   policies: "/policies"
@@ -70,6 +72,7 @@ const PAGE_TITLES = {
   faq: "Pilates Membership & Booking FAQ | Cave Modern Pilates",
   login: "Login | Cave Modern Pilates",
   signup: "Sign Up | Cave Modern Pilates",
+  sms: "Cave Text Updates | Cave Modern Pilates",
   account: "Account | Cave Modern Pilates",
   terms: "Terms of Service | Cave Modern Pilates",
   policies: "Studio Policies | Cave Modern Pilates"
@@ -88,6 +91,7 @@ const PAGE_DESCRIPTIONS = {
   faq: "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies.",
   login: "Sign in to your Cave Modern Pilates account.",
   signup: "Create your Cave Modern Pilates client account and complete the first-class liability waiver.",
+  sms: "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers.",
   account: "View your Cave Modern Pilates account, bookings, credits, and memberships.",
   terms: "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions.",
   policies: "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."
@@ -95,7 +99,7 @@ const PAGE_DESCRIPTIONS = {
 
 const SITE_URL = "https://www.cavemodernpilates.com";
 const SOCIAL_IMAGE_URL = `${SITE_URL}/og-image.jpg`;
-const PRIVATE_PAGES = new Set(["login", "signup", "account"]);
+const PRIVATE_PAGES = new Set(["login", "signup", "sms", "account"]);
 const STUDIO_CACHE_POLL_MS = 60 * 60 * 1000;
 const CONTACT_EMAIL = "support@cavemodernpilates.com";
 const CONTACT_PHONE = "7085715730";
@@ -462,7 +466,7 @@ function getPageFromPath() {
     return "newbie";
   }
 
-  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"].includes(name) ? name : "home";
+  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -1113,6 +1117,10 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
     return <SignupPage clientSession={clientSession} bookingUrl={bookingUrl} />;
   }
 
+  if (page === "sms") {
+    return <SmsSignupPage />;
+  }
+
   if (page === "account") {
     return <AccountPage clientSession={clientSession} setClientSession={setClientSession} bookingUrl={bookingUrl} isSessionLoading={isSessionLoading} />;
   }
@@ -1126,6 +1134,77 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   }
 
   return <HomePage memberships={cache.memberships || []} store={cache.store || {}} bookingUrl={bookingUrl} />;
+}
+
+function SmsSignupPage() {
+  const [phone, setPhone] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState("");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+
+    const phoneNumber = normalizeKlaviyoPhone(phone);
+    if (!phoneNumber) {
+      setError("Enter a valid mobile number, including the area code.");
+      return;
+    }
+    if (!consent) {
+      setError("Please confirm that you want Cave text updates.");
+      return;
+    }
+
+    setStatus("submitting");
+    try {
+      await subscribeToCaveTexts({ phoneNumber });
+      rememberCaveUpdatesSubscription({ includeEmail: false, includeSms: true });
+      window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
+      setStatus("success");
+    } catch {
+      setStatus("idle");
+      setError("We couldn’t save your signup. Please try again.");
+    }
+  };
+
+  return (
+    <section className="sms-signup-page section" aria-labelledby="sms-signup-title">
+      <div className="sms-signup-card">
+        {status === "success" ? (
+          <div className="sms-signup-success" aria-live="polite">
+            <p className="cave-updates-kicker">You’re on the list</p>
+            <h1 id="sms-signup-title">Cave texts are headed your way.</h1>
+            <p>Check your phone for the confirmation message. Reply STOP anytime to unsubscribe.</p>
+            <a className="pill-button black" href={ROUTES.home}>Back to Cave</a>
+          </div>
+        ) : (
+          <>
+            <p className="cave-updates-kicker">Cave Text Updates</p>
+            <h1 id="sms-signup-title">Be the first to know.</h1>
+            <p className="sms-signup-intro">Get class openings, studio updates, and occasional offers sent straight to your phone.</p>
+            <form className="cave-updates-form" onSubmit={submit}>
+              <label className="cave-updates-field">
+                <span>Mobile number</span>
+                <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(708) 555-0123" required />
+              </label>
+              <label className="cave-updates-check cave-updates-sms-check">
+                <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+                <span>Text me recurring automated marketing messages from Cave Modern Pilates. Consent is not a condition of purchase. Message frequency varies. Msg &amp; data rates may apply. Reply STOP to cancel or HELP for help.</span>
+              </label>
+              {error ? <p className="cave-updates-error" role="alert">{error}</p> : null}
+              <button className="pill-button black cave-updates-submit" type="submit" disabled={status === "submitting"}>
+                {status === "submitting" ? "Joining…" : "Join Cave Texts"}
+              </button>
+              <p className="cave-updates-legal">
+                By signing up, you agree to our <a href={`${ROUTES.policies}#privacy`}>Privacy Policy</a> and <a href={`${ROUTES.terms}#mobile-messaging-terms`}>Mobile Terms</a>.
+              </p>
+            </form>
+          </>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function HomePage({ memberships, store, bookingUrl }) {

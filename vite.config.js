@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { handleApiRequest } from "./server/api.mjs";
 
-const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "account", "terms", "policies"];
+const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
 const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
 const siteUrl = "https://www.cavemodernpilates.com";
@@ -21,6 +21,7 @@ const seoPages = {
   faq: ["Pilates Membership & Booking FAQ | Cave Modern Pilates", "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies."],
   login: ["Login | Cave Modern Pilates", "Sign in to your Cave Modern Pilates account."],
   signup: ["Sign Up | Cave Modern Pilates", "Create your Cave Modern Pilates client account and complete the first-class liability waiver."],
+  sms: ["Cave Text Updates | Cave Modern Pilates", "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers."],
   account: ["Account | Cave Modern Pilates", "View your Cave Modern Pilates account, bookings, credits, and memberships."],
   terms: ["Terms of Service | Cave Modern Pilates", "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions."],
   policies: ["Studio Policies | Cave Modern Pilates", "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."]
@@ -46,7 +47,7 @@ function studioServerPlugin() {
       const [title, description] = seoPages[page] || seoPages.index;
       const path = page === "index" ? "/" : `/${page}`;
       const canonical = `${siteUrl}${path}`;
-      const isPrivate = ["login", "signup", "account"].includes(page);
+      const isPrivate = ["login", "signup", "sms", "account"].includes(page);
       const graph = [
           {
             "@type": ["HealthClub", "SportsActivityLocation", "LocalBusiness"],

@@ -797,6 +797,47 @@ body.interior:has(.page-policies),
   padding: 22px 0 8px;
 }
 
+.sms-signup-page {
+  display: grid;
+  min-height: calc(100vh - 88px);
+  place-items: center;
+  padding: 150px 24px 90px;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(47, 125, 98, 0.18), transparent 32%),
+    #101211;
+}
+
+.sms-signup-card {
+  width: min(100%, 620px);
+  padding: clamp(34px, 6vw, 62px);
+  border-radius: 34px;
+  color: #070707;
+  background: #f7f7f4;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
+}
+
+.sms-signup-card h1 {
+  max-width: 12ch;
+  margin: 0 0 18px;
+  font-size: clamp(2.65rem, 8vw, 4.8rem);
+  font-weight: 500;
+  letter-spacing: -0.06em;
+  line-height: 0.92;
+}
+
+.sms-signup-intro,
+.sms-signup-success > p:not(.cave-updates-kicker) {
+  max-width: 520px;
+  margin: 0 0 28px;
+  color: #5e5e5b;
+  font-size: 1.03rem;
+  line-height: 1.6;
+}
+
+.sms-signup-success .pill-button {
+  min-width: 180px;
+}
+
 @media (max-width: 560px) {
   .cave-updates-nudge {
     right: 12px;
@@ -816,6 +857,16 @@ body.interior:has(.page-policies),
     max-height: calc(100vh - 20px);
     padding: 34px 24px 28px;
     border-radius: 30px;
+  }
+
+  .sms-signup-page {
+    align-items: start;
+    padding: 118px 12px 54px;
+  }
+
+  .sms-signup-card {
+    padding: 36px 24px;
+    border-radius: 28px;
   }
 }
 

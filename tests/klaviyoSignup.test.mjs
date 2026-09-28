@@ -12,7 +12,8 @@ import {
   rememberCaveUpdatesPrompt,
   rememberCaveUpdatesSubscription,
   shouldShowCaveUpdatesPrompt,
-  subscribeToCaveUpdates
+  subscribeToCaveUpdates,
+  subscribeToCaveTexts
 } from "../src/klaviyoSignup.js";
 
 function createMemoryStorage() {
@@ -95,6 +96,27 @@ test("subscribes opted-in visitors to both the email and text lists", async () =
   assert.equal(requests[1].body.data.attributes.profile.data.attributes.phone_number, "+17085550123");
 });
 
+test("subscribes a campaign visitor to SMS without inventing email consent", async () => {
+  let request;
+  const fetchImpl = async (url, options) => {
+    request = { url, body: JSON.parse(options.body) };
+    return { ok: true };
+  };
+
+  await subscribeToCaveTexts({
+    phoneNumber: "+17085550123",
+    fetchImpl
+  });
+
+  const attributes = request.body.data.attributes.profile.data.attributes;
+  assert.equal(request.body.data.relationships.list.data.id, KLAVIYO_SMS_LIST_ID);
+  assert.equal(attributes.phone_number, "+17085550123");
+  assert.equal(attributes.email, undefined);
+  assert.deepEqual(attributes.subscriptions, {
+    sms: { marketing: { consent: "SUBSCRIBED" } }
+  });
+});
+
 test("limits the optional signup reminder to once per cooldown", () => {
   const storage = createMemoryStorage();
   const now = Date.UTC(2026, 8, 20);
@@ -116,4 +138,16 @@ test("stops prompting after a successful signup without storing contact details"
     lastPromptedAt: getCaveUpdatesPreferences(storage).lastPromptedAt
   });
   assert.equal(shouldShowCaveUpdatesPrompt({ storage }), false);
+});
+
+test("an SMS-only landing page signup does not claim email consent", () => {
+  const storage = createMemoryStorage();
+
+  rememberCaveUpdatesSubscription({ includeEmail: false, includeSms: true, storage });
+
+  assert.deepEqual(getCaveUpdatesPreferences(storage), {
+    emailSubscribed: false,
+    smsSubscribed: true,
+    lastPromptedAt: getCaveUpdatesPreferences(storage).lastPromptedAt
+  });
 });

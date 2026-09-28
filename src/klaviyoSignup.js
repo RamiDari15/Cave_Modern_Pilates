@@ -42,11 +42,11 @@ export function rememberCaveUpdatesPrompt(storage = globalThis.localStorage, now
   return writeStoredPreferences(storage, { ...preferences, lastPromptedAt: now });
 }
 
-export function rememberCaveUpdatesSubscription({ includeSms = false, storage = globalThis.localStorage } = {}) {
+export function rememberCaveUpdatesSubscription({ includeEmail = true, includeSms = false, storage = globalThis.localStorage } = {}) {
   const preferences = getCaveUpdatesPreferences(storage);
   return writeStoredPreferences(storage, {
     ...preferences,
-    emailSubscribed: true,
+    emailSubscribed: preferences.emailSubscribed || includeEmail,
     smsSubscribed: preferences.smsSubscribed || includeSms,
     lastPromptedAt: Date.now()
   });
@@ -73,8 +73,8 @@ export function normalizeKlaviyoPhone(value) {
 
 export function createKlaviyoSubscriptionPayload({ email, phoneNumber = "", channel = "email" }) {
   const isSms = channel === "sms";
+  const emailAddress = String(email || "").trim().toLowerCase();
   const profileAttributes = {
-    email: String(email || "").trim().toLowerCase(),
     subscriptions: isSms
       ? { sms: { marketing: { consent: "SUBSCRIBED" } } }
       : { email: { marketing: { consent: "SUBSCRIBED" } } },
@@ -82,6 +82,10 @@ export function createKlaviyoSubscriptionPayload({ email, phoneNumber = "", chan
       "Signup Source": "Cave website updates form"
     }
   };
+
+  if (emailAddress) {
+    profileAttributes.email = emailAddress;
+  }
 
   if (isSms && phoneNumber) {
     profileAttributes.phone_number = phoneNumber;
@@ -111,9 +115,8 @@ export function createKlaviyoSubscriptionPayload({ email, phoneNumber = "", chan
   };
 }
 
-export async function subscribeToCaveUpdates({ email, phoneNumber = "", includeSms = false, fetchImpl = fetch }) {
-  const subscribe = async (channel) => {
-    const response = await fetchImpl(
+async function subscribeToChannel({ email = "", phoneNumber = "", channel, fetchImpl }) {
+  const response = await fetchImpl(
       `https://a.klaviyo.com/client/subscriptions?company_id=${encodeURIComponent(KLAVIYO_PUBLIC_KEY)}`,
       {
         method: "POST",
@@ -126,13 +129,19 @@ export async function subscribeToCaveUpdates({ email, phoneNumber = "", includeS
       }
     );
 
-    if (!response.ok) {
-      throw new Error(`Klaviyo ${channel} subscription failed`);
-    }
-  };
-
-  await subscribe("email");
-  if (includeSms) {
-    await subscribe("sms");
+  if (!response.ok) {
+    throw new Error(`Klaviyo ${channel} subscription failed`);
   }
+}
+
+export async function subscribeToCaveUpdates({ email, phoneNumber = "", includeSms = false, fetchImpl = fetch }) {
+  await subscribeToChannel({ email, phoneNumber, channel: "email", fetchImpl });
+
+  if (includeSms) {
+    await subscribeToChannel({ email, phoneNumber, channel: "sms", fetchImpl });
+  }
+}
+
+export async function subscribeToCaveTexts({ phoneNumber, fetchImpl = fetch }) {
+  await subscribeToChannel({ phoneNumber, channel: "sms", fetchImpl });
 }
