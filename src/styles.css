@@ -834,6 +834,28 @@ body.interior:has(.page-policies),
   line-height: 1.6;
 }
 
+.sms-signup-account-email {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.sms-signup-account-email span {
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sms-signup-account-email strong {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
 .sms-signup-success .pill-button {
   min-width: 180px;
 }

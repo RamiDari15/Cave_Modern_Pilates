@@ -1118,7 +1118,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   }
 
   if (page === "sms") {
-    return <SmsSignupPage />;
+    return <SmsSignupPage clientSession={clientSession} />;
   }
 
   if (page === "account") {
@@ -1136,12 +1136,19 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   return <HomePage memberships={cache.memberships || []} store={cache.store || {}} bookingUrl={bookingUrl} />;
 }
 
-function SmsSignupPage() {
-  const [email, setEmail] = useState("");
+function SmsSignupPage({ clientSession }) {
+  const signedInEmail = clientSession?.signedIn
+    ? String(clientSession?.user?.email || clientSession?.user?.username || "").trim().toLowerCase()
+    : "";
+  const [email, setEmail] = useState(signedInEmail);
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (signedInEmail) setEmail(signedInEmail);
+  }, [signedInEmail]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -1185,10 +1192,17 @@ function SmsSignupPage() {
             <h1 id="sms-signup-title">Be the first to know.</h1>
             <p className="sms-signup-intro">Get class openings, studio updates, and occasional offers sent straight to your phone.</p>
             <form className="cave-updates-form" onSubmit={submit}>
-              <label className="cave-updates-field">
-                <span>Email connected to your Cave profile</span>
-                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required />
-              </label>
+              {signedInEmail ? (
+                <div className="sms-signup-account-email">
+                  <span>Signed in as</span>
+                  <strong>{signedInEmail}</strong>
+                </div>
+              ) : (
+                <label className="cave-updates-field">
+                  <span>Email address</span>
+                  <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required />
+                </label>
+              )}
               <label className="cave-updates-field">
                 <span>Mobile number</span>
                 <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(708) 555-0123" required />
