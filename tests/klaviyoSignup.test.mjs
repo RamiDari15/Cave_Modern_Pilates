@@ -96,7 +96,7 @@ test("subscribes opted-in visitors to both the email and text lists", async () =
   assert.equal(requests[1].body.data.attributes.profile.data.attributes.phone_number, "+17085550123");
 });
 
-test("subscribes a campaign visitor to SMS without inventing email consent", async () => {
+test("links a campaign visitor's SMS consent to their email profile without inventing email consent", async () => {
   let request;
   const fetchImpl = async (url, options) => {
     request = { url, body: JSON.parse(options.body) };
@@ -104,6 +104,7 @@ test("subscribes a campaign visitor to SMS without inventing email consent", asy
   };
 
   await subscribeToCaveTexts({
+    email: "member@example.com",
     phoneNumber: "+17085550123",
     fetchImpl
   });
@@ -111,7 +112,7 @@ test("subscribes a campaign visitor to SMS without inventing email consent", asy
   const attributes = request.body.data.attributes.profile.data.attributes;
   assert.equal(request.body.data.relationships.list.data.id, KLAVIYO_SMS_LIST_ID);
   assert.equal(attributes.phone_number, "+17085550123");
-  assert.equal(attributes.email, undefined);
+  assert.equal(attributes.email, "member@example.com");
   assert.deepEqual(attributes.subscriptions, {
     sms: { marketing: { consent: "SUBSCRIBED" } }
   });

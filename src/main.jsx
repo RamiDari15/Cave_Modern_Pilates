@@ -1137,6 +1137,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
 }
 
 function SmsSignupPage() {
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState("idle");
@@ -1158,7 +1159,7 @@ function SmsSignupPage() {
 
     setStatus("submitting");
     try {
-      await subscribeToCaveTexts({ phoneNumber });
+      await subscribeToCaveTexts({ email, phoneNumber });
       rememberCaveUpdatesSubscription({ includeEmail: false, includeSms: true });
       window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
       setStatus("success");
@@ -1184,6 +1185,10 @@ function SmsSignupPage() {
             <h1 id="sms-signup-title">Be the first to know.</h1>
             <p className="sms-signup-intro">Get class openings, studio updates, and occasional offers sent straight to your phone.</p>
             <form className="cave-updates-form" onSubmit={submit}>
+              <label className="cave-updates-field">
+                <span>Email connected to your Cave profile</span>
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required />
+              </label>
               <label className="cave-updates-field">
                 <span>Mobile number</span>
                 <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(708) 555-0123" required />

@@ -142,6 +142,6 @@ export async function subscribeToCaveUpdates({ email, phoneNumber = "", includeS
   }
 }
 
-export async function subscribeToCaveTexts({ phoneNumber, fetchImpl = fetch }) {
-  await subscribeToChannel({ phoneNumber, channel: "sms", fetchImpl });
+export async function subscribeToCaveTexts({ email, phoneNumber, fetchImpl = fetch }) {
+  await subscribeToChannel({ email, phoneNumber, channel: "sms", fetchImpl });
 }
