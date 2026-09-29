@@ -6694,3 +6694,69 @@ body.interior:has(.page-policies),
   color: rgba(0, 0, 0, 0.55);
   letter-spacing: 0.02em;
 }
+
+/* New-client ad landing page (/newbie) */
+.newbie-intro-lead {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  max-width: 620px;
+  margin: 22px auto 0;
+  color: var(--white);
+}
+
+.newbie-intro-lead p {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.newbie-intro-credit {
+  font-weight: 700;
+}
+
+.newbie-intro-cta {
+  margin-top: 8px;
+  color: var(--black);
+  background: var(--white);
+}
+
+.section.newbie-expect {
+  width: auto;
+  max-width: 760px;
+  margin: 8px 16px 72px;
+  padding: 28px 24px;
+  border-radius: 28px;
+  color: var(--black);
+  background: var(--paper);
+}
+
+@media (min-width: 808px) {
+  .section.newbie-expect {
+    margin: 8px auto 72px;
+    padding: 36px 40px;
+  }
+}
+
+.newbie-expect a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.newbie-expect h2 {
+  margin: 0 0 18px;
+  font-weight: 400;
+}
+
+.newbie-expect-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding-left: 22px;
+  line-height: 1.5;
+}
+
+.newbie-expect-sms {
+  margin: 0;
+  color: var(--stone);
+}

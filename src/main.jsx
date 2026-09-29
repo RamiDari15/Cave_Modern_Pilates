@@ -6,7 +6,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { isPricingItemCurrentlyVisible } from "./promotionWindows";
+import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -16,6 +16,16 @@ import {
   subscribeToCaveUpdates,
   subscribeToCaveTexts
 } from "./klaviyoSignup";
+import {
+  initTracking,
+  newTrackingEventId,
+  trackContact,
+  trackInitiateCheckout,
+  trackLead,
+  trackMembershipPurchase,
+  trackPageView,
+  trackPurchase
+} from "./tracking";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
 import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
@@ -362,8 +372,10 @@ const FAQ_ITEMS = [
     category: "Privacy",
     question: "Does Cave sell or share my personal information?",
     answer: [
-      "Cave does not sell, rent, or share personal information with third parties for marketing purposes.",
-      "Information may be shared with trusted service providers necessary for payment processing, scheduling, customer support, or legal compliance."
+      "Cave does not sell or rent personal information.",
+      "Information may be shared with trusted service providers necessary for payment processing, scheduling, customer support, or legal compliance.",
+      "The website uses advertising and analytics tools from Meta and Google, including cookies, the Meta Pixel, and the Google tag, to measure visits and purchases and to show Cave ads. When you make a purchase, a hashed (scrambled) version of your email address and studio customer ID, along with details about the purchase, may be shared with Meta and Google for ad measurement. You can limit this in your browser's cookie settings, Meta's Ad Preferences, and Google's My Ad Center.",
+      "Text-message consent and phone numbers collected for texts are never shared with advertising tools."
     ]
   }
 ];
@@ -811,6 +823,20 @@ function App() {
   }, [isInterior, menuOpen, page]);
 
   useEffect(() => {
+    initTracking();
+    const onClick = (event) => {
+      const link = event.target?.closest?.("a[href^='tel:']");
+      if (link) trackContact("phone");
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+
+  useEffect(() => {
+    trackPageView(page);
+  }, [page]);
+
+  useEffect(() => {
     const updateHeader = () => setIsScrolled(window.scrollY > 16);
 
     updateHeader();
@@ -853,10 +879,6 @@ function App() {
   );
 }
 
-function isBackToSchoolPromotionActive(now = new Date()) {
-  const year = now.getFullYear();
-  return now >= new Date(year, 8, 1, 0, 0, 0, 0);
-}
 
 function BackToSchoolBanner() {
   if (!isBackToSchoolPromotionActive()) return null;
@@ -870,7 +892,7 @@ function BackToSchoolBanner() {
 
 function CaveUpdatesInitialPopup({ page, clientSession }) {
   useEffect(() => {
-    if (clientSession?.signedIn || !["home", "pricing", "newbie"].includes(page)) return undefined;
+    if (clientSession?.signedIn || !["home", "pricing"].includes(page)) return undefined;
     if (getCaveUpdatesPreferences().emailSubscribed) return undefined;
     const lastShownAt = Number(window.localStorage.getItem(CAVE_UPDATES_INITIAL_POPUP_KEY)) || 0;
     if (Date.now() - lastShownAt < CAVE_UPDATES_INITIAL_POPUP_COOLDOWN_MS) return undefined;
@@ -1167,6 +1189,7 @@ function SmsSignupPage({ clientSession }) {
     setStatus("submitting");
     try {
       await subscribeToCaveTexts({ email, phoneNumber });
+      trackLead("sms");
       rememberCaveUpdatesSubscription({ includeEmail: false, includeSms: true });
       window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
       setStatus("success");
@@ -1492,7 +1515,8 @@ function PoliciesPage() {
           <p>Cave uses the information you provide to create and manage your studio account, process purchases, schedule classes, provide support, and send communications you request.</p>
           <p>If you choose promotional text updates, Cave records that choice with its studio-management provider. Message frequency varies, message and data rates may apply, and you may reply STOP to opt out or HELP for help. Promotional-text consent is not required to purchase a class, package, or membership.</p>
           <p>Mobile information and text-message consent are not shared with third parties or affiliates for marketing or promotional purposes. Text-message originator opt-in data and consent are excluded from all other data sharing.</p>
-          <p>Cave does not sell personal information. Information is shared only with service providers needed for studio operations, payment processing, scheduling, customer support, and communications, or when required by law.</p>
+          <p>Cave does not sell personal information. Information is shared only with service providers needed for studio operations, payment processing, scheduling, customer support, and communications, with the advertising and analytics providers described below, or when required by law.</p>
+          <p><strong>Advertising and analytics.</strong> The website uses cookies and tags from Meta (the Meta Pixel and Conversions API) and Google (Google Analytics and Google Ads) to understand how visitors use the site, measure whether ads lead to sign-ups and purchases, and show Cave ads to people who may be interested. These tools may receive the pages you visit, your browser and device information, your IP address, and, when you make a purchase, the purchase amount and a hashed (scrambled) version of your email address and studio customer ID. Text-message consent and phone numbers collected for texts are never shared with these tools. You can limit ad tracking in your browser's cookie settings, in Meta's Ad Preferences, and in Google's My Ad Center.</p>
         </div>
         <div className="policy-copy" id="account-deletion">
           <h2>Cave app account deletion</h2>
@@ -2138,8 +2162,9 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   return (
     <>
       <section className={`pricing-category-heading section page-section ${category.key}`}>
-        <h1>{category.title}</h1>
+        <h1>{category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
         {category.key === "memberships" ? <MembershipPerks /> : null}
+        {category.key === "newbie" ? <NewbieIntroLead /> : null}
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
@@ -2167,6 +2192,8 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
         )}
       </section>
 
+      {category.key === "newbie" ? <NewbieWhatToExpect /> : null}
+
       {cart && totalQty > 0 ? (
         <button className="cart-fab" type="button" onClick={cart.open} aria-label={`Open cart, ${totalQty} item${totalQty !== 1 ? "s" : ""}`}>
           <span className="cart-fab-icon"><Plus size={16} strokeWidth={2.5} /></span>
@@ -2178,6 +2205,39 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
         <CartDrawer cart={cart} clientSession={clientSession} savedCards={savedCards} cardsLoaded={cardsLoaded} onCardAdded={refreshCards} />
       ) : null}
     </>
+  );
+}
+
+// Shown to new clients who join a membership after the intro package.
+// Set to "" to remove the offer from the page.
+const NEWBIE_MEMBERSHIP_CREDIT_NOTE = "Join a membership after your intro and your intro package price comes off your first month.";
+
+function newbieHeadline(items) {
+  const pack = items.find((item) => /\b3\s*class/i.test(String(item.name || "")) && item.price);
+  return pack ? `3 reformer classes for ${compactPrice(pack.price)}` : "";
+}
+
+function NewbieIntroLead() {
+  return (
+    <div className="newbie-intro-lead">
+      <p>New clients only. Women's reformer Pilates at Orland Square. No experience needed: your instructor sets up your reformer and guides every move.</p>
+      {NEWBIE_MEMBERSHIP_CREDIT_NOTE ? <p className="newbie-intro-credit">{NEWBIE_MEMBERSHIP_CREDIT_NOTE}</p> : null}
+      <a className="pill-button newbie-intro-cta" href="#purchase-options">Claim my intro</a>
+    </div>
+  );
+}
+
+function NewbieWhatToExpect() {
+  return (
+    <section className="newbie-expect section page-section" aria-labelledby="newbie-expect-title">
+      <h2 id="newbie-expect-title">Your first class at Cave</h2>
+      <ol className="newbie-expect-steps">
+        <li><strong>Book online.</strong> Buy your intro, then pick any class on the <a href={ROUTES.schedule}>schedule</a>.</li>
+        <li><strong>Arrive 10 minutes early.</strong> We'll show you around and sign your waiver if you haven't yet.</li>
+        <li><strong>Your instructor sets you up.</strong> Springs, straps and every move are cued, so you just follow along.</li>
+      </ol>
+      <p className="newbie-expect-sms">Not ready yet? <a href={ROUTES.sms}>Get class openings by text.</a></p>
+    </section>
   );
 }
 
@@ -2505,6 +2565,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
   : selectedCard;
 
   const openModal = () => {
+    trackInitiateCheckout([{ name: item.name, price: item.price, quantity: 1 }]);
     setBuyState({ type: "idle", message: "" });
     setSelectedCard(savedCards.length ? savedCards[0].lastFour : "__manual__");
     setManualLastFour("");
@@ -2565,13 +2626,15 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
 
     setBuyState({ type: "loading", message: isContract ? "Processing membership..." : "Starting checkout..." });
 const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/cart/checkout";
+const trackingEventId = newTrackingEventId();
 
 const payload = isContract
   ? {
       contractId: item.id,
       storedCardLastFour,
       acceptTerms: true,
-      acceptWaiver: true
+      acceptWaiver: true,
+      trackingEventId
     }
   : {
       items: [
@@ -2584,10 +2647,16 @@ const payload = isContract
         }
       ],
       storedCardLastFour,
+      trackingEventId,
       ...(appliedPromo ? { promoCode: appliedPromo } : {})
     };
     try {
       await apiRequest(endpoint, { method: "POST", body: payload });
+      if (isContract) {
+        trackMembershipPurchase({ eventId: trackingEventId, name: item.name });
+      } else {
+        trackPurchase({ items: payload.items, eventId: trackingEventId, email: clientSession?.user?.email || "" });
+      }
       setBuyState({ type: "success", message: isContract ? "Membership activated!" : "Purchase complete!" });
       onPurchaseSuccess?.();
     } catch (err) {
@@ -2835,6 +2904,12 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   const closeTimerRef = React.useRef(null);
 
   useEffect(() => {
+    if (cart.items.length) trackInitiateCheckout(cart.items);
+    // Track once per drawer open, not on every quantity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     return () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); };
   }, []);
 
@@ -2889,8 +2964,11 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
       return;
     }
     setCheckoutState({ type: "loading", message: "Processing payment..." });
+    const trackingEventId = newTrackingEventId();
+    const purchasedItems = cart.items.map((item) => ({ ...item }));
     try {
-      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
+      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, trackingEventId, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
+      trackPurchase({ items: purchasedItems, eventId: trackingEventId, email: clientSession?.user?.email || "" });
       setCheckoutState({ type: "success", message: "Purchase complete!" });
       cart.clear();
     } catch (err) {
@@ -3152,6 +3230,7 @@ function ContactPage({ location }) {
       if (!res.ok) {
         setStatus({ type: "error", message: data.message || "Something went wrong. Please try again." });
       } else {
+        trackLead("contact_form");
         setStatus({ type: "success", message: "Message sent! We’ll get back to you soon." });
         setForm({ name: "", email: "", message: "" });
       }
@@ -5939,6 +6018,7 @@ function CaveUpdatesSignupModal() {
         phoneNumber,
         includeSms: smsConsent
       });
+      trackLead(smsConsent ? "email_sms" : "email");
       rememberCaveUpdatesSubscription({ includeSms: smsConsent });
       window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
       setStatus("success");

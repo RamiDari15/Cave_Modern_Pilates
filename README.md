@@ -138,6 +138,25 @@ The sign-up form includes the required client fields returned by the studio API:
 - mobile phone
 - email
 
+## Ad Tracking
+
+Meta and Google tags load only when their IDs are set, so nothing runs until the ad accounts exist. Browser events live in `src/tracking.js`; server-side Meta purchase events live in `server/adConversions.mjs` and share the browser's event ID so Meta counts each purchase once.
+
+Set these in Vercel (Project Settings, Environment Variables), then redeploy:
+
+| Variable | Where it comes from |
+| --- | --- |
+| `VITE_META_PIXEL_ID` | Meta Events Manager, dataset ID |
+| `META_PIXEL_ID` | Same dataset ID (server side) |
+| `META_CAPI_ACCESS_TOKEN` | Events Manager, dataset Settings, Conversions API, Generate access token |
+| `META_CAPI_TEST_EVENT_CODE` | Optional. Events Manager, Test events. Remove after testing |
+| `VITE_GA4_MEASUREMENT_ID` | GA4 web stream, `G-...` |
+| `VITE_GOOGLE_ADS_ID` | Google Ads conversion tag, `AW-...` |
+| `VITE_GOOGLE_ADS_INTRO_PURCHASE_LABEL` | Label of the "Intro Purchase" conversion |
+| `VITE_GOOGLE_ADS_PURCHASE_LABEL` | Label of the "Any Purchase" conversion |
+
+Events: PageView and ViewContent (pricing pages), InitiateCheckout, Purchase, NewClientPurchase (new-client items), Subscribe (memberships), Lead (SMS, email, contact form) and Contact (phone taps).
+
 ## Production Publish Checklist
 
 1. Add the production environment variables from `.env.example` to Vercel.

@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 import { NO_SHOW_POLICY_PARAGRAPHS } from "../src/studioPolicies.js";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
 import { getGuestPassPeriod } from "../src/guestPass.js";
-import { isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
+import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
+import { cartPurchaseEvents, buildMetaEvent, sendMetaEvents } from "./adConversions.mjs";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 
 const ROOT_DIR = resolve(import.meta.dirname, "..");
@@ -92,10 +93,6 @@ function promoEligibleItems(items) {
   );
 }
 
-function isBackToSchoolPromotionActive(now = new Date()) {
-  const year = now.getFullYear();
-  return now >= new Date(year, 8, 1, 0, 0, 0, 0);
-}
 
 function allClassPackPromoItems(items) {
   return (Array.isArray(items) ? items : []).filter((item) => {
@@ -3187,6 +3184,17 @@ return true;
           body: checkoutBody
         });
 
+        await sendMetaEvents(
+          cartPurchaseEvents({
+            items,
+            total: checkoutAmount,
+            eventId: body.trackingEventId,
+            email: session.user?.email || session.user?.username || "",
+            externalId: clientId,
+            request
+          })
+        );
+
         sendJson(response, 200, {
           ok: true,
           purchase: result,
@@ -3353,6 +3361,16 @@ return true;
           });
           return true;
         }
+        await sendMetaEvents([
+          buildMetaEvent({
+            eventName: "Subscribe",
+            eventId: body.trackingEventId,
+            contentName: `Membership ${body.contractId}`,
+            email: session.user?.email || session.user?.username || "",
+            externalId: clientId,
+            request
+          })
+        ]);
         sendJson(response, 200, { ok: true, purchase: result });
       } catch (err) {
         const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Membership purchase could not be completed.";
