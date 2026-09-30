@@ -7,7 +7,8 @@ import {
   cleanEventId,
   hashForMeta,
   isNewClientItemName,
-  sendMetaEvents
+  sendMetaEvents,
+  recordConversion
 } from "../server/adConversions.mjs";
 
 const request = {
@@ -92,4 +93,40 @@ test("a Meta outage never throws into checkout", async () => {
     fetchImpl: async () => { throw new Error("network down"); }
   });
   assert.equal(result.sent, false);
+});
+
+
+test("malformed cookies cannot break conversion construction and query data is excluded", () => {
+  const event = buildMetaEvent({ eventName: "Purchase", eventId: "receipt-123", value: 0,
+    request: { headers: { cookie: "bad=%E0%A4%A; _fbp=fb.1.2.3", referer: "https://www.cavemodernpilates.com/newbie?email=private@example.test#private" } } });
+  assert.equal(event.custom_data.value, 0);
+  assert.equal(event.event_source_url, "https://www.cavemodernpilates.com/newbie");
+  assert.equal(event.user_data.fbp, "fb.1.2.3");
+});
+
+test("discounted intro value follows the completed charge, not display prices", () => {
+  const events = cartPurchaseEvents({ items: [{ name: "New Client 3 Class Package", price: "$65", quantity: 1 }], total: 55.25, eventId: "discount-123", request });
+  assert.equal(events[0].custom_data.value, 55.25);
+  assert.equal(events[1].custom_data.value, 55.25);
+});
+
+test("payload construction failure does not escape into checkout", async () => {
+  assert.equal(await recordConversion(() => { throw new Error("malformed input"); }, { env: {} }), null);
+});
+
+test("receipt shares server event IDs/values without exposing hashed customer data", async () => {
+  let serverEvents;
+  const receipt = await recordConversion(() => cartPurchaseEvents({ items: [{ name: "New Client 3 Class Package", price: "$65", quantity: 1 }], total: 55.25, eventId: "receipt-123", email: "private@example.test", request }), {
+    env: { META_PIXEL_ID: "123", META_CAPI_ACCESS_TOKEN: "test" },
+    fetchImpl: async (url, options) => { serverEvents = JSON.parse(options.body).data; return { ok: true }; }
+  });
+  assert.deepEqual(receipt.events.map(e => e.id), serverEvents.map(e => e.event_id));
+  assert.deepEqual(receipt.events.map(e => e.data.value), [55.25, 55.25]);
+  assert.doesNotMatch(JSON.stringify(receipt), /user_data|private|client_ip|fbp/);
+});
+
+test("Mindbody sandbox purchases never produce ad conversions", async () => {
+  let built = false;
+  assert.equal(await recordConversion(() => { built = true; return []; }, { env: { BOOKING_TEST_MODE: "true" } }), null);
+  assert.equal(built, false);
 });

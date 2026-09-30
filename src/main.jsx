@@ -22,10 +22,10 @@ import {
   trackContact,
   trackInitiateCheckout,
   trackLead,
-  trackMembershipPurchase,
+  trackConversionReceipt,
   trackPageView,
-  trackPurchase
 } from "./tracking";
+import newbiePhoto from "../assets/cave-studio-wide.jpg";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
 import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
@@ -849,7 +849,7 @@ function App() {
 
   return (
     <div className={shellClass}>
-      <BackToSchoolBanner />
+      {page !== "newbie" ? <BackToSchoolBanner /> : null}
       <Header
         activePage={page}
         bookingUrl={bookingUrl}
@@ -1747,11 +1747,13 @@ function GiftCardPurchaseSection({ clientSession }) {
         method: "POST",
         body: {
           ...form,
+          trackingEventId: newTrackingEventId(),
           giftCardId: Number(form.giftCardId),
           layoutId: Number(form.layoutId || selectedGiftCard?.layouts?.[0]?.id || 0),
           storedCardLastFour: selectedCard
         }
       });
+      trackConversionReceipt(data.tracking, clientSession?.user?.email);
       setPurchaseState({
         type: "success",
         message: `Gift card purchased${data.purchase?.RecipientEmail ? ` for ${data.purchase.RecipientEmail}` : ""}. Mindbody will deliver it on the selected date.`
@@ -2135,7 +2137,13 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
   const groups = usePricingCatalog(store, memberships);
-  const items = groups[category.key] || [];
+  const items = [...(groups[category.key] || [])].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
+  const introPack = items.find((item) => /3\s*class/i.test(item.name) && item.sellOnline !== false);
+  const claimIntro = () => {
+    if (!introPack || !cart) return;
+    if (cart.items.some((item) => item.id === introPack.id)) cart.open();
+    else cart.addItem(introPack);
+  };
   const [activeMemberships, setActiveMemberships] = useState([]);
   const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
   const totalQty = cart ? cart.items.reduce((n, i) => n + i.quantity, 0) : 0;
@@ -2164,7 +2172,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
       <section className={`pricing-category-heading section page-section ${category.key}`}>
         <h1>{category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
         {category.key === "memberships" ? <MembershipPerks /> : null}
-        {category.key === "newbie" ? <NewbieIntroLead /> : null}
+        {category.key === "newbie" ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(introPack && cart)} /> : null}
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
@@ -2192,7 +2200,10 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
         )}
       </section>
 
-      {category.key === "newbie" ? <NewbieWhatToExpect /> : null}
+      {category.key === "newbie" ? <>
+        <NewbieWhatToExpect />
+        {introPack && cart && !cart.isOpen ? <button className="pill-button black newbie-sticky-cta" onClick={claimIntro}>Claim my intro · {compactPrice(introPack.price)}</button> : null}
+      </> : null}
 
       {cart && totalQty > 0 ? (
         <button className="cart-fab" type="button" onClick={cart.open} aria-label={`Open cart, ${totalQty} item${totalQty !== 1 ? "s" : ""}`}>
@@ -2217,12 +2228,13 @@ function newbieHeadline(items) {
   return pack ? `3 reformer classes for ${compactPrice(pack.price)}` : "";
 }
 
-function NewbieIntroLead() {
+function NewbieIntroLead({ onClaim, available }) {
   return (
     <div className="newbie-intro-lead">
       <p>New clients only. Women's reformer Pilates at Orland Square. No experience needed: your instructor sets up your reformer and guides every move.</p>
       {NEWBIE_MEMBERSHIP_CREDIT_NOTE ? <p className="newbie-intro-credit">{NEWBIE_MEMBERSHIP_CREDIT_NOTE}</p> : null}
-      <a className="pill-button newbie-intro-cta" href="#purchase-options">Claim my intro</a>
+      <button className="pill-button black newbie-intro-cta" type="button" onClick={onClaim} disabled={!available}>Claim my intro</button>
+      <img className="newbie-intro-photo" src={newbiePhoto} alt="Cave Modern Pilates studio" width="600" height="400" />
     </div>
   );
 }
@@ -2236,6 +2248,9 @@ function NewbieWhatToExpect() {
         <li><strong>Arrive 10 minutes early.</strong> We'll show you around and sign your waiver if you haven't yet.</li>
         <li><strong>Your instructor sets you up.</strong> Springs, straps and every move are cued, so you just follow along.</li>
       </ol>
+      <details><summary>Do I need Pilates experience?</summary><p>{FAQ_ITEMS.find((item) => item.id === "first-class").answer[0]}</p></details>
+      <details><summary>What if I need to cancel?</summary><p>Cancel at least 12 hours before class. A late cancellation costs $20. <a href={ROUTES.policies}>Read studio policies.</a></p></details>
+      <p><a href={ROUTES.schedule}>See available class times</a> · <a href={ROUTES.about}>Meet Hala, Cave’s founder</a></p>
       <p className="newbie-expect-sms">Not ready yet? <a href={ROUTES.sms}>Get class openings by text.</a></p>
     </section>
   );
@@ -2597,7 +2612,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
       setAppliedPromo("");
-      setPromoState({ type: "error", message: "BACKTOSCHOOL15 begins September 1." });
+      setPromoState({ type: "error", message: "BACKTOSCHOOL15 has ended." });
       return;
     }
     if (!promoAppliesToItem(code, item)) {
@@ -2651,12 +2666,8 @@ const payload = isContract
       ...(appliedPromo ? { promoCode: appliedPromo } : {})
     };
     try {
-      await apiRequest(endpoint, { method: "POST", body: payload });
-      if (isContract) {
-        trackMembershipPurchase({ eventId: trackingEventId, name: item.name });
-      } else {
-        trackPurchase({ items: payload.items, eventId: trackingEventId, email: clientSession?.user?.email || "" });
-      }
+      const result = await apiRequest(endpoint, { method: "POST", body: payload });
+      trackConversionReceipt(result.tracking, clientSession?.user?.email);
       setBuyState({ type: "success", message: isContract ? "Membership activated!" : "Purchase complete!" });
       onPurchaseSuccess?.();
     } catch (err) {
@@ -2944,7 +2955,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
       setAppliedPromo("");
-      setPromoState({ type: "error", message: "BACKTOSCHOOL15 begins September 1." });
+      setPromoState({ type: "error", message: "BACKTOSCHOOL15 has ended." });
       return;
     }
     if (!cart.items.some((item) => promoAppliesToItem(code, item))) {
@@ -2965,10 +2976,9 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     setCheckoutState({ type: "loading", message: "Processing payment..." });
     const trackingEventId = newTrackingEventId();
-    const purchasedItems = cart.items.map((item) => ({ ...item }));
     try {
-      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, trackingEventId, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
-      trackPurchase({ items: purchasedItems, eventId: trackingEventId, email: clientSession?.user?.email || "" });
+      const result = await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, trackingEventId, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
+      trackConversionReceipt(result.tracking, clientSession?.user?.email);
       setCheckoutState({ type: "success", message: "Purchase complete!" });
       cart.clear();
     } catch (err) {
@@ -4191,11 +4201,13 @@ body: {
   emergencyContactPhone: form.emergencyContactPhone,
   emergencyContactRelationship: form.emergencyContactRelationship,
   gender: form.gender,
-  referredBy: form.referredBy
+  referredBy: form.referredBy,
+  trackingEventId: newTrackingEventId()
 }
 });
 
         if (result.ok) {
+          trackConversionReceipt(result.tracking, clientSession?.user?.email);
           // Reload account data with updated profile
           const updated = await apiRequest("/api/account/me").catch(() => null);
           if (updated?.data) {
@@ -4239,6 +4251,13 @@ body: {
           <FormField label="Emergency Contact Name" name="emergencyContactName" value={form.emergencyContactName} onChange={updateField} />
           <FormField label="Emergency Contact Phone" name="emergencyContactPhone" type="tel" value={form.emergencyContactPhone} onChange={updateField} />
         </div>
+        <label className="form-field">
+          <span>How did you hear about us? (Optional)</span>
+          <select name="referredBy" value={form.referredBy} onChange={updateField}>
+            <option value="">Select one</option>
+            {["Instagram", "Facebook", "Google", "Friend or family", "Walked past the studio", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}
+          </select>
+        </label>
         {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
         <button className="pill-button black" type="submit" disabled={saving}>
           {saving ? "Saving\u2026" : "Complete Studio Profile"}

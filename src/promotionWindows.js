@@ -29,12 +29,8 @@ export const OCTOBER_PACKAGE_WINDOW = Object.freeze({
   endsAt: OCTOBER_PACKAGE_END_MS
 });
 
-// BACKTOSCHOOL15 runs every September, midnight Sept 1 to midnight Oct 1 Central
-// (daylight time, -05:00). Shared by the site and the checkout API.
+// This was a 2026 promotion, not a recurring annual discount.
 export function isBackToSchoolPromotionActive(now = Date.now()) {
   const timestamp = Number(now instanceof Date ? now.getTime() : now);
-  const year = new Date(timestamp - 5 * 60 * 60 * 1000).getUTCFullYear();
-  const startsAt = Date.UTC(year, 8, 1, 5);
-  const endsAt = Date.UTC(year, 9, 1, 5);
-  return timestamp >= startsAt && timestamp < endsAt;
+  return timestamp >= Date.parse("2026-09-01T00:00:00-05:00") && timestamp < Date.parse("2026-10-01T00:00:00-05:00");
 }

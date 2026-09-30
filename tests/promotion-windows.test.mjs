@@ -39,3 +39,8 @@ test("BACKTOSCHOOL15 runs Sept 1 through Sept 30 Central time only", () => {
   assert.equal(isBackToSchoolPromotionActive(Date.parse("2026-10-01T00:00:00-05:00")), false);
   assert.equal(isBackToSchoolPromotionActive(new Date("2026-12-15T12:00:00Z")), false);
 });
+
+
+test("expired back-to-school code does not return next September", () => {
+  assert.equal(isBackToSchoolPromotionActive(Date.parse("2027-09-15T12:00:00-05:00")), false);
+});

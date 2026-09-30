@@ -31,6 +31,10 @@ export function cleanEventId(value) {
   return /^[A-Za-z0-9_.:-]{8,100}$/.test(id) ? id : crypto.randomUUID();
 }
 
+function safeCookieValue(value) {
+  try { return decodeURIComponent(value); } catch { return undefined; }
+}
+
 function requestContext(request) {
   const headers = request?.headers || {};
   const cookies = Object.fromEntries(
@@ -38,7 +42,7 @@ function requestContext(request) {
       .split(";")
       .map((part) => part.trim().split("="))
       .filter(([key]) => key)
-      .map(([key, ...rest]) => [key, decodeURIComponent(rest.join("="))])
+      .map(([key, ...rest]) => [key, safeCookieValue(rest.join("="))])
   );
   const forwarded = String(headers["x-forwarded-for"] || "").split(",")[0].trim();
   const origin = String(headers.origin || "").replace(/\/$/, "");
@@ -47,8 +51,16 @@ function requestContext(request) {
     userAgent: headers["user-agent"] || undefined,
     fbp: cookies._fbp || undefined,
     fbc: cookies._fbc || undefined,
-    referer: headers.referer || (origin ? `${origin}/` : undefined)
+    referer: cleanSourceUrl(headers.referer || (origin ? `${origin}/` : undefined))
   };
+}
+
+export function cleanSourceUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!["https:", "http:"].includes(url.protocol)) return undefined;
+    return `${url.origin}${url.pathname}`;
+  } catch { return undefined; }
 }
 
 export function buildMetaEvent({ eventName, eventId, value, contentName, email, phone, externalId, request, now = Date.now() }) {
@@ -64,7 +76,7 @@ export function buildMetaEvent({ eventName, eventId, value, contentName, email, 
   };
   const customData = {
     currency: "USD",
-    ...(Number.isFinite(Number(value)) && Number(value) > 0 ? { value: Number(Number(value).toFixed(2)) } : {}),
+    ...(Number.isFinite(Number(value)) && value != null && Number(value) >= 0 ? { value: Number(Number(value).toFixed(2)) } : {}),
     ...(contentName ? { content_name: String(contentName).slice(0, 200) } : {})
   };
 
@@ -125,15 +137,17 @@ export function cartPurchaseEvents({ items, total, eventId, email, externalId, r
   ];
 
   if (newClientItems.length) {
-    const newClientValue = newClientItems.reduce(
+    const introSubtotal = newClientItems.reduce(
       (sum, item) => sum + (Number(String(item.price || "").replace(/[^0-9.]/g, "")) || 0) * (Number(item.quantity) || 1),
       0
     );
+    const subtotal = list.reduce((sum, item) => sum + (Number(String(item.price || "").replace(/[^0-9.]/g, "")) || 0) * (Number(item.quantity) || 1), 0);
+    const newClientValue = subtotal > 0 ? Number((Number(total) * introSubtotal / subtotal).toFixed(2)) : undefined;
     events.push(
       buildMetaEvent({
         eventName: "NewClientPurchase",
         eventId: `${baseId}-intro`,
-        value: newClientValue || total,
+        value: newClientValue,
         contentName: newClientItems.map((item) => item.name).join(", "),
         email,
         externalId,
@@ -143,4 +157,18 @@ export function cartPurchaseEvents({ items, total, eventId, email, externalId, r
   }
 
   return events;
+}
+
+// Building payloads is inside the boundary too: no analytics failure may turn
+// an already completed payment into a checkout error and encourage a retry.
+export async function recordConversion(buildEvents, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
+  if (env.BOOKING_TEST_MODE === "true") return null;
+  try {
+    const events = buildEvents();
+    await sendMetaEvents(events, { env, fetchImpl });
+    return { events: events.map((event) => ({ name: event.event_name, id: event.event_id, data: event.custom_data })) };
+  } catch {
+    console.warn("[ad-conversions] Could not prepare conversion; checkout is unaffected");
+    return null;
+  }
 }

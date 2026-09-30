@@ -9,7 +9,8 @@ const GA4_ID = String(env.VITE_GA4_MEASUREMENT_ID || "").trim();
 const GOOGLE_ADS_ID = String(env.VITE_GOOGLE_ADS_ID || "").trim();
 const GOOGLE_ADS_INTRO_LABEL = String(env.VITE_GOOGLE_ADS_INTRO_PURCHASE_LABEL || "").trim();
 const GOOGLE_ADS_PURCHASE_LABEL = String(env.VITE_GOOGLE_ADS_PURCHASE_LABEL || "").trim();
-const NEW_CLIENT_PATTERN = /\b(new client|newbie|intro)\b/i;
+const GOOGLE_ADS_SIGNUP_LABEL = String(env.VITE_GOOGLE_ADS_SIGNUP_LABEL || "").trim();
+const GOOGLE_ADS_PHONE_LABEL = String(env.VITE_GOOGLE_ADS_PHONE_LABEL || "").trim();
 
 let initialized = false;
 
@@ -51,11 +52,11 @@ export function initTracking() {
 }
 
 function fbq(...args) {
-  if (META_PIXEL_ID && typeof window !== "undefined" && window.fbq) window.fbq(...args);
+  try { if (META_PIXEL_ID && typeof window !== "undefined" && window.fbq) window.fbq(...args); } catch {}
 }
 
 function gtag(...args) {
-  if (typeof window !== "undefined" && window.gtag) window.gtag(...args);
+  try { if (typeof window !== "undefined" && window.gtag) window.gtag(...args); } catch {}
 }
 
 export function newTrackingEventId() {
@@ -68,13 +69,9 @@ export function priceToNumber(price) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function isNewClientItem(item) {
-  return NEW_CLIENT_PATTERN.test(String(item?.name || ""));
-}
-
 export function trackPageView(page) {
   fbq("track", "PageView");
-  gtag("event", "page_view", { page_title: document.title, page_location: window.location.href, page_path: window.location.pathname });
+  gtag("event", "page_view", { page_title: document.title, page_location: `${window.location.origin}${window.location.pathname}`, page_path: window.location.pathname });
 
   if (["newbie", "pricing", "memberships", "class-packs", "drop-in"].includes(page)) {
     fbq("track", "ViewContent", { content_name: page, content_category: "pricing" });
@@ -88,34 +85,30 @@ export function trackInitiateCheckout(items) {
   gtag("event", "begin_checkout", { value, currency: "USD" });
 }
 
-// Call after a successful checkout. eventId must match the trackingEventId
-// sent to the server so Meta counts the browser and server event once.
-export function trackPurchase({ items, eventId, email }) {
-  const list = Array.isArray(items) ? items : [];
-  const value = list.reduce((sum, item) => sum + priceToNumber(item.price) * (Number(item.quantity) || 1), 0);
-  const names = list.map((item) => item.name).filter(Boolean).join(", ");
-  const newClientItems = list.filter(isNewClientItem);
-
-  if (email) gtag("set", "user_data", { email: String(email).trim().toLowerCase() });
-
-  fbq("track", "Purchase", { value, currency: "USD", content_name: names }, { eventID: eventId });
-  gtag("event", "purchase", { transaction_id: eventId, value, currency: "USD", items: list.map((item) => ({ item_name: item.name, price: priceToNumber(item.price), quantity: Number(item.quantity) || 1 })) });
-  if (GOOGLE_ADS_ID && GOOGLE_ADS_PURCHASE_LABEL) {
-    gtag("event", "conversion", { send_to: `${GOOGLE_ADS_ID}/${GOOGLE_ADS_PURCHASE_LABEL}`, value, currency: "USD", transaction_id: eventId });
-  }
-
-  if (newClientItems.length) {
-    const introValue = newClientItems.reduce((sum, item) => sum + priceToNumber(item.price) * (Number(item.quantity) || 1), 0);
-    fbq("trackCustom", "NewClientPurchase", { value: introValue, currency: "USD", content_name: newClientItems.map((item) => item.name).join(", ") }, { eventID: `${eventId}-intro` });
-    if (GOOGLE_ADS_ID && GOOGLE_ADS_INTRO_LABEL) {
-      gtag("event", "conversion", { send_to: `${GOOGLE_ADS_ID}/${GOOGLE_ADS_INTRO_LABEL}`, value: introValue, currency: "USD", transaction_id: `${eventId}-intro` });
+// Only the server's successful-checkout receipt determines revenue and IDs.
+// Never infer a purchase amount from a cart's pre-discount display prices.
+export function trackConversionReceipt(receipt, email) {
+  try {
+    for (const event of receipt?.events || []) {
+      const { name, id, data } = event;
+      if (!id || !name) continue;
+      fbq(name === "NewClientPurchase" ? "trackCustom" : "track", name, data, { eventID: id });
+      const value = Number.isFinite(data?.value) ? { value: data.value, currency: "USD" } : {};
+      if (name === "Purchase") {
+        gtag("event", "purchase", { ...value, transaction_id: id, items: [{ item_name: data.content_name || "Studio purchase", ...(value.value != null ? { price: value.value } : {}), quantity: 1 }] });
+      } else if (name === "CompleteRegistration") {
+        gtag("event", "sign_up", { method: "studio_profile" });
+      } else if (name === "Subscribe") {
+        gtag("event", "membership_purchase");
+      }
+      const label = name === "Purchase" ? GOOGLE_ADS_PURCHASE_LABEL : name === "NewClientPurchase" ? GOOGLE_ADS_INTRO_LABEL : name === "CompleteRegistration" ? GOOGLE_ADS_SIGNUP_LABEL : "";
+      if (GOOGLE_ADS_ID && label) {
+        if (email) gtag("set", "user_data", { email: String(email).trim().toLowerCase() });
+        gtag("event", "conversion", { send_to: `${GOOGLE_ADS_ID}/${label}`, ...value, transaction_id: id });
+        gtag("set", "user_data", null);
+      }
     }
-  }
-}
-
-export function trackMembershipPurchase({ eventId, name }) {
-  fbq("track", "Subscribe", { currency: "USD", content_name: name || "Membership" }, { eventID: eventId });
-  gtag("event", "membership_purchase", { item_name: name || "Membership" });
+  } catch { /* Analytics must never disrupt a completed checkout. */ }
 }
 
 export function trackLead(source) {
@@ -123,12 +116,10 @@ export function trackLead(source) {
   gtag("event", "generate_lead", { lead_source: source });
 }
 
-export function trackSignUp() {
-  fbq("track", "CompleteRegistration");
-  gtag("event", "sign_up");
-}
-
 export function trackContact(method) {
   fbq("track", "Contact", { content_name: method });
   gtag("event", "contact", { method });
+  if (method === "phone" && GOOGLE_ADS_ID && GOOGLE_ADS_PHONE_LABEL) {
+    gtag("event", "conversion", { send_to: `${GOOGLE_ADS_ID}/${GOOGLE_ADS_PHONE_LABEL}` });
+  }
 }
