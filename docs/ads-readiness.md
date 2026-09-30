@@ -4,7 +4,7 @@ Website work extends PR #1 from the Cave Modern Pilates Facebook & Google Ads Pl
 
 ## Verified locally
 
-- 110 automated tests pass; production Vite build passes.
+- 110 automated tests pass; production Vite build passes. Both connected Vercel preview deployment checks also pass.
 - Mocked payment integration covers cart, legacy store, gift card and membership success/decline. No real payment was made.
 - Discounted $65 intro fixture reports $55.25 in both server and browser; matching event IDs support deduplication.
 - Meta failure and malformed tracking data do not turn an already successful payment into a checkout error.
@@ -18,7 +18,7 @@ Website work extends PR #1 from the Cave Modern Pilates Facebook & Google Ads Pl
 
 - Google Ads account and GA4 property do not exist yet, per Rami. Create them, configure conversion goals and enter real IDs/labels.
 - Meta dataset 1401680614863486 previously showed Events blocked and remains configured with Health & wellness provider / Core setup. Inspect the applicable restrictions and use Meta's review flow if categorization is inaccurate; do not change labels to bypass restrictions.
-- Generate/store the CAPI credential securely. No credential is committed here.
+- CAPI credential generated and saved in private local configuration on September 30. It has not been installed in production, and no credential is committed here.
 - Confirm the $65 first-month membership credit can actually be honored; this is the plan's default offer and appears on /newbie.
 - Website change is not merged or deployed to production. Run live Meta Test Events and Google Tag Assistant after deployment, with one authorized intro purchase, then void it in Mindbody.
 - Inspect actual membership/legacy-store provider responses for confirmed totals. Current code omits missing revenue rather than inventing a charge. Mixed-cart intro revenue is allocated proportionally.
