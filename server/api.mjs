@@ -1,3 +1,5 @@
+import { createBookingSingleFlight } from "./bookingGuard.mjs";
+import { isActiveClassBooking, isCancelledVisit } from "../src/bookingGuard.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -6,6 +8,8 @@ import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
 import { getGuestPassPeriod } from "../src/guestPass.js";
 import { isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
+
+const singleFlightBooking = createBookingSingleFlight();
 
 const ROOT_DIR = resolve(import.meta.dirname, "..");
 const API_HOST = "api." + "mind" + "bodyonline.com";
@@ -780,7 +784,7 @@ return true;
         return true;
       }
 
-      const booking = await bookClientIntoClass(session, classId);
+      const booking = await bookClassWithValidation(session, classId, null);
       sendJson(response, 200, { booking });
       return true;
     }
@@ -1733,7 +1737,7 @@ return true;
           "request.includeWaitlistEntries": "true",
           "request.limit": "200"
         }
-      }).catch(() => null);
+      });
 
       const rawVisits =
   scheduleData?.ClientSchedule?.Visits ||
@@ -1743,7 +1747,7 @@ return true;
 const visitsArray = Array.isArray(rawVisits) ? rawVisits : [];
 
 let visits = visitsArray
-  .filter((v) => v && typeof v === "object")
+  .filter((v) => v && typeof v === "object" && !isCancelledVisit(v))
   .map((v) => {
     const status = String(v.VisitStatus || v.BookingStatus || v.WaitlistStatus || v.AppointmentStatus || v.SignedInStatus || v.Status || "");
     const waitlistEntryId = Number(v.WaitlistEntryId || v.WaitListEntryId || v.Waitlist?.Id || v.Class?.WaitlistEntryId || 0);
@@ -5125,29 +5129,6 @@ function firstStringValue(data, keys) {
   return "";
 }
 
-async function bookClientIntoClass(session, classId) {
-  const clientId = await resolveSessionClientId(session);
-
-  if (!clientId) {
-    throw httpError(400, "We could not match this login to a studio client account yet.");
-  }
-
-  const staffToken = await getMindbodyActionToken("Class booking");
-
-  return bookingRequest("/class/addclienttoclass", {
-    method: "POST",
-    token: staffToken,
-    body: {
-      ClientId: clientId,
-      ClassId: classId,
-      Test: process.env.BOOKING_TEST_MODE === "true",
-      RequirePayment: true,
-      Waitlist: false,
-      SendEmail: true
-    }
-  });
-}
-
 async function purchaseStoreItem(session, item, body) {
   const clientId = await resolveSessionClientId(session);
 
@@ -6311,7 +6292,15 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
   };
 }
 
-async function bookClassWithValidation(session, classId, clientServiceId, classHint = {}) {  const clientId = await resolveSessionClientId(session);
+async function bookClassWithValidation(session, classId, clientServiceId, classHint = {}) {
+  const clientId = await resolveSessionClientId(session);
+  if (!clientId) throw httpError(400, "We could not match your login to a studio account. Please sign out and try again.");
+  const { siteId } = getBookingConfig();
+  return singleFlightBooking(`${siteId}:${clientId}:${classId}`, () =>
+    bookClassOnce(session, clientId, classId, clientServiceId, classHint));
+}
+
+async function bookClassOnce(session, clientId, classId, clientServiceId, classHint) {
 
   if (!clientId) {
     const err = httpError(400, "We could not match your login to a studio account. Please sign out and try again.");
@@ -6339,7 +6328,7 @@ let classes = firstListByKey(classData, "Classes");
 let classItem =
   classes.find((c) => Number(c.Id) === Number(classId)) ||
   classes.find((c) => Number(c.ClassId) === Number(classId)) ||
-  classes[0];
+  null;
 
 if (!classItem && classHint?.startDateTime) {
   const start = new Date(classHint.startDateTime);
@@ -6369,7 +6358,6 @@ if (!classItem && classHint?.startDateTime) {
   classItem =
     classes.find((c) => Number(c.Id) === Number(classId)) ||
     classes.find((c) => Number(c.ClassId) === Number(classId)) ||
-    classes.find((c) => Number(c.ClassScheduleId) === Number(classHint?.classScheduleId)) ||
     null;
 }
 
@@ -6378,6 +6366,25 @@ if (!classItem) {
   err.bookingCode = "NO_CLASS_ID";
   throw err;
 }
+
+  // Check the live provider, not a browser/cache flag. A retry after a lost
+  // response should return the existing reservation without consuming a credit.
+  const staffToken = await getMindbodyActionToken("Class booking");
+  const classDate = String(classItem.StartDateTime || classHint.startDateTime || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(classDate)) throw httpError(503, "We could not verify this class date. Please refresh the schedule.");
+  for (let offset = 0; ; offset += 200) {
+    const schedule = await bookingRequest("/client/clientschedule", {
+      token: staffToken,
+      params: { "request.clientId": clientId, "request.startDate": classDate, "request.endDate": classDate,
+        "request.includeWaitlistEntries": "true", "request.limit": "200", "request.offset": String(offset) }
+    });
+    const visits = schedule?.ClientSchedule?.Visits ?? schedule?.Visits;
+    if (!Array.isArray(visits)) throw httpError(503, "We could not verify your reservations. Please refresh before trying again.");
+    const existing = visits.find((visit) => isActiveClassBooking(visit, classId));
+    if (existing) return { alreadyBooked: true, Visit: existing };
+    if (visits.length < 200) break;
+    if (offset >= 2000) throw httpError(503, "We could not verify all your reservations. Please contact the studio.");
+  }
 
   if (classItem.IsCanceled) {
     const err = httpError(400, "This class has been canceled.");
@@ -6451,11 +6458,6 @@ if (!classItem) {
     if (serviceErr.bookingCode === "NO_VALID_SERVICE") throw serviceErr;
     console.warn("[book-class] Could not verify client services, proceeding:", serviceErr.message);
   }
-
-  let staffToken = null;
-  try {
-    staffToken = await getMindbodyActionToken("Class booking");
-  } catch (_) {}
 
   const bookingBody = {
     ClientId: clientId,
