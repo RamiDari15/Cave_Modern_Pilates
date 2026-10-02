@@ -7,7 +7,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage } from "./promotionWindows";
+import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -17,6 +17,16 @@ import {
   subscribeToCaveUpdates,
   subscribeToCaveTexts
 } from "./klaviyoSignup";
+import {
+  initTracking,
+  newTrackingEventId,
+  trackContact,
+  trackInitiateCheckout,
+  trackLead,
+  trackConversionReceipt,
+  trackPageView,
+} from "./tracking";
+import newbiePhoto from "../assets/cave-studio-wide.jpg";
 import octoberOfferImage from "../assets/cave-october-buy3-get1.png";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
@@ -364,8 +374,10 @@ const FAQ_ITEMS = [
     category: "Privacy",
     question: "Does Cave sell or share my personal information?",
     answer: [
-      "Cave does not sell, rent, or share personal information with third parties for marketing purposes.",
-      "Information may be shared with trusted service providers necessary for payment processing, scheduling, customer support, or legal compliance."
+      "Cave does not sell or rent personal information.",
+      "Information may be shared with trusted service providers necessary for payment processing, scheduling, customer support, or legal compliance.",
+      "The website uses advertising and analytics tools from Meta and Google, including cookies, the Meta Pixel, and the Google tag, to measure visits and purchases and to show Cave ads. When you make a purchase, a hashed (scrambled) version of your email address and studio customer ID, along with details about the purchase, may be shared with Meta and Google for ad measurement. You can limit this in your browser's cookie settings, Meta's Ad Preferences, and Google's My Ad Center.",
+      "Text-message consent and phone numbers collected for texts are never shared with advertising tools."
     ]
   }
 ];
@@ -813,6 +825,20 @@ function App() {
   }, [isInterior, menuOpen, page]);
 
   useEffect(() => {
+    initTracking();
+    const onClick = (event) => {
+      const link = event.target?.closest?.("a[href^='tel:']");
+      if (link) trackContact("phone");
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+
+  useEffect(() => {
+    trackPageView(page);
+  }, [page]);
+
+  useEffect(() => {
     const updateHeader = () => setIsScrolled(window.scrollY > 16);
 
     updateHeader();
@@ -854,14 +880,10 @@ function App() {
   );
 }
 
-function isBackToSchoolPromotionActive(now = new Date()) {
-  const year = now.getFullYear();
-  return now >= new Date(year, 8, 1, 0, 0, 0, 0);
-}
 
 function CaveUpdatesInitialPopup({ page, clientSession }) {
   useEffect(() => {
-    if (clientSession?.signedIn || !["home", "pricing", "newbie"].includes(page)) return undefined;
+    if (clientSession?.signedIn || !["home", "pricing"].includes(page)) return undefined;
     if (getCaveUpdatesPreferences().emailSubscribed) return undefined;
     const lastShownAt = Number(window.localStorage.getItem(CAVE_UPDATES_INITIAL_POPUP_KEY)) || 0;
     if (Date.now() - lastShownAt < CAVE_UPDATES_INITIAL_POPUP_COOLDOWN_MS) return undefined;
@@ -1158,6 +1180,7 @@ function SmsSignupPage({ clientSession }) {
     setStatus("submitting");
     try {
       await subscribeToCaveTexts({ email, phoneNumber });
+      trackLead("sms");
       rememberCaveUpdatesSubscription({ includeEmail: false, includeSms: true });
       window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
       setStatus("success");
@@ -1483,7 +1506,8 @@ function PoliciesPage() {
           <p>Cave uses the information you provide to create and manage your studio account, process purchases, schedule classes, provide support, and send communications you request.</p>
           <p>If you choose promotional text updates, Cave records that choice with its studio-management provider. Message frequency varies, message and data rates may apply, and you may reply STOP to opt out or HELP for help. Promotional-text consent is not required to purchase a class, package, or membership.</p>
           <p>Mobile information and text-message consent are not shared with third parties or affiliates for marketing or promotional purposes. Text-message originator opt-in data and consent are excluded from all other data sharing.</p>
-          <p>Cave does not sell personal information. Information is shared only with service providers needed for studio operations, payment processing, scheduling, customer support, and communications, or when required by law.</p>
+          <p>Cave does not sell personal information. Information is shared only with service providers needed for studio operations, payment processing, scheduling, customer support, and communications, with the advertising and analytics providers described below, or when required by law.</p>
+          <p><strong>Advertising and analytics.</strong> The website uses cookies and tags from Meta (the Meta Pixel and Conversions API) and Google (Google Analytics and Google Ads) to understand how visitors use the site, measure whether ads lead to sign-ups and purchases, and show Cave ads to people who may be interested. These tools may receive the pages you visit, your browser and device information, your IP address, and, when you make a purchase, the purchase amount and a hashed (scrambled) version of your email address and studio customer ID. Text-message consent and phone numbers collected for texts are never shared with these tools. You can limit ad tracking in your browser's cookie settings, in Meta's Ad Preferences, and in Google's My Ad Center.</p>
         </div>
         <div className="policy-copy" id="account-deletion">
           <h2>Cave app account deletion</h2>
@@ -1580,6 +1604,13 @@ const PRICING_TABS = [
   { key: "dropIn", label: "Drop In" }
 ];
 
+// The October bubble opens /class-packs showing only the Buy 3, Get 1 Free pack.
+const OCTOBER_OFFER_HREF = `${ROUTES.classPacks}?offer=october#purchase-options`;
+
+function isOctoberOfferView() {
+  return new URLSearchParams(window.location.search).get("offer") === "october";
+}
+
 function PricingLandingPage({ store, memberships, clientSession }) {
   const [selectedPrivateOption, setSelectedPrivateOption] = useState(null);
   const catalog = usePricingCatalog(store, memberships);
@@ -1590,7 +1621,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
         {octoberOffer && (
-          <a className="pricing-choice-card october-offer" href={`${ROUTES.classPacks}#purchase-options`}>
+          <a className="pricing-choice-card october-offer" href={OCTOBER_OFFER_HREF}>
             <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />
             <div className="pricing-choice-copy">
               <strong>Buy 3, Get 1 Free</strong>
@@ -1724,11 +1755,13 @@ function GiftCardPurchaseSection({ clientSession }) {
         method: "POST",
         body: {
           ...form,
+          trackingEventId: newTrackingEventId(),
           giftCardId: Number(form.giftCardId),
           layoutId: Number(form.layoutId || selectedGiftCard?.layouts?.[0]?.id || 0),
           storedCardLastFour: selectedCard
         }
       });
+      trackConversionReceipt(data.tracking, clientSession?.user?.email);
       setPurchaseState({
         type: "success",
         message: `Gift card purchased${data.purchase?.RecipientEmail ? ` for ${data.purchase.RecipientEmail}` : ""}. Mindbody will deliver it on the selected date.`
@@ -2112,7 +2145,16 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
   const groups = usePricingCatalog(store, memberships);
-  const items = groups[category.key] || [];
+  const categoryItems = groups[category.key] || [];
+  const octoberItems = category.key === "classPacks" && isOctoberOfferView() ? categoryItems.filter(isOctoberBuyThreeGetOnePackage) : [];
+  const showOctoberOnly = octoberItems.length > 0;
+  const items = [...(showOctoberOnly ? octoberItems : categoryItems)].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
+  const introPack = items.find((item) => /3\s*class/i.test(item.name) && item.sellOnline !== false);
+  const claimIntro = () => {
+    if (!introPack || !cart) return;
+    if (cart.items.some((item) => item.id === introPack.id)) cart.open();
+    else cart.addItem(introPack);
+  };
   const [activeMemberships, setActiveMemberships] = useState([]);
   const { cards: savedCards, loaded: cardsLoaded, refresh: refreshCards } = useSavedCards(clientSession);
   const totalQty = cart ? cart.items.reduce((n, i) => n + i.quantity, 0) : 0;
@@ -2139,8 +2181,10 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   return (
     <>
       <section className={`pricing-category-heading section page-section ${category.key}`}>
-        <h1>{category.title}</h1>
+        <h1>{showOctoberOnly ? "Buy 3, Get 1 Free" : category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
+        {showOctoberOnly ? <a className="october-offer-all-link" href={ROUTES.classPacks}>See all class packs</a> : null}
         {category.key === "memberships" ? <MembershipPerks /> : null}
+        {category.key === "newbie" ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(introPack && cart)} /> : null}
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
@@ -2168,6 +2212,11 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
         )}
       </section>
 
+      {category.key === "newbie" ? <>
+        <NewbieWhatToExpect />
+        {introPack && cart && !cart.isOpen ? <button className="pill-button black newbie-sticky-cta" onClick={claimIntro}>Claim my intro · {compactPrice(introPack.price)}</button> : null}
+      </> : null}
+
       {cart && totalQty > 0 ? (
         <button className="cart-fab" type="button" onClick={cart.open} aria-label={`Open cart, ${totalQty} item${totalQty !== 1 ? "s" : ""}`}>
           <span className="cart-fab-icon"><Plus size={16} strokeWidth={2.5} /></span>
@@ -2179,6 +2228,43 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
         <CartDrawer cart={cart} clientSession={clientSession} savedCards={savedCards} cardsLoaded={cardsLoaded} onCardAdded={refreshCards} />
       ) : null}
     </>
+  );
+}
+
+// Shown to new clients who join a membership after the intro package.
+// Set to "" to remove the offer from the page.
+const NEWBIE_MEMBERSHIP_CREDIT_NOTE = "Join a membership after your intro and your intro package price comes off your first month.";
+
+function newbieHeadline(items) {
+  const pack = items.find((item) => /\b3\s*class/i.test(String(item.name || "")) && item.price);
+  return pack ? `3 reformer classes for ${compactPrice(pack.price)}` : "";
+}
+
+function NewbieIntroLead({ onClaim, available }) {
+  return (
+    <div className="newbie-intro-lead">
+      <p>New clients only. Women's reformer Pilates at Orland Square. No experience needed: your instructor sets up your reformer and guides every move.</p>
+      {NEWBIE_MEMBERSHIP_CREDIT_NOTE ? <p className="newbie-intro-credit">{NEWBIE_MEMBERSHIP_CREDIT_NOTE}</p> : null}
+      <button className="pill-button black newbie-intro-cta" type="button" onClick={onClaim} disabled={!available}>Claim my intro</button>
+      <img className="newbie-intro-photo" src={newbiePhoto} alt="Cave Modern Pilates studio" width="600" height="400" />
+    </div>
+  );
+}
+
+function NewbieWhatToExpect() {
+  return (
+    <section className="newbie-expect section page-section" aria-labelledby="newbie-expect-title">
+      <h2 id="newbie-expect-title">Your first class at Cave</h2>
+      <ol className="newbie-expect-steps">
+        <li><strong>Book online.</strong> Buy your intro, then pick any class on the <a href={ROUTES.schedule}>schedule</a>.</li>
+        <li><strong>Arrive 10 minutes early.</strong> We'll show you around and sign your waiver if you haven't yet.</li>
+        <li><strong>Your instructor sets you up.</strong> Springs, straps and every move are cued, so you just follow along.</li>
+      </ol>
+      <details><summary>Do I need Pilates experience?</summary><p>{FAQ_ITEMS.find((item) => item.id === "first-class").answer[0]}</p></details>
+      <details><summary>What if I need to cancel?</summary><p>Cancel at least 12 hours before class. A late cancellation costs $20. <a href={ROUTES.policies}>Read studio policies.</a></p></details>
+      <p><a href={ROUTES.schedule}>See available class times</a> · <a href={ROUTES.about}>Meet Hala, Cave’s founder</a></p>
+      <p className="newbie-expect-sms">Not ready yet? <a href={ROUTES.sms}>Get class openings by text.</a></p>
+    </section>
   );
 }
 
@@ -2506,6 +2592,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
   : selectedCard;
 
   const openModal = () => {
+    trackInitiateCheckout([{ name: item.name, price: item.price, quantity: 1 }]);
     setBuyState({ type: "idle", message: "" });
     setSelectedCard(savedCards.length ? savedCards[0].lastFour : "__manual__");
     setManualLastFour("");
@@ -2537,7 +2624,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
       setAppliedPromo("");
-      setPromoState({ type: "error", message: "BACKTOSCHOOL15 begins September 1." });
+      setPromoState({ type: "error", message: "BACKTOSCHOOL15 has ended." });
       return;
     }
     if (!promoAppliesToItem(code, item)) {
@@ -2566,13 +2653,15 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
 
     setBuyState({ type: "loading", message: isContract ? "Processing membership..." : "Starting checkout..." });
 const endpoint = isContract ? "/api/pricing/contracts/purchase" : "/api/cart/checkout";
+const trackingEventId = newTrackingEventId();
 
 const payload = isContract
   ? {
       contractId: item.id,
       storedCardLastFour,
       acceptTerms: true,
-      acceptWaiver: true
+      acceptWaiver: true,
+      trackingEventId
     }
   : {
       items: [
@@ -2585,10 +2674,12 @@ const payload = isContract
         }
       ],
       storedCardLastFour,
+      trackingEventId,
       ...(appliedPromo ? { promoCode: appliedPromo } : {})
     };
     try {
-      await apiRequest(endpoint, { method: "POST", body: payload });
+      const result = await apiRequest(endpoint, { method: "POST", body: payload });
+      trackConversionReceipt(result.tracking, clientSession?.user?.email);
       setBuyState({ type: "success", message: isContract ? "Membership activated!" : "Purchase complete!" });
       onPurchaseSuccess?.();
     } catch (err) {
@@ -2836,6 +2927,12 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
   const closeTimerRef = React.useRef(null);
 
   useEffect(() => {
+    if (cart.items.length) trackInitiateCheckout(cart.items);
+    // Track once per drawer open, not on every quantity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     return () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); };
   }, []);
 
@@ -2870,7 +2967,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     }
     if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
       setAppliedPromo("");
-      setPromoState({ type: "error", message: "BACKTOSCHOOL15 begins September 1." });
+      setPromoState({ type: "error", message: "BACKTOSCHOOL15 has ended." });
       return;
     }
     if (!cart.items.some((item) => promoAppliesToItem(code, item))) {
@@ -2890,8 +2987,10 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
       return;
     }
     setCheckoutState({ type: "loading", message: "Processing payment..." });
+    const trackingEventId = newTrackingEventId();
     try {
-      await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
+      const result = await apiRequest("/api/cart/checkout", { method: "POST", body: { items: cart.items, storedCardLastFour: lastFour, trackingEventId, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } });
+      trackConversionReceipt(result.tracking, clientSession?.user?.email);
       setCheckoutState({ type: "success", message: "Purchase complete!" });
       cart.clear();
     } catch (err) {
@@ -3153,6 +3252,7 @@ function ContactPage({ location }) {
       if (!res.ok) {
         setStatus({ type: "error", message: data.message || "Something went wrong. Please try again." });
       } else {
+        trackLead("contact_form");
         setStatus({ type: "success", message: "Message sent! We’ll get back to you soon." });
         setForm({ name: "", email: "", message: "" });
       }
@@ -4113,11 +4213,13 @@ body: {
   emergencyContactPhone: form.emergencyContactPhone,
   emergencyContactRelationship: form.emergencyContactRelationship,
   gender: form.gender,
-  referredBy: form.referredBy
+  referredBy: form.referredBy,
+  trackingEventId: newTrackingEventId()
 }
 });
 
         if (result.ok) {
+          trackConversionReceipt(result.tracking, clientSession?.user?.email);
           // Reload account data with updated profile
           const updated = await apiRequest("/api/account/me").catch(() => null);
           if (updated?.data) {
@@ -4161,6 +4263,13 @@ body: {
           <FormField label="Emergency Contact Name" name="emergencyContactName" value={form.emergencyContactName} onChange={updateField} />
           <FormField label="Emergency Contact Phone" name="emergencyContactPhone" type="tel" value={form.emergencyContactPhone} onChange={updateField} />
         </div>
+        <label className="form-field">
+          <span>How did you hear about us? (Optional)</span>
+          <select name="referredBy" value={form.referredBy} onChange={updateField}>
+            <option value="">Select one</option>
+            {["Instagram", "Facebook", "Google", "Friend or family", "Walked past the studio", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}
+          </select>
+        </label>
         {status.message && <p className={`form-status ${status.type}`}>{status.message}</p>}
         <button className="pill-button black" type="submit" disabled={saving}>
           {saving ? "Saving\u2026" : "Complete Studio Profile"}
@@ -5958,6 +6067,7 @@ function CaveUpdatesSignupModal() {
         phoneNumber,
         includeSms: smsConsent
       });
+      trackLead(smsConsent ? "email_sms" : "email");
       rememberCaveUpdatesSubscription({ includeSms: smsConsent });
       window.dispatchEvent(new CustomEvent(CAVE_UPDATES_PREFERENCES_EVENT));
       setStatus("success");

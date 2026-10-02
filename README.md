@@ -138,6 +138,33 @@ The sign-up form includes the required client fields returned by the studio API:
 - mobile phone
 - email
 
+## Ad Tracking
+
+Meta and Google tags load only when their IDs are set, so nothing runs until the ad accounts exist. Browser events live in `src/tracking.js`; server-side Meta purchase events live in `server/adConversions.mjs` and share the browser's event ID so Meta counts each purchase once.
+
+Set these in Vercel (Project Settings, Environment Variables), then redeploy:
+
+| Variable | Where it comes from |
+| --- | --- |
+| `VITE_META_PIXEL_ID` | Meta Events Manager, dataset ID |
+| `META_PIXEL_ID` | Same dataset ID (server side) |
+| `META_CAPI_ACCESS_TOKEN` | Events Manager, dataset Settings, Conversions API, Generate access token |
+| `META_CAPI_TEST_EVENT_CODE` | Optional. Events Manager, Test events. Remove after testing |
+| `VITE_GA4_MEASUREMENT_ID` | GA4 web stream, `G-...` |
+| `VITE_GOOGLE_ADS_ID` | Google Ads conversion tag, `AW-...` |
+| `VITE_GOOGLE_ADS_INTRO_PURCHASE_LABEL` | Label of the "Intro Purchase" conversion |
+| `VITE_GOOGLE_ADS_PURCHASE_LABEL` | Label of the "Any Purchase" conversion (secondary) |
+| `VITE_GOOGLE_ADS_SIGNUP_LABEL` | Label of the "Sign Up" conversion (secondary) |
+| `VITE_GOOGLE_ADS_PHONE_LABEL` | Label of the phone-tap conversion (secondary; measures a tap, not a completed call) |
+
+Events: PageView and ViewContent (pricing pages), InitiateCheckout, Purchase, NewClientPurchase (new-client items), Subscribe (memberships), CompleteRegistration (new studio account only), Lead (SMS, email, contact form) and Contact (phone taps).
+
+Purchase routes return a minimal `tracking` receipt after success. The browser forwards the same names, IDs and amounts as the server, including discounts. For mixed carts, the intro amount is allocated proportionally from the completed charge. Legacy store/membership purchases omit value when Mindbody returns no confirmed total; validate these response shapes in staging before using revenue reports. Phone numbers and SMS consent are not sent to ad platforms. Enhanced Google conversions use the buyer email only for the conversion call; Google hashes this via its tag. Sandbox purchases (`BOOKING_TEST_MODE=true`) emit no conversions.
+
+Launch gates: resolve the dataset's Events blocked restriction through Meta's category/review flow, enter the real Google IDs/labels, confirm the membership-credit offer, deploy and verify privacy wording, then complete one authorized test sale and check Meta deduplication and Google Tag Assistant. No account credentials are committed here. Meta dataset ID: `1401680614863486`.
+
+Local validation: `npm test` uses mocked providers and makes no real charges. `npm run build` checks production compilation. The local QA results in `output/qa` are not evidence of live platform delivery.
+
 ## Production Publish Checklist
 
 1. Add the production environment variables from `.env.example` to Vercel.

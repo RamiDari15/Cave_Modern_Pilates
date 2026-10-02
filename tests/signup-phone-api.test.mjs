@@ -9,7 +9,7 @@ import test from "node:test";
 // Use only synthetic credentials and mocked upstream responses. No Mindbody
 // client is created or changed by this suite.
 for (const key of Object.keys(process.env)) {
-  if (/^(BOOKING_|MINDBODY_|SESSION_SECRET$|PUBLIC_BASE_URL$|SITE_URL$|VITE_SITE_URL$)/.test(key)) delete process.env[key];
+  if (/^(BOOKING_|MINDBODY_|META_|SESSION_SECRET$|PUBLIC_BASE_URL$|SITE_URL$|VITE_SITE_URL$)/.test(key)) delete process.env[key];
 }
 Object.assign(process.env, {
   NODE_ENV: "test",
@@ -295,6 +295,7 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     const creation = upstreamCalls.findLast((call) => call.url.pathname.endsWith("/client/addorupdateclient"));
     assert.equal(creation.body.Client.MobilePhone, "7085550123");
     assert.equal(creation.body.Client.HomePhone, "7085550123");
+    assert.deepEqual(result.body.tracking.events.map(e => e.name), ["CompleteRegistration"]);
     assert.equal(result.body.session.signupPhone, undefined);
   });
 
@@ -345,6 +346,7 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     const calls = upstreamCalls.slice(before);
     assert.equal(calls.length, 2);
     assert.equal(calls.at(-1).body.Client.Id, "73");
+    assert.equal(result.body.tracking, null);
   });
 
   await t.test("ambiguous authenticated-email matches fail closed without any write", async () => {

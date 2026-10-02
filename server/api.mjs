@@ -6,9 +6,14 @@ import { resolve } from "node:path";
 import { NO_SHOW_POLICY_PARAGRAPHS } from "../src/studioPolicies.js";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
 import { getGuestPassPeriod } from "../src/guestPass.js";
-import { isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
+import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
+import { cartPurchaseEvents, buildMetaEvent, recordConversion } from "./adConversions.mjs";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 
+function confirmedPurchaseTotal(result) {
+  const candidate = result?.ShoppingCart?.GrandTotal ?? result?.GrandTotal;
+  return candidate != null && Number.isFinite(Number(candidate)) && Number(candidate) >= 0 ? Number(candidate) : undefined;
+}
 const singleFlightBooking = createBookingSingleFlight();
 
 const ROOT_DIR = resolve(import.meta.dirname, "..");
@@ -96,10 +101,6 @@ function promoEligibleItems(items) {
   );
 }
 
-function isBackToSchoolPromotionActive(now = new Date()) {
-  const year = now.getFullYear();
-  return now >= new Date(year, 8, 1, 0, 0, 0, 0);
-}
 
 function allClassPackPromoItems(items) {
   return (Array.isArray(items) ? items : []).filter((item) => {
@@ -123,7 +124,7 @@ function validateClassPackPromotion(rawCode, items) {
   }
 
   if (code === "BACKTOSCHOOL15" && !isBackToSchoolPromotionActive()) {
-    throw httpError(400, "BACKTOSCHOOL15 begins September 1.");
+    throw httpError(400, "BACKTOSCHOOL15 has ended.");
   }
 
   if (!promotionEligibleItems(code, items).length) {
@@ -663,8 +664,13 @@ export async function handleApiRequest(request, response) {
       }));
 
       setSessionCookie(response, session);
+      const tracking = await recordConversion(() => [buildMetaEvent({
+        eventName: "CompleteRegistration", eventId: body.trackingEventId,
+        email: session.user?.email || signupEmail, externalId: session.clientId, request
+      })]);
       sendJson(response, 200, {
         ok: true,
+        tracking,
         created,
         session: publicSession(session),
         waiver: waiverSync,
@@ -1486,7 +1492,13 @@ return true;
 
       try {
         const purchase = await purchaseStoreItem(session, item, body);
-        sendJson(response, 200, { ok: true, purchase });
+        const failure = membershipPaymentFailure(purchase);
+        if (failure) throw httpError(402, failure.message);
+        const tracking = await recordConversion(() => cartPurchaseEvents({
+          items: [item], total: confirmedPurchaseTotal(purchase), eventId: body.trackingEventId,
+          email: session.user?.email || "", externalId: session.clientId, request
+        }));
+        sendJson(response, 200, { ok: true, purchase, tracking });
       } catch (err) {
         const status = err.status >= 400 && err.status < 600 ? err.status : 503;
         const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Purchase could not be completed.";
@@ -1524,8 +1536,12 @@ return true;
 
       try {
         const body = await readJsonBody(request);
-        const purchase = await purchaseMindbodyGiftCard(session, body);
-        sendJson(response, 200, { ok: true, purchase });
+        const { purchase, chargedTotal } = await purchaseMindbodyGiftCard(session, body);
+        const tracking = await recordConversion(() => cartPurchaseEvents({
+          items: [{ name: "Gift card", price: chargedTotal, quantity: 1 }], total: chargedTotal,
+          eventId: body.trackingEventId, email: session.user?.email || "", externalId: session.clientId, request
+        }));
+        sendJson(response, 200, { ok: true, purchase, tracking });
       } catch (error) {
         const status = error.status >= 400 && error.status < 600 ? error.status : 503;
         const message = error.data?.Error?.Message || error.data?.Message || error.message || "Gift card purchase could not be completed.";
@@ -2323,6 +2339,7 @@ if (path === "/api/account/profile") {
   }
 
   let clientId = cleanClientId(session.clientId);
+  let createdNewClient = false;
 
   let staffToken = null;
 
@@ -2402,6 +2419,7 @@ if (path === "/api/account/profile") {
       });
 
       clientId = cleanClientId(createdSession.clientId);
+      createdNewClient = Boolean(clientId);
     } catch (err) {
       const duplicateMessage = String(
         err?.data?.Error?.Message ||
@@ -2509,9 +2527,14 @@ const clientPayload = compactObject({
   delete updatedSession.signupPhone;
 
   setSessionCookie(response, updatedSession);
+  const tracking = createdNewClient ? await recordConversion(() => [buildMetaEvent({
+    eventName: "CompleteRegistration", eventId: body.trackingEventId,
+    email, externalId: clientId, request
+  })]) : null;
 
   sendJson(response, 200, {
     ok: true,
+    tracking,
     data: updateResult,
     clientId,
     ...createAppAuthPayload(request, updatedSession)
@@ -3191,11 +3214,25 @@ return true;
           body: checkoutBody
         });
 
+        const paymentFailure = membershipPaymentFailure(result);
+        if (paymentFailure) throw httpError(402, paymentFailure.message);
+        const tracking = await recordConversion(() =>
+          cartPurchaseEvents({
+            items: items.filter((item) => item.kind === "service").map((item) => ({ ...(findStoreItem(item.id, item.kind) || { name: "Studio service", price: 0 }), quantity: item.quantity })),
+            total: checkoutAmount,
+            eventId: body.trackingEventId,
+            email: session.user?.email || session.user?.username || "",
+            externalId: clientId,
+            request
+          })
+        );
+
         sendJson(response, 200, {
           ok: true,
           purchase: result,
           promotion,
-          chargedTotal: checkoutAmount
+          chargedTotal: checkoutAmount,
+          tracking
         });
       } catch (error) {
         const message =
@@ -3357,7 +3394,20 @@ return true;
           });
           return true;
         }
-        sendJson(response, 200, { ok: true, purchase: result });
+        const tracking = await recordConversion(() => [
+          buildMetaEvent({ eventName: "Purchase", eventId: body.trackingEventId,
+            value: confirmedPurchaseTotal(result), contentName: `Membership ${body.contractId}`,
+            email: session.user?.email || "", externalId: clientId, request }),
+          buildMetaEvent({
+            eventName: "Subscribe",
+            eventId: `${body.trackingEventId || randomBytes(16).toString("hex")}-subscribe`,
+            contentName: `Membership ${body.contractId}`,
+            email: session.user?.email || session.user?.username || "",
+            externalId: clientId,
+            request
+          })
+        ]);
+        sendJson(response, 200, { ok: true, purchase: result, tracking });
       } catch (err) {
         const msg = err.data?.Error?.Message || err.data?.Message || err.message || "Membership purchase could not be completed.";
         sendJson(response, err.status || 503, { ok: false, message: msg });
@@ -5369,7 +5419,7 @@ async function purchaseMindbodyGiftCard(session, body) {
     throw error;
   }
 
-  return result;
+  return { purchase: result, chargedTotal: amount };
 }
 
 function buildContractPaymentPayload(body) {
