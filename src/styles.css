@@ -6694,3 +6694,9 @@ body.interior:has(.page-policies),
   color: rgba(0, 0, 0, 0.55);
   letter-spacing: 0.02em;
 }
+
+.pricing-choice-card.october-offer .pricing-choice-image {
+  background-size: 127% auto;
+  background-position: 59% 50%;
+  filter: none;
+}
