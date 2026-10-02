@@ -1604,6 +1604,13 @@ const PRICING_TABS = [
   { key: "dropIn", label: "Drop In" }
 ];
 
+// The October bubble opens /class-packs showing only the Buy 3, Get 1 Free pack.
+const OCTOBER_OFFER_HREF = `${ROUTES.classPacks}?offer=october#purchase-options`;
+
+function isOctoberOfferView() {
+  return new URLSearchParams(window.location.search).get("offer") === "october";
+}
+
 function PricingLandingPage({ store, memberships, clientSession }) {
   const [selectedPrivateOption, setSelectedPrivateOption] = useState(null);
   const catalog = usePricingCatalog(store, memberships);
@@ -1614,7 +1621,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
         {octoberOffer && (
-          <a className="pricing-choice-card october-offer" href={`${ROUTES.classPacks}#purchase-options`}>
+          <a className="pricing-choice-card october-offer" href={OCTOBER_OFFER_HREF}>
             <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />
             <div className="pricing-choice-copy">
               <strong>Buy 3, Get 1 Free</strong>
@@ -2138,7 +2145,10 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
   const groups = usePricingCatalog(store, memberships);
-  const items = [...(groups[category.key] || [])].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
+  const categoryItems = groups[category.key] || [];
+  const octoberItems = category.key === "classPacks" && isOctoberOfferView() ? categoryItems.filter(isOctoberBuyThreeGetOnePackage) : [];
+  const showOctoberOnly = octoberItems.length > 0;
+  const items = [...(showOctoberOnly ? octoberItems : categoryItems)].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
   const introPack = items.find((item) => /3\s*class/i.test(item.name) && item.sellOnline !== false);
   const claimIntro = () => {
     if (!introPack || !cart) return;
@@ -2171,7 +2181,8 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   return (
     <>
       <section className={`pricing-category-heading section page-section ${category.key}`}>
-        <h1>{category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
+        <h1>{showOctoberOnly ? "Buy 3, Get 1 Free" : category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
+        {showOctoberOnly ? <a className="october-offer-all-link" href={ROUTES.classPacks}>See all class packs</a> : null}
         {category.key === "memberships" ? <MembershipPerks /> : null}
         {category.key === "newbie" ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(introPack && cart)} /> : null}
       </section>

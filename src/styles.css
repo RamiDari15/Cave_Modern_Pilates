@@ -6777,3 +6777,12 @@ body.interior:has(.page-policies),
   background-position: 59% 50%;
   filter: none;
 }
+
+.october-offer-all-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--white);
+  font-size: 0.95rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
