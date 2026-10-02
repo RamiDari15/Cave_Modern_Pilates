@@ -7,7 +7,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { isPricingItemCurrentlyVisible } from "./promotionWindows";
+import { isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -17,6 +17,7 @@ import {
   subscribeToCaveUpdates,
   subscribeToCaveTexts
 } from "./klaviyoSignup";
+import octoberOfferImage from "../assets/cave-october-buy3-get1.png";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
 import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
@@ -824,7 +825,6 @@ function App() {
 
   return (
     <div className={shellClass}>
-      <BackToSchoolBanner />
       <Header
         activePage={page}
         bookingUrl={bookingUrl}
@@ -857,16 +857,6 @@ function App() {
 function isBackToSchoolPromotionActive(now = new Date()) {
   const year = now.getFullYear();
   return now >= new Date(year, 8, 1, 0, 0, 0, 0);
-}
-
-function BackToSchoolBanner() {
-  if (!isBackToSchoolPromotionActive()) return null;
-
-  return (
-    <a className="school-promo-banner" href={ROUTES.classPacks}>
-      <strong>Back to School:</strong> Save 15% on all class packs with code <span>BACKTOSCHOOL15</span>
-    </a>
-  );
 }
 
 function CaveUpdatesInitialPopup({ page, clientSession }) {
@@ -1592,10 +1582,23 @@ const PRICING_TABS = [
 
 function PricingLandingPage({ store, memberships, clientSession }) {
   const [selectedPrivateOption, setSelectedPrivateOption] = useState(null);
+  const catalog = usePricingCatalog(store, memberships);
+  const octoberOffer = catalog.classPacks.find(isOctoberBuyThreeGetOnePackage);
 
   return (
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
+      {octoberOffer && (
+        <a className="october-pricing-feature" href={`${ROUTES.classPacks}#purchase-options`}>
+          <img src={octoberOfferImage} alt="Buy 3, get 1 free" />
+          <div>
+            <span>October special</span>
+            <h2>Buy 3 classes, get 1 free</h2>
+            <p>4 reformer Pilates classes · {octoberOffer.price}</p>
+            <strong>Shop the October offer →</strong>
+          </div>
+        </a>
+      )}
       <div className="pricing-choice-grid">
         {PRICING_CATEGORIES.map((category) => (
           <a className={`pricing-choice-card ${category.key}`} href={category.href} key={category.key}>
@@ -2395,7 +2398,7 @@ function sortBySessionsAsc(items) {
   const sessionCount = (item) => /\bunlimited\b/i.test(String(item?.name || ""))
     ? Number.POSITIVE_INFINITY
     : Number(item?.sessions) || 0;
-  return [...items].sort((a, b) => sessionCount(a) - sessionCount(b));
+  return [...items].sort((a, b) => Number(isOctoberBuyThreeGetOnePackage(b)) - Number(isOctoberBuyThreeGetOnePackage(a)) || sessionCount(a) - sessionCount(b));
 }
 
 const CLASS_PACK_PROMO_CODES = new Set([
