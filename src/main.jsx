@@ -1,3 +1,4 @@
+import { createBookingGuard } from "./bookingGuard";
 import React, { useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
@@ -6,7 +7,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "./promotionWindows";
+import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -26,6 +27,7 @@ import {
   trackPageView,
 } from "./tracking";
 import newbiePhoto from "../assets/cave-studio-wide.jpg";
+import octoberOfferImage from "../assets/cave-october-buy3-get1.png";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
 import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
@@ -849,7 +851,6 @@ function App() {
 
   return (
     <div className={shellClass}>
-      {page !== "newbie" ? <BackToSchoolBanner /> : null}
       <Header
         activePage={page}
         bookingUrl={bookingUrl}
@@ -879,16 +880,6 @@ function App() {
   );
 }
 
-
-function BackToSchoolBanner() {
-  if (!isBackToSchoolPromotionActive()) return null;
-
-  return (
-    <a className="school-promo-banner" href={ROUTES.classPacks}>
-      <strong>Back to School:</strong> Save 15% on all class packs with code <span>BACKTOSCHOOL15</span>
-    </a>
-  );
-}
 
 function CaveUpdatesInitialPopup({ page, clientSession }) {
   useEffect(() => {
@@ -1615,11 +1606,21 @@ const PRICING_TABS = [
 
 function PricingLandingPage({ store, memberships, clientSession }) {
   const [selectedPrivateOption, setSelectedPrivateOption] = useState(null);
+  const catalog = usePricingCatalog(store, memberships);
+  const octoberOffer = catalog.classPacks.find(isOctoberBuyThreeGetOnePackage);
 
   return (
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
+        {octoberOffer && (
+          <a className="pricing-choice-card october-offer" href={`${ROUTES.classPacks}#purchase-options`}>
+            <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />
+            <div className="pricing-choice-copy">
+              <strong>Buy 3, Get 1 Free</strong>
+            </div>
+          </a>
+        )}
         {PRICING_CATEGORIES.map((category) => (
           <a className={`pricing-choice-card ${category.key}`} href={category.href} key={category.key}>
             <div className="pricing-choice-image" role="img" aria-label={category.title} />
@@ -2469,7 +2470,7 @@ function sortBySessionsAsc(items) {
   const sessionCount = (item) => /\bunlimited\b/i.test(String(item?.name || ""))
     ? Number.POSITIVE_INFINITY
     : Number(item?.sessions) || 0;
-  return [...items].sort((a, b) => sessionCount(a) - sessionCount(b));
+  return [...items].sort((a, b) => Number(isOctoberBuyThreeGetOnePackage(b)) - Number(isOctoberBuyThreeGetOnePackage(a)) || sessionCount(a) - sessionCount(b));
 }
 
 const CLASS_PACK_PROMO_CODES = new Set([
@@ -4870,6 +4871,8 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   });
   const [dataLoading, setDataLoading] = useState(false);
   const [bookingState, setBookingState] = useState({ classId: null, operation: "", type: "", message: "" });
+  const bookingGuard = React.useRef(createBookingGuard());
+  const [reservationPending, setReservationPending] = useState(false);
   const [guestBookingClass, setGuestBookingClass] = useState(null);
   const [guestForm, setGuestForm] = useState({ firstName: "", lastName: "", email: "", mobilePhone: "" });
   const autoBookTriggered = React.useRef(false);
@@ -5018,9 +5021,9 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       })
       .catch(() => {});
 
-    // Refresh client schedule and eligibility
+    // Keep booking controls locked until the personal schedule is refreshed.
     if (clientSession?.signedIn) {
-      Promise.all([
+      return Promise.all([
         fetch("/api/client/schedule", { cache: "no-store", credentials: "include" })
           .then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch("/api/client/eligibility", { cache: "no-store", credentials: "include" })
@@ -5043,6 +5046,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   setClientSchedule(map);
 }
         if (eligData?.ok) setEligibility(eligData.data);
+        return schedData?.ok ? schedData.data?.visits : null;
       });
     }
   };
@@ -5070,13 +5074,15 @@ if (
   console.warn("[schedule] Eligibility says no credits/membership. Sending booking to backend for final validation.");
 }
 
+    if (!bookingGuard.current.acquire()) return;
+    setReservationPending(true);
     setBookingState({ classId, operation: "book", type: "loading", message: "Booking\u2026" });
 
     try {
       const clientServiceId = eligibility?.activeServices?.find((service) =>
         !/guest\s*pass/i.test(String(service.name || ""))
       )?.id;
-      await apiRequest("/api/mindbody/book-class", {
+      const result = await apiRequest("/api/mindbody/book-class", {
         method: "POST",
        body: {
               classId,
@@ -5086,8 +5092,9 @@ if (
               classScheduleId: classItem.classScheduleId || undefined
             }
       });
-      setBookingState({ classId, operation: "book", type: "success", message: "Booked! Check your account for confirmation." });
-      refreshAll();
+      await refreshAll();
+      setClientSchedule((current) => new Map(current).set(classId, { ...current.get(classId), type: "booking", visitId: result.data?.Visit?.Id || current.get(classId)?.visitId }));
+      setBookingState({ classId, operation: "book", type: "success", message: result.data?.alreadyBooked ? "You are already booked for this class." : "Booked! Check your account for confirmation." });
     } catch (error) {
       if (error.loginUrl) { window.location.href = error.loginUrl; return; }
       setBookingState({
@@ -5096,11 +5103,14 @@ if (
         type: "error",
         message: error.data?.message || error.message || "Booking could not be completed."
       });
+    } finally {
+      bookingGuard.current.release();
+      setReservationPending(false);
     }
   };
 
   const unbookClass = async (classItem) => {
-    const classId = classItem.id;
+    const classId = Number(classItem.classId || classItem.id);
     const visitData = clientSchedule.get(Number(classId));
     const visitId = visitData?.visitId;
 
@@ -5109,6 +5119,8 @@ if (
       return;
     }
 
+    if (!bookingGuard.current.acquire()) return;
+    setReservationPending(true);
     setBookingState({ classId, operation: "unbook", type: "loading", message: "Cancelling\u2026" });
 
     try {
@@ -5116,8 +5128,12 @@ if (
         method: "POST",
         body: { classId, visitId: visitId || undefined }
       });
-      setBookingState({ classId, operation: "unbook", type: "success", message: "Booking cancelled." });
-      refreshAll();
+      const visits = await refreshAll();
+      const remaining = visits?.some((visit) => Number(visit.classId) === classId && visit.type !== "waitlist");
+      if (visits && !remaining) setClientSchedule((current) => { const next = new Map(current); next.delete(classId); return next; });
+      setBookingState({ classId, operation: "unbook", type: "success", message: remaining
+        ? "One reservation was cancelled, but another reservation for this class remains. Please contact the studio to resolve the duplicate."
+        : visits ? "Booking cancelled." : "Cancellation submitted. Please refresh to confirm your current reservations." });
     } catch (error) {
       if (error.loginUrl) { window.location.href = error.loginUrl; return; }
       setBookingState({
@@ -5126,6 +5142,9 @@ if (
         type: "error",
         message: error.data?.message || error.message || "Could not cancel this booking."
       });
+    } finally {
+      bookingGuard.current.release();
+      setReservationPending(false);
     }
   };
 
@@ -5424,9 +5443,9 @@ if (
           const isWaitlisted = clientClassState?.type === "waitlist";
           const isBooked = Boolean(clientClassState) && !isWaitlisted;
           const liveStatus = classItem.status || "";
-          const isThisLoading = bookingState.classId === classItem.id && bookingState.type === "loading";
-          const isThisSuccess = bookingState.classId === classItem.id && bookingState.type === "success";
-          const isThisUnbook = bookingState.classId === classItem.id && bookingState.operation === "unbook";
+          const isThisLoading = Number(bookingState.classId) === Number(classItem.id) && bookingState.type === "loading";
+          const isThisSuccess = Number(bookingState.classId) === Number(classItem.id) && bookingState.type === "success";
+          const isThisUnbook = Number(bookingState.classId) === Number(classItem.id) && bookingState.operation === "unbook";
           const isThisWaitlistSuccess =
             isThisSuccess && bookingState.operation === "waitlist";
           const isThisBookingSuccess =
@@ -5485,8 +5504,8 @@ if (isDataLoading) {
 
           // Action button
           let actionButton;
-          const isBusy = isThisLoading;
-          const effectiveBooked = isBooked && !(isThisSuccess && isThisUnbook);
+          const isBusy = isThisLoading || reservationPending;
+          const effectiveBooked = isBooked || isThisBookingSuccess;
           const isGuestPassRestrictedClass =
             /yalla\s*move|cave\s*intensified|latin\s*night/i.test(String(classItem.className || ""));
           const canBookGuest =
@@ -5509,7 +5528,7 @@ if (isDataLoading) {
       aria-busy={isBusy && isThisUnbook}
       onClick={() => unbookClass(classItem)}
     >
-      Unbook
+      {isThisLoading && isThisUnbook ? "Cancelling…" : "Unbook"}
     </button>
   );
 } else if (isWaitlisted) {
@@ -5576,7 +5595,7 @@ if (isDataLoading) {
       aria-busy={isBusy && bookingState.operation === "book"}
       onClick={() => bookClass(classItem)}
     >
-      Book
+      {isThisLoading ? "Booking…" : "Book"}
     </button>
   );
 }
@@ -5626,7 +5645,7 @@ if (isDataLoading) {
                     Book Guest
                   </button>
                 ) : null}
-                {bookingState.classId === classItem.id && bookingState.type !== "loading" && bookingState.message ? (
+                {Number(bookingState.classId) === Number(classItem.id) && bookingState.type !== "loading" && bookingState.message ? (
                   <p className={`row-status ${bookingState.type}`} role={bookingState.type === "error" ? "alert" : "status"}>{bookingState.message}</p>
                 ) : null}
               </div>

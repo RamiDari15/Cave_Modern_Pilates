@@ -6771,3 +6771,9 @@ body.interior:has(.page-policies),
   .page-newbie { padding-bottom: 85px; }
   .pricing-category-heading.newbie { padding-top: 100px; }
 }
+
+.pricing-choice-card.october-offer .pricing-choice-image {
+  background-size: 127% auto;
+  background-position: 59% 50%;
+  filter: none;
+}
