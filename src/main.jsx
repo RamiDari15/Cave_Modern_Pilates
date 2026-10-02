@@ -1588,18 +1588,15 @@ function PricingLandingPage({ store, memberships, clientSession }) {
   return (
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
-      {octoberOffer && (
-        <a className="october-pricing-feature" href={`${ROUTES.classPacks}#purchase-options`}>
-          <img src={octoberOfferImage} alt="Buy 3, get 1 free" />
-          <div>
-            <span>October special</span>
-            <h2>Buy 3 classes, get 1 free</h2>
-            <p>4 reformer Pilates classes · {octoberOffer.price}</p>
-            <strong>Shop the October offer →</strong>
-          </div>
-        </a>
-      )}
       <div className="pricing-choice-grid">
+        {octoberOffer && (
+          <a className="pricing-choice-card october-offer" href={`${ROUTES.classPacks}#purchase-options`}>
+            <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />
+            <div className="pricing-choice-copy">
+              <strong>Buy 3, Get 1 Free</strong>
+            </div>
+          </a>
+        )}
         {PRICING_CATEGORIES.map((category) => (
           <a className={`pricing-choice-card ${category.key}`} href={category.href} key={category.key}>
             <div className="pricing-choice-image" role="img" aria-label={category.title} />
