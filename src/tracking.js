@@ -103,7 +103,9 @@ export function trackConversionReceipt(receipt, email) {
       }
       const label = name === "Purchase" ? GOOGLE_ADS_PURCHASE_LABEL : name === "NewClientPurchase" ? GOOGLE_ADS_INTRO_LABEL : name === "CompleteRegistration" ? GOOGLE_ADS_SIGNUP_LABEL : "";
       if (GOOGLE_ADS_ID && label) {
-        if (email) gtag("set", "user_data", { email: String(email).trim().toLowerCase() });
+        if (email && (name === "Purchase" || name === "NewClientPurchase")) {
+          gtag("set", "user_data", { email: String(email).trim().toLowerCase() });
+        }
         gtag("event", "conversion", { send_to: `${GOOGLE_ADS_ID}/${label}`, ...value, transaction_id: id });
         gtag("set", "user_data", null);
       }

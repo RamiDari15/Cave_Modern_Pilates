@@ -22,6 +22,15 @@ test("browser and server deduplicate the same discounted purchase and intro", as
   delete globalThis.window;
 });
 
+test("signup reports its event without sharing an email", () => {
+  const google = [];
+  globalThis.window = { gtag: (...args) => google.push(args) };
+  tracking.trackConversionReceipt({ events: [{ name: "CompleteRegistration", id: "signup-123", data: {} }] }, "private@example.test");
+  assert.equal(google.filter(e => e[1] === "conversion").length, 1);
+  assert.doesNotMatch(JSON.stringify(google), /private@example|"email"/);
+  delete globalThis.window;
+});
+
 test("missing receipt produces no purchase and blocked tags cannot fail checkout", () => {
   let calls = 0;
   globalThis.window = { fbq: () => { calls++; throw new Error("blocked"); }, gtag: () => { calls++; throw new Error("blocked"); } };
