@@ -1058,11 +1058,11 @@ return true;
         });
         const hasUnlimitedMembership = hasEligibleUnlimitedMembership(memberInfo);
 
-        if (!guestPass && !hasUnlimitedMembership && memberInfo.guestPassEligibilityVerified === false) {
+        if (!hasUnlimitedMembership && memberInfo.guestPassEligibilityVerified === false) {
           throw httpError(503, "We couldn’t verify your guest pass with Mindbody. Please try again.");
         }
 
-        if (!guestPass && !hasUnlimitedMembership) {
+        if (!hasUnlimitedMembership) {
           const error = httpError(402, "No available guest pass was found on your account.");
           error.bookingCode = "NO_GUEST_PASS";
           throw error;
@@ -6134,6 +6134,27 @@ async function fetchClientCompleteInfo(clientId, session) {
       .slice(0, 10)
       .trim();
 
+  const getStatus = (item) =>
+    String(
+      item.MembershipStatus ||
+      item.Status ||
+      item.ContractStatus ||
+      item.ServiceStatus ||
+      item.status ||
+      ""
+    )
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+
+  const today = currentDetroitDate();
+  const hasInactiveStatus = (item) =>
+    /expired|cancelled|canceled|terminated|inactive|suspended/.test(getStatus(item));
+  const hasExpiredDate = (item) => {
+    const expiration = getExpiration(item);
+    return Boolean(expiration && /^\d{4}-\d{2}-\d{2}$/.test(expiration) && expiration < today);
+  };
+
   const normalizeRemaining = (item) => {
     const value =
       item.Remaining ??
@@ -6171,33 +6192,6 @@ async function fetchClientCompleteInfo(clientId, session) {
       return true;
     });
   };
-
-  const usableServices = uniqueBy(rawServices, (service) => {
-    const name = nameKey(service);
-    const remaining = normalizeRemaining(service);
-    const expiration = getExpiration(service);
-
-    return `${name}|${remaining}|${expiration}`;
-  }).filter((service) => {
-    const name = nameKey(service);
-    const remaining = normalizeRemaining(service);
-    const remainingNumber = Number(remaining);
-
-    if (!name) {
-      return false;
-    }
-
-    if (/unlimited/i.test(name)) {
-      return true;
-    }
-
-    if (!String(remaining).trim()) {
-      return true;
-    }
-
-    return !Number.isFinite(remainingNumber) || remainingNumber > 0;
-  });
-
 
   const getTimeValue = (value) => {
   const time = new Date(value || "").getTime();
@@ -6241,14 +6235,6 @@ const dedupeByNameKeepLatest = (items) => {
 const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((membership) => {
   const name = nameKey(membership);
 
-  const status = String(
-    membership.MembershipStatus ||
-    membership.Status ||
-    membership.ContractStatus ||
-    membership.status ||
-    ""
-  ).toLowerCase();
-
   const remaining = normalizeRemaining(membership);
   const remainingNumber = Number(remaining);
 
@@ -6258,15 +6244,13 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
   const isUnlimitedMembership =
     /unlimited|founding members|membership|members/i.test(name);
 
-  const notExpiredStatus =
-    !/expired|cancelled|canceled|terminated|inactive/.test(status);
-
   if (!name) {
     return false;
   }
 
   return (
-    notExpiredStatus &&
+    !hasInactiveStatus(membership) &&
+    !hasExpiredDate(membership) &&
     (
       isUnlimitedMembership ||
       isContractPlan ||
@@ -6274,6 +6258,42 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
     )
   );
 });
+
+  const hasUnlimitedMembershipRecord = rawMemberships.some((membership) =>
+    /unlimited|founding members/i.test(nameKey(membership))
+  );
+  const hasActiveUnlimitedMembershipRecord = activeMemberships.some((membership) =>
+    /unlimited|founding members/i.test(nameKey(membership))
+  );
+
+  const usableServices = uniqueBy(rawServices, (service) => {
+    const name = nameKey(service);
+    const remaining = normalizeRemaining(service);
+    const expiration = getExpiration(service);
+
+    return `${name}|${remaining}|${expiration}`;
+  }).filter((service) => {
+    const name = nameKey(service);
+    const remaining = normalizeRemaining(service);
+    const remainingNumber = Number(remaining);
+
+    if (!name || hasInactiveStatus(service) || hasExpiredDate(service)) {
+      return false;
+    }
+
+    if (/unlimited/i.test(name)) {
+      // Mindbody can leave an unlimited client service active-looking after
+      // its contract is terminated. When contract history is available, the
+      // service is valid only while an unlimited contract is also active.
+      return !hasUnlimitedMembershipRecord || hasActiveUnlimitedMembershipRecord;
+    }
+
+    if (!String(remaining).trim()) {
+      return true;
+    }
+
+    return !Number.isFinite(remainingNumber) || remainingNumber > 0;
+  });
 
    
 
@@ -6296,6 +6316,13 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
         service.name ||
         "Class credit",
       remaining: normalizeRemaining(service),
+      status:
+        service.MembershipStatus ||
+        service.Status ||
+        service.ContractStatus ||
+        service.ServiceStatus ||
+        service.status ||
+        "",
       expirationDate:
         service.ExpirationDate ||
         service.Expires ||
@@ -6506,7 +6533,10 @@ if (!classItem) {
     }
   } catch (serviceErr) {
     if (serviceErr.bookingCode === "NO_VALID_SERVICE") throw serviceErr;
-    console.warn("[book-class] Could not verify client services, proceeding:", serviceErr.message);
+    console.warn("[book-class] Could not verify client services; booking blocked:", serviceErr.message);
+    const err = httpError(503, "We couldn’t verify an active class pack or membership. Please try again.");
+    err.bookingCode = "ENTITLEMENT_UNAVAILABLE";
+    throw err;
   }
 
   const bookingBody = {

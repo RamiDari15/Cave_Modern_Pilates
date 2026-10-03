@@ -45,6 +45,9 @@ test("expired or cancelled unlimited memberships do not receive a monthly guest 
   assert.equal(hasEligibleUnlimitedMembership({
     activeMemberships: [{ name: "Unlimited Membership", status: "Active", expirationDate: "2020-01-01" }]
   }), false);
+  assert.equal(hasEligibleUnlimitedMembership({
+    activeServices: [{ name: "Unlimited Membership", status: "Terminated", expirationDate: "2099-01-01" }]
+  }), false);
 });
 
 test("class packs do not receive the unlimited monthly guest benefit", () => {
@@ -76,6 +79,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
   });
 
   let membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" };
+  let services = [];
   let records = [];
   let trackingFailure = "";
   let membershipFailure = "";
@@ -88,7 +92,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
     if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "guest-test-member" } });
     if (url.pathname.endsWith("/client/clientservices")) {
       if (membershipFailure === "services") return Response.json({ Message: "Mindbody unavailable" }, { status: 503 });
-      return Response.json({ ClientServices: [] });
+      return Response.json({ ClientServices: services });
     }
     if (url.pathname.endsWith("/client/clientcontracts")) {
       if (membershipFailure === "contracts") return Response.json({ Message: "Mindbody unavailable" }, { status: 503 });
@@ -234,5 +238,19 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
         assert.ok(!requests.some((entry) => entry.url.hostname === "guest-pass-test.example.invalid"));
       }
     }
+  });
+
+  await t.test("a terminated membership cannot regain a guest benefit from leftover services", async () => {
+    membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Terminated", Remaining: 0, ExpirationDate: "2099-08-05" };
+    services = [
+      { Id: 18, Name: "Unlimited Membership", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" },
+      { Id: 19, Name: "Guest Pass", Status: "Active", Remaining: 1, ExpirationDate: "2099-08-05" }
+    ];
+    for (const route of routes) {
+      const result = await readBenefit(route);
+      assert.equal(result.eligible, false);
+      assert.equal(result.status, "ineligible");
+    }
+    services = [];
   });
 });
