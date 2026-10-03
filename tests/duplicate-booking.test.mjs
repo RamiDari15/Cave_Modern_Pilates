@@ -25,6 +25,8 @@ const { handleApiRequest } = await import("../server/api.mjs");
 const originalFetch = globalThis.fetch;
 
 let visits = [], posts = 0, readFailure = false, uncertain = false, capacity = 10;
+let services = [{ Id: 10, Name: "10 Class Pack", Remaining: 10, ActiveDate: "2020-01-01", ExpirationDate: "2099-12-31" }];
+let contracts = [];
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input), body = options.body ? JSON.parse(options.body) : {};
   if (url.pathname.endsWith("/class/classes")) return Response.json({ Classes: [{ Id: 77, StartDateTime: "2099-01-01T10:00:00", MaxCapacity: capacity, TotalBooked: 0, IsAvailable: true }] });
@@ -34,8 +36,8 @@ globalThis.fetch = async (input, options = {}) => {
   }
   if (url.pathname.endsWith("/class/waitlistentries")) return Response.json({ WaitlistEntries: [] });
   if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "42" } });
-  if (url.pathname.endsWith("/client/clientservices")) return Response.json({ ClientServices: [{ Id: 10, Name: "10 Class Pack", Remaining: 10, ActiveDate: "2020-01-01", ExpirationDate: "2099-12-31" }] });
-  if (url.pathname.endsWith("/client/clientcontracts")) return Response.json({ Contracts: [] });
+  if (url.pathname.endsWith("/client/clientservices")) return Response.json({ ClientServices: services });
+  if (url.pathname.endsWith("/client/clientcontracts")) return Response.json({ Contracts: contracts });
   if (url.pathname.endsWith("/class/addclienttoclass")) {
     posts++;
     await new Promise(resolve => setTimeout(resolve, 30));
@@ -64,7 +66,15 @@ async function request(body, path = "/api/mindbody/book-class", method = "POST")
 }
 
 
-function reset() { visits = []; posts = 0; readFailure = false; uncertain = false; capacity = 10; }
+function reset() {
+  visits = [];
+  posts = 0;
+  readFailure = false;
+  uncertain = false;
+  capacity = 10;
+  services = [{ Id: 10, Name: "10 Class Pack", Remaining: 10, ActiveDate: "2020-01-01", ExpirationDate: "2099-12-31" }];
+  contracts = [];
+}
 
 test("booking guard acquires synchronously before the UI re-renders", () => {
   const guard = createBookingGuard();
@@ -117,5 +127,37 @@ test("booking requests with a synthetic provider never create duplicate reservat
   await t.test("a previously cancelled reservation permits booking again", async () => {
     reset(); visits = [{Id:99,ClassId:77,VisitStatus:"Cancelled"}];
     assert.equal((await request({classId:77})).status,200); assert.equal(posts,1);
+  });
+  await t.test("a terminated unlimited contract cannot book with its leftover service", async () => {
+    reset();
+    services = [{ Id: 10, Name: "Unlimited Membership", Remaining: 0, ExpirationDate: "2099-12-31" }];
+    contracts = [{ Id: 20, Name: "Unlimited Membership - 12 Months", Status: "Terminated", ExpirationDate: "2099-12-31" }];
+    const result = await request({classId:77});
+    assert.equal(result.status,402,JSON.stringify(result.body));
+    assert.equal(result.body.code,"NO_VALID_SERVICE");
+    assert.equal(posts,0);
+  });
+  await t.test("a terminated unlimited contract cannot book a guest with its leftover guest pass", async () => {
+    reset();
+    services = [
+      { Id: 10, Name: "Unlimited Membership", Remaining: 0, ExpirationDate: "2099-12-31" },
+      { Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-12-31" }
+    ];
+    contracts = [{ Id: 20, Name: "Unlimited Membership - 12 Months", Status: "Terminated", ExpirationDate: "2099-12-31" }];
+    const result = await request({
+      classId: 77,
+      guestPassClientServiceId: 11,
+      guest: { firstName: "Test", lastName: "Guest", email: "guest@example.invalid", mobilePhone: "3135550100" }
+    }, "/api/mindbody/book-guest");
+    assert.equal(result.status,402,JSON.stringify(result.body));
+    assert.equal(result.body.code,"NO_GUEST_PASS");
+    assert.equal(posts,0);
+  });
+  await t.test("an expired service cannot be used for booking", async () => {
+    reset();
+    services = [{ Id: 10, Name: "10 Class Pack", Remaining: 10, Status: "Active", ExpirationDate: "2020-01-01" }];
+    const result = await request({classId:77});
+    assert.equal(result.status,402,JSON.stringify(result.body));
+    assert.equal(posts,0);
   });
 });
