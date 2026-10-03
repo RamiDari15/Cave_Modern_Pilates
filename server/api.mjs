@@ -6093,16 +6093,26 @@ async function fetchClientCompleteInfo(clientId, session) {
     ...(Array.isArray(client.Services) ? client.Services : [])
   ].filter(Boolean);
 
-  const rawMemberships = [
+  const summaryMemberships = [
     ...firstListByKey(data, "ClientMemberships"),
     ...firstListByKey(data, "ClientContracts"),
     ...firstListByKey(data, "Contracts"),
-    ...firstListByKey(contractData, "ClientMemberships"),
-    ...firstListByKey(contractData, "ClientContracts"),
-    ...firstListByKey(contractData, "Contracts"),
     ...(Array.isArray(client.ClientMemberships) ? client.ClientMemberships : []),
     ...(Array.isArray(client.ClientContracts) ? client.ClientContracts : [])
   ].filter(Boolean);
+
+  const contractMemberships = [
+    ...firstListByKey(contractData, "ClientMemberships"),
+    ...firstListByKey(contractData, "ClientContracts"),
+    ...firstListByKey(contractData, "Contracts")
+  ].filter(Boolean);
+
+  // The dedicated contracts response is authoritative when it succeeds.
+  // ClientCompleteInfo can retain an active-looking membership summary after
+  // its underlying contract has been terminated.
+  const rawMemberships = contractData !== null
+    ? contractMemberships
+    : summaryMemberships;
 
   const cleanName = (item) =>
     String(
@@ -6295,6 +6305,12 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
     return !Number.isFinite(remainingNumber) || remainingNumber > 0;
   });
 
+  // A monthly guest pass is only valid for the guest-booking route. It must
+  // never qualify the member for a normal class booking by itself.
+  const bookableServices = usableServices.filter((service) =>
+    !/guest\s*pass/i.test(cleanName(service))
+  );
+
    
 
   return {
@@ -6358,13 +6374,10 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
         ""
     })),
 
-    hasUsablePricingOption: usableServices.length > 0 || activeMemberships.length > 0,
+    hasUsablePricingOption: bookableServices.length > 0 || activeMemberships.length > 0,
 
-    defaultClientServiceId: usableServices.some((service) => !/guest\s*pass/i.test(cleanName(service)))
-      ? (() => {
-          const service = usableServices.find((item) => !/guest\s*pass/i.test(cleanName(item)));
-          return service.Id || service.ClientServiceId || service.id;
-        })()
+    defaultClientServiceId: bookableServices.length
+      ? bookableServices[0].Id || bookableServices[0].ClientServiceId || bookableServices[0].id
       : null
   };
 }

@@ -80,6 +80,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
 
   let membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" };
   let services = [];
+  let completeMemberships = [];
   let records = [];
   let trackingFailure = "";
   let membershipFailure = "";
@@ -89,7 +90,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
     const url = new URL(input);
     const body = options.body ? JSON.parse(options.body) : null;
     requests.push({ url, method: options.method || "GET", body });
-    if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "guest-test-member" } });
+    if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "guest-test-member" }, ClientMemberships: completeMemberships });
     if (url.pathname.endsWith("/client/clientservices")) {
       if (membershipFailure === "services") return Response.json({ Message: "Mindbody unavailable" }, { status: 503 });
       return Response.json({ ClientServices: services });
@@ -242,6 +243,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
 
   await t.test("a terminated membership cannot regain a guest benefit from leftover services", async () => {
     membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Terminated", Remaining: 0, ExpirationDate: "2099-08-05" };
+    completeMemberships = [{ Id: 8, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-08-05" }];
     services = [
       { Id: 18, Name: "Unlimited Membership", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" },
       { Id: 19, Name: "Guest Pass", Status: "Active", Remaining: 1, ExpirationDate: "2099-08-05" }
@@ -252,5 +254,6 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
       assert.equal(result.status, "ineligible");
     }
     services = [];
+    completeMemberships = [];
   });
 });
