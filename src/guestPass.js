@@ -16,3 +16,8 @@ export function getGuestPassPeriod(now = new Date()) {
     renewsOn: `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`
   };
 }
+
+export function hasAvailableMonthlyGuestPass(eligibility) {
+  const guestPass = eligibility?.monthlyGuestPass;
+  return guestPass?.eligible === true && guestPass?.available === true;
+}

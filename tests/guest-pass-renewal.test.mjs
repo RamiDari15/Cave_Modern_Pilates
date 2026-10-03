@@ -6,7 +6,7 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { GUEST_PASS_TIME_ZONE, getGuestPassPeriod } from "../src/guestPass.js";
+import { GUEST_PASS_TIME_ZONE, getGuestPassPeriod, hasAvailableMonthlyGuestPass } from "../src/guestPass.js";
 
 // Never read developer credentials or call a real service from these tests.
 for (const key of Object.keys(process.env)) {
@@ -54,6 +54,16 @@ test("class packs do not receive the unlimited monthly guest benefit", () => {
   assert.equal(hasEligibleUnlimitedMembership({
     activeServices: [{ name: "10 Class Pack", status: "Active", remaining: 10, expirationDate: "2099-01-01" }]
   }), false);
+});
+
+test("the schedule hides a leftover guest pass when the monthly benefit is ineligible", () => {
+  assert.equal(hasAvailableMonthlyGuestPass({
+    activeServices: [{ name: "Guest Pass", remaining: 1 }],
+    monthlyGuestPass: { eligible: false, available: false, status: "ineligible" }
+  }), false);
+  assert.equal(hasAvailableMonthlyGuestPass({
+    monthlyGuestPass: { eligible: true, available: true, status: "available" }
+  }), true);
 });
 
 test("guest-pass periods use the established studio calendar", () => {
