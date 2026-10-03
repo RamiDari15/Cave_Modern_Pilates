@@ -5,7 +5,7 @@ import { Bot, CalendarDays, ChevronLeft, ChevronRight, Gift, Instagram, Menu, Me
 import { FALLBACK_CACHE } from "./studioCache";
 import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
-import { getGuestPassPeriod } from "./guestPass";
+import { getGuestPassPeriod, hasAvailableMonthlyGuestPass } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
 import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
@@ -5322,20 +5322,9 @@ if (
 
   const isLiveDataLoading = liveLoading && !liveClasses;
   const hasNoCredits = clientSession?.signedIn && eligibility !== null && !eligibility.hasUsablePricingOption;
-  const hasMindbodyGuestPass = eligibility?.activeServices?.some((service) => {
-    const name = String(service.name || "");
-    const remaining = Number(service.remaining);
-
-    return /guest\s*pass/i.test(name) &&
-      (!String(service.remaining ?? "").trim() || !Number.isFinite(remaining) || remaining > 0);
-  });
   const guestPassBooking = eligibility?.monthlyGuestPass?.booking || null;
   const guestBookedClassId = Number(guestPassBooking?.classId || 0);
-  const hasAvailableGuestPass = Boolean(
-    eligibility?.monthlyGuestPass?.eligible
-      ? eligibility.monthlyGuestPass.available
-      : hasMindbodyGuestPass
-  );
+  const hasAvailableGuestPass = hasAvailableMonthlyGuestPass(eligibility);
 
   return (
     <div className="schedule-browser" aria-live="polite">
