@@ -27,6 +27,7 @@ const originalFetch = globalThis.fetch;
 let visits = [], posts = 0, readFailure = false, uncertain = false, capacity = 10;
 let services = [{ Id: 10, Name: "10 Class Pack", Remaining: 10, ActiveDate: "2020-01-01", ExpirationDate: "2099-12-31" }];
 let contracts = [];
+let completeMemberships = [];
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input), body = options.body ? JSON.parse(options.body) : {};
   if (url.pathname.endsWith("/class/classes")) return Response.json({ Classes: [{ Id: 77, StartDateTime: "2099-01-01T10:00:00", MaxCapacity: capacity, TotalBooked: 0, IsAvailable: true }] });
@@ -35,7 +36,7 @@ globalThis.fetch = async (input, options = {}) => {
     return Response.json({ Visits: visits });
   }
   if (url.pathname.endsWith("/class/waitlistentries")) return Response.json({ WaitlistEntries: [] });
-  if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "42" } });
+  if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "42" }, ClientMemberships: completeMemberships });
   if (url.pathname.endsWith("/client/clientservices")) return Response.json({ ClientServices: services });
   if (url.pathname.endsWith("/client/clientcontracts")) return Response.json({ Contracts: contracts });
   if (url.pathname.endsWith("/class/addclienttoclass")) {
@@ -74,6 +75,7 @@ function reset() {
   capacity = 10;
   services = [{ Id: 10, Name: "10 Class Pack", Remaining: 10, ActiveDate: "2020-01-01", ExpirationDate: "2099-12-31" }];
   contracts = [];
+  completeMemberships = [];
 }
 
 test("booking guard acquires synchronously before the UI re-renders", () => {
@@ -130,8 +132,12 @@ test("booking requests with a synthetic provider never create duplicate reservat
   });
   await t.test("a terminated unlimited contract cannot book with its leftover service", async () => {
     reset();
-    services = [{ Id: 10, Name: "Unlimited Membership", Remaining: 0, ExpirationDate: "2099-12-31" }];
+    services = [
+      { Id: 10, Name: "Unlimited Membership", Remaining: 0, ExpirationDate: "2099-12-31" },
+      { Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-12-31" }
+    ];
     contracts = [{ Id: 20, Name: "Unlimited Membership - 12 Months", Status: "Terminated", ExpirationDate: "2099-12-31" }];
+    completeMemberships = [{ Id: 20, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-12-31" }];
     const result = await request({classId:77});
     assert.equal(result.status,402,JSON.stringify(result.body));
     assert.equal(result.body.code,"NO_VALID_SERVICE");
@@ -144,6 +150,7 @@ test("booking requests with a synthetic provider never create duplicate reservat
       { Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-12-31" }
     ];
     contracts = [{ Id: 20, Name: "Unlimited Membership - 12 Months", Status: "Terminated", ExpirationDate: "2099-12-31" }];
+    completeMemberships = [{ Id: 20, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-12-31" }];
     const result = await request({
       classId: 77,
       guestPassClientServiceId: 11,
@@ -151,6 +158,14 @@ test("booking requests with a synthetic provider never create duplicate reservat
     }, "/api/mindbody/book-guest");
     assert.equal(result.status,402,JSON.stringify(result.body));
     assert.equal(result.body.code,"NO_GUEST_PASS");
+    assert.equal(posts,0);
+  });
+  await t.test("a guest pass never counts as a member class credit", async () => {
+    reset();
+    services = [{ Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-12-31" }];
+    const result = await request({classId:77});
+    assert.equal(result.status,402,JSON.stringify(result.body));
+    assert.equal(result.body.code,"NO_VALID_SERVICE");
     assert.equal(posts,0);
   });
   await t.test("an expired service cannot be used for booking", async () => {
