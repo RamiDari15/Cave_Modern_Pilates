@@ -145,6 +145,7 @@ The sign-up form includes the required client fields returned by the studio API:
 - Set `FRONT_DESK_PASSWORD` in Vercel. The password is checked server-side and unlocks a 12-hour HttpOnly cookie sealed with `SESSION_SECRET`. Changing the password signs every front desk device out.
 - Counts come from Mindbody `/client/clientvisits` through the server-side source-credential token. Cancelled, late-cancelled and missed visits do not count. Rosters come from `/class/classes` and `/class/classvisits`.
 - Each refresh makes roughly one Mindbody call per class plus one per booked client (cached 3 to 10 minutes), so the "Week" view uses the most API calls.
+- Every client: with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` set and the `front_desk_client_counts` migration applied, the Client counts tab covers every Mindbody client. The server lists all clients once a day and refreshes visit histories in batches of 25 (active clients every 12 hours, inactive ones weekly) while the page is open, plus a daily Vercel cron when `CRON_SECRET` is set. The snapshot also fills in class rosters Mindbody leaves empty.
 - Alerts: milestone pop-ups on the page, plus optional desktop notifications from the bell button. "Celebrated" marks are saved per device.
 
 ## Ad Tracking

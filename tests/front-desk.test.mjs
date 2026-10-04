@@ -17,7 +17,9 @@ Object.assign(process.env, {
   BOOKING_API_KEY: "front-desk-test-api-key",
   BOOKING_SITE_ID: "front-desk-test-studio",
   BOOKING_STAFF_TOKEN: "front-desk-test-staff-token",
-  FRONT_DESK_PASSWORD: "reformer-desk-test"
+  FRONT_DESK_PASSWORD: "reformer-desk-test",
+  SUPABASE_URL: "https://front-desk-test.supabase.co",
+  SUPABASE_SERVICE_ROLE_KEY: "front-desk-test-service-role"
 });
 
 const originalExistsSync = fs.existsSync;
@@ -54,28 +56,82 @@ const visitsByClient = {
     { Id: "101-today", ClientId: "101", ClassId: 501, StartDateTime: laterToday, Name: "Reformer Flow" }
   ]),
   // 7 completed + booked today = 8th class (no milestone).
-  "102": pastVisits("102", 7, [{ Id: "102-today", ClientId: "102", ClassId: 501, StartDateTime: laterToday }])
+  "102": pastVisits("102", 7, [{ Id: "102-today", ClientId: "102", ClassId: 501, StartDateTime: laterToday }]),
+  // Not booked anywhere this week, 49 classes in: one away from 50.
+  "104": pastVisits("104", 49)
 };
 let upstreamCalls = [];
+let rosterVisits = [{ ClientId: "101" }, { ClientId: "102" }, { ClientId: "103", LateCancelled: true }];
+let classTotalBooked;
 const originalFetch = globalThis.fetch;
+
+// Minimal in-memory PostgREST stand-in for the two front desk tables.
+const store = { front_desk_client_counts: new Map(), front_desk_sync_state: new Map() };
+
+function matches(row, key, condition) {
+  const value = row[key];
+  if (condition === "not.is.null") return value != null;
+  const [op, ...rest] = condition.split(".");
+  const target = rest.join(".");
+  if (op === "eq") return String(value) === target;
+  if (op === "gt") return Number(value) > Number(target);
+  if (op === "lte") return Number(value) <= Number(target);
+  if (op === "ilike") return String(value || "").toLowerCase().includes(target.replaceAll("*", "").toLowerCase());
+  throw new Error(`Unsupported filter ${condition}`);
+}
+
+function fakeSupabase(url, options) {
+  assert.equal(options.headers.Authorization, "Bearer front-desk-test-service-role");
+  const table = store[url.pathname.split("/").pop()];
+  if (options.method === "POST") {
+    for (const row of JSON.parse(options.body)) {
+      const key = String(row.client_id ?? row.id);
+      table.set(key, { ...(table.get(key) || { completed_count: 0, upcoming_count: 0, classes_to_next_milestone: 5, next_milestone: 5, visits_synced_at: null, last_visit: "", upcoming_visits: [] }), ...row });
+    }
+    return new Response(null, { status: 201 });
+  }
+  let rows = [...table.values()];
+  for (const [key, condition] of url.searchParams) {
+    if (!["select", "order", "limit", "offset"].includes(key)) rows = rows.filter((row) => matches(row, key, condition));
+  }
+  const order = url.searchParams.get("order") || "";
+  if (order.startsWith("completed_count.desc")) rows.sort((a, b) => b.completed_count - a.completed_count);
+  if (order.startsWith("classes_to_next_milestone.asc")) rows.sort((a, b) => a.classes_to_next_milestone - b.classes_to_next_milestone);
+  if (order.startsWith("visits_synced_at")) rows.sort((a, b) => String(a.visits_synced_at || "").localeCompare(String(b.visits_synced_at || "")));
+  const total = rows.length;
+  const [from, to] = (options.headers.Range || `0-${Number(url.searchParams.get("limit") || 1000) - 1}`).split("-").map(Number);
+  return Response.json(rows.slice(from, to + 1), { headers: { "content-range": `${from}-${to}/${total}` } });
+}
 
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input);
+  if (url.hostname === "front-desk-test.supabase.co") return fakeSupabase(url, options);
   upstreamCalls.push(url);
   assert.equal(options.headers.Authorization, "Bearer front-desk-test-staff-token");
 
   if (url.pathname.endsWith("/class/classes")) {
     return Response.json({
-      Classes: [{ Id: 501, StartDateTime: laterToday, EndDateTime: laterToday, ClassDescription: { Name: "Reformer Flow" }, Staff: { Name: "Lila" }, MaxCapacity: 10 }],
+      Classes: [{ Id: 501, StartDateTime: laterToday, EndDateTime: laterToday, ClassDescription: { Name: "Reformer Flow" }, Staff: { Name: "Lila" }, MaxCapacity: 10, TotalBooked: classTotalBooked }],
       PaginationResponse: { TotalResults: 1 }
     });
   }
   if (url.pathname.endsWith("/class/classvisits")) {
-    return Response.json({ Class: { Visits: [{ ClientId: "101" }, { ClientId: "102" }, { ClientId: "103", LateCancelled: true }] } });
+    return Response.json({ Class: { Visits: rosterVisits } });
   }
   if (url.pathname.endsWith("/client/clients")) {
     if (url.searchParams.get("request.searchText")) {
       return Response.json({ Clients: [{ Id: "102", FirstName: "Dana", LastName: "Ray" }] });
+    }
+    if (!url.searchParams.get("request.clientIds")) {
+      // Full client list for the all-client snapshot, including someone not booked this week.
+      return Response.json({
+        Clients: [
+          { Id: "101", FirstName: "Amira", LastName: "Haddad" },
+          { Id: "102", FirstName: "Dana", LastName: "Ray" },
+          { Id: "104", FirstName: "Lina", LastName: "Saleh" }
+        ],
+        PaginationResponse: { TotalResults: 3 }
+      });
     }
     return Response.json({
       Clients: [
@@ -91,11 +147,11 @@ globalThis.fetch = async (input, options = {}) => {
   throw new Error(`Unexpected mocked upstream request: ${url.pathname}`);
 };
 
-async function request(path, { method = "GET", body, cookie = "" } = {}) {
+async function request(path, { method = "GET", body, cookie = "", headers: extraHeaders = {} } = {}) {
   const req = Readable.from(body === undefined ? [] : [JSON.stringify(body)]);
   req.url = path;
   req.method = method;
-  req.headers = { host: "localhost", origin: "http://localhost", cookie, "content-type": "application/json" };
+  req.headers = { host: "localhost", origin: "http://localhost", cookie, "content-type": "application/json", ...extraHeaders };
   req.socket = { remoteAddress: "front-desk-test" };
   const headers = new Map();
   let output = "";
@@ -209,5 +265,67 @@ test("changing the password signs existing devices out", async () => {
     assert.equal(session.body.authenticated, false);
   } finally {
     process.env.FRONT_DESK_PASSWORD = "reformer-desk-test";
+  }
+});
+
+test("every client is tracked through the synced snapshot", async () => {
+  resetFrontDeskCaches();
+  store.front_desk_client_counts.clear();
+  store.front_desk_sync_state.clear();
+  const login = await request("/api/front-desk/login", { method: "POST", body: { password: "reformer-desk-test" } });
+  const cookie = frontDeskCookie(login);
+
+  assert.equal((await request("/api/front-desk/sync", { method: "POST" })).status, 401);
+  assert.equal((await request("/api/front-desk/sync", { method: "GET", cookie })).status, 405);
+
+  const sync = await request("/api/front-desk/sync", { method: "POST", cookie });
+  assert.equal(sync.status, 200);
+  assert.deepEqual([sync.body.totalClients, sync.body.syncedClients], [3, 3]);
+
+  const all = await request("/api/front-desk/clients?filter=active", { cookie });
+  assert.equal(all.status, 200);
+  assert.deepEqual(all.body.clients.map((client) => [client.name, client.completedCount, client.classesToNextMilestone]), [
+    ["Lina Saleh", 49, 1],
+    ["Amira Haddad", 24, 1],
+    ["Dana Ray", 7, 3]
+  ]);
+
+  const close = await request("/api/front-desk/clients?filter=close&q=lin", { cookie });
+  assert.deepEqual(close.body.clients.map((client) => client.name), ["Lina Saleh"]);
+
+  // A second sync right away has nothing due, so it makes no visit calls.
+  upstreamCalls = [];
+  await request("/api/front-desk/sync", { method: "POST", cookie });
+  assert.equal(upstreamCalls.filter((url) => url.pathname.endsWith("/client/clientvisits")).length, 0);
+});
+
+test("cron can run the sync with CRON_SECRET", async () => {
+  process.env.CRON_SECRET = "front-desk-cron-secret";
+  try {
+    const denied = await request("/api/front-desk/sync", { headers: { authorization: "Bearer wrong" } });
+    assert.equal(denied.status, 401);
+    const allowed = await request("/api/front-desk/sync", { headers: { authorization: "Bearer front-desk-cron-secret" } });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.configured, true);
+  } finally {
+    delete process.env.CRON_SECRET;
+  }
+});
+
+test("rosters Mindbody leaves empty are filled from the snapshot", async () => {
+  resetFrontDeskCaches();
+  rosterVisits = [];
+  classTotalBooked = 2;
+  try {
+    const login = await request("/api/front-desk/login", { method: "POST", body: { password: "reformer-desk-test" } });
+    const dashboard = await request("/api/front-desk/dashboard?days=1", { cookie: frontDeskCookie(login) });
+    assert.equal(dashboard.status, 200);
+    const [item] = dashboard.body.classes;
+    assert.equal(item.bookedCount, 2);
+    assert.deepEqual(item.clients.map((client) => [client.name, client.classNumber]), [["Amira Haddad", 25], ["Dana Ray", 8]]);
+    assert.deepEqual(dashboard.body.upcomingMilestones.map((entry) => entry.name), ["Amira Haddad"]);
+  } finally {
+    rosterVisits = [{ ClientId: "101" }, { ClientId: "102" }, { ClientId: "103", LateCancelled: true }];
+    classTotalBooked = undefined;
   }
 });

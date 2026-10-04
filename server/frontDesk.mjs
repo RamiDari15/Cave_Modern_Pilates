@@ -1,6 +1,16 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isCancelledVisit } from "../src/bookingGuard.js";
 import { isMilestone, nextMilestone } from "../src/milestones.js";
+import {
+  clientsWithBookings,
+  frontDeskStoreConfig,
+  listClientCounts,
+  readSyncState,
+  syncCandidates,
+  syncProgress,
+  upsertClientRows,
+  writeSyncState
+} from "./frontDeskStore.mjs";
 
 // Front desk class counts. Staff unlock the page with FRONT_DESK_PASSWORD; the
 // server checks it and sets a sealed, HttpOnly cookie. Every Mindbody call stays
@@ -17,6 +27,16 @@ const MINDBODY_CONCURRENCY = 6;
 const VISIT_CACHE_TTL_MS = 10 * 60 * 1000;
 const ROSTER_CACHE_TTL_MS = 3 * 60 * 1000;
 const LOGIN_LIMIT = { count: 8, windowMs: 15 * 60 * 1000 };
+// All-client snapshot sync: each step lists up to a few pages of clients and
+// refreshes a small batch of visit histories, so Mindbody calls stay spread out.
+const CLIENT_LIST_PAGES_PER_STEP = 5;
+const CLIENT_LIST_REFRESH_MS = 24 * 60 * 60 * 1000;
+const VISIT_BATCH_PER_STEP = 25;
+const ACTIVE_CLIENT_REFRESH_MS = 12 * 60 * 60 * 1000;
+const INACTIVE_CLIENT_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+const ACTIVE_CLIENT_DAYS = 45;
+const STAFF_SYNC_BUDGET_MS = 8_000;
+const CRON_SYNC_BUDGET_MS = 50_000;
 
 const visitCache = new Map();
 const rosterCache = new Map();
@@ -66,7 +86,22 @@ export async function handleFrontDeskRequest(request, response, url, deps) {
     return true;
   }
 
-  if (!["/api/front-desk/dashboard", "/api/front-desk/client-search"].includes(path)) {
+  if (path === "/api/front-desk/sync") {
+    const cron = isCronRequest(request);
+
+    if (!cron && !hasFrontDeskSession(request, deps)) {
+      throw httpError(401, "Please enter the front desk password.");
+    }
+
+    if (!cron && request.method !== "POST") {
+      throw httpError(405, "Method not allowed.");
+    }
+
+    sendJson(response, 200, await runClientSync(deps, cron ? CRON_SYNC_BUDGET_MS : STAFF_SYNC_BUDGET_MS));
+    return true;
+  }
+
+  if (!["/api/front-desk/dashboard", "/api/front-desk/client-search", "/api/front-desk/clients"].includes(path)) {
     return false;
   }
 
@@ -76,6 +111,11 @@ export async function handleFrontDeskRequest(request, response, url, deps) {
 
   if (!hasFrontDeskSession(request, deps)) {
     throw httpError(401, "Please enter the front desk password.");
+  }
+
+  if (path === "/api/front-desk/clients") {
+    sendJson(response, 200, await allClientCounts(url));
+    return true;
   }
 
   const fresh = url.searchParams.get("refresh") === "1";
@@ -94,6 +134,14 @@ export async function handleFrontDeskRequest(request, response, url, deps) {
 
   sendJson(response, 200, await searchClients(query, fresh, deps));
   return true;
+}
+
+function isCronRequest(request) {
+  const secret = String(process.env.CRON_SECRET || "").trim();
+  const header = String(request.headers.authorization || "");
+
+  if (!secret || !header.startsWith("Bearer ")) return false;
+  return passwordsMatch(header.slice(7), secret);
 }
 
 function frontDeskPassword() {
@@ -342,6 +390,13 @@ function staffName(staff) {
   return String(staff.DisplayName || staff.Name || [staff.FirstName, staff.LastName].filter(Boolean).join(" ") || "");
 }
 
+function idsFromVisits(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(countsTowardTotal)
+    .map((visit) => String(visit.ClientId || visit.Client?.Id || visit.Id || ""))
+    .filter(Boolean);
+}
+
 async function fetchRosters(startDate, endDate, fresh, token, deps) {
   const cacheKey = `${startDate}:${endDate}`;
   const cached = rosterCache.get(cacheKey);
@@ -371,16 +426,32 @@ async function fetchRosters(startDate, endDate, fresh, token, deps) {
       instructor: staffName(item.Staff),
       start: localTimestamp(item.StartDateTime),
       end: localTimestamp(item.EndDateTime),
-      capacity: Number(item.MaxCapacity) || null
+      capacity: Number(item.MaxCapacity) || null,
+      bookedCount: Number(item.TotalBooked ?? item.WebBooked) || 0,
+      reportedEmpty: (item.TotalBooked ?? item.WebBooked) != null && Number(item.TotalBooked ?? item.WebBooked) === 0,
+      embeddedIds: [...idsFromVisits(item.Visits), ...(Array.isArray(item.Clients) ? item.Clients.map((client) => String(client?.Id || "")).filter(Boolean) : [])]
     }))
     .filter((item) => item.start)
     .sort((a, b) => a.start.localeCompare(b.start));
 
-  const classes = await mapLimit(scheduled, MINDBODY_CONCURRENCY, async (item) => {
-    const data = await deps.bookingRequest("/class/classvisits", { token, params: { "request.classID": item.classId } });
-    const visits = data?.Class?.Visits || data?.Visits || [];
-    const clientIds = [...new Set((Array.isArray(visits) ? visits : []).filter(countsTowardTotal).map((visit) => String(visit.ClientId || "")).filter(Boolean))];
-    return { ...item, clientIds };
+  const classes = await mapLimit(scheduled, MINDBODY_CONCURRENCY, async ({ embeddedIds, reportedEmpty, ...item }) => {
+    let rosterIds = [];
+
+    // Skip the roster call only when Mindbody already says nobody is booked.
+    if (!reportedEmpty || embeddedIds.length) {
+      try {
+        const data = await deps.bookingRequest("/class/classvisits", { token, params: { "request.classID": item.classId } });
+        const visitClass = data?.Class || data?.Classes?.[0] || {};
+        rosterIds = [
+          ...idsFromVisits(visitClass.Visits || data?.Visits),
+          ...(Array.isArray(visitClass.Clients) ? visitClass.Clients.map((client) => String(client?.Id || "")).filter(Boolean) : [])
+        ];
+      } catch {
+        // Fall back to the snapshot's booked visits below.
+      }
+    }
+
+    return { ...item, clientIds: [...new Set([...embeddedIds, ...rosterIds])] };
   });
 
   rosterCache.set(cacheKey, { classes, expiresAt: Date.now() + ROSTER_CACHE_TTL_MS });
@@ -398,20 +469,87 @@ function clientRow(profile, summary) {
   };
 }
 
+function snapshotRow(profile, summary) {
+  return {
+    client_id: profile.clientId,
+    first_name: profile.firstName,
+    last_name: profile.lastName,
+    full_name: profile.name,
+    photo_url: profile.photoUrl || "",
+    completed_count: summary.completedCount,
+    upcoming_count: summary.upcomingCount,
+    next_milestone: summary.nextMilestone,
+    classes_to_next_milestone: summary.classesToNextMilestone,
+    last_visit: summary.lastVisit,
+    upcoming_visits: [...summary.byClassId.values()]
+      .filter((visit) => !visit.completed)
+      .slice(0, 50)
+      .map(({ classId, start, classNumber, className: name }) => ({ classId, start, classNumber, className: name })),
+    visits_synced_at: new Date().toISOString()
+  };
+}
+
+function profileFromSnapshot(row) {
+  return {
+    clientId: String(row.client_id),
+    firstName: row.first_name || "",
+    lastName: row.last_name || "",
+    name: row.full_name || [row.first_name, row.last_name].filter(Boolean).join(" ") || "Client",
+    photoUrl: row.photo_url || ""
+  };
+}
+
+function clientFromSnapshot(row) {
+  return {
+    ...profileFromSnapshot(row),
+    completedCount: row.completed_count,
+    upcomingCount: row.upcoming_count,
+    lastVisit: row.last_visit || "",
+    nextMilestone: row.next_milestone,
+    classesToNextMilestone: row.classes_to_next_milestone,
+    syncedAt: row.visits_synced_at || ""
+  };
+}
+
 async function buildDashboard(days, fresh, deps) {
   const token = await deps.getMindbodyActionToken("Front desk class counts");
+  const store = frontDeskStoreConfig();
   const now = studioLocalNow();
   const today = now.slice(0, 10);
   const endDate = addDays(today, days - 1);
-  const classes = await fetchRosters(today, endDate, fresh, token, deps);
+  const [classes, bookedSnapshot] = await Promise.all([
+    fetchRosters(today, endDate, fresh, token, deps).then((list) => list.map((item) => ({ ...item, clientIds: [...item.clientIds] }))),
+    store ? clientsWithBookings(store).catch(() => []) : []
+  ]);
+  const classById = new Map(classes.map((item) => [item.classId, item]));
+
+  // Clients the snapshot says are booked into a class on the board fill in any
+  // roster Mindbody did not return.
+  for (const row of bookedSnapshot) {
+    for (const visit of Array.isArray(row.upcoming_visits) ? row.upcoming_visits : []) {
+      const scheduled = classById.get(Number(visit.classId));
+      if (scheduled && !scheduled.clientIds.includes(String(row.client_id))) {
+        scheduled.clientIds = [...scheduled.clientIds, String(row.client_id)];
+      }
+    }
+  }
+
   const clientIds = [...new Set(classes.flatMap((item) => item.clientIds))];
+  const snapshotById = new Map(bookedSnapshot.map((row) => [String(row.client_id), row]));
+  const missingProfiles = clientIds.filter((clientId) => !snapshotById.has(clientId));
 
   const [profiles, summaries] = await Promise.all([
-    clientIds.length ? fetchClientProfiles(clientIds, token, deps) : new Map(),
+    missingProfiles.length ? fetchClientProfiles(missingProfiles, token, deps) : new Map(),
     mapLimit(clientIds, MINDBODY_CONCURRENCY, async (clientId) => [clientId, await clientVisitSummary(clientId, now, endDate, fresh, token, deps)])
   ]);
   const summaryById = new Map(summaries);
-  const profileFor = (clientId) => profiles.get(clientId) || { clientId, firstName: "", lastName: "", name: "Client", photoUrl: "" };
+  const profileFor = (clientId) =>
+    profiles.get(clientId) || (snapshotById.has(clientId) ? profileFromSnapshot(snapshotById.get(clientId)) : { clientId, firstName: "", lastName: "", name: "Client", photoUrl: "" });
+
+  if (store && clientIds.length) {
+    // Booked clients are the ones most likely to change, so keep them fresh.
+    await upsertClientRows(store, clientIds.map((clientId) => snapshotRow(profileFor(clientId), summaryById.get(clientId)))).catch(() => {});
+  }
 
   const classRows = classes.map((item) => ({
     classId: item.classId,
@@ -420,6 +558,7 @@ async function buildDashboard(days, fresh, deps) {
     start: item.start,
     end: item.end,
     capacity: item.capacity,
+    bookedCount: Math.max(item.bookedCount, item.clientIds.length),
     clients: item.clientIds
       .map((clientId) => {
         const summary = summaryById.get(clientId);
@@ -434,7 +573,6 @@ async function buildDashboard(days, fresh, deps) {
       .sort((a, b) => Number(b.isMilestone) - Number(a.isMilestone) || a.name.localeCompare(b.name))
   }));
 
-  const classById = new Map(classes.map((item) => [item.classId, item]));
   const milestoneEntry = (clientId, visit) => {
     const scheduled = classById.get(visit.classId);
     return {
@@ -452,8 +590,8 @@ async function buildDashboard(days, fresh, deps) {
 
   for (const clientId of clientIds) {
     const summary = summaryById.get(clientId);
-    // Only the classes this client is booked into on the board, so staff see
-    // the milestone in the class where it actually happens.
+    // Only the classes on the board, so staff see the milestone in the class
+    // where it actually happens.
     for (const visit of summary.upcomingMilestones) {
       if (classById.has(visit.classId)) upcomingMilestones.push(milestoneEntry(clientId, visit));
     }
@@ -462,20 +600,11 @@ async function buildDashboard(days, fresh, deps) {
     }
   }
 
-  // Milestones reached in a class that already started today count as "just hit".
-  for (const item of classRows) {
-    if (item.start > now) continue;
-    for (const client of item.clients) {
-      if (client.isMilestone && !recentMilestones.some((entry) => entry.clientId === client.clientId && entry.classId === item.classId)) {
-        recentMilestones.push({ ...milestoneEntry(client.clientId, { classId: item.classId, classNumber: client.classNumber, start: item.start, className: item.className }) });
-      }
-    }
-  }
-
   return {
     generatedAt: new Date().toISOString(),
     studioNow: now,
     window: { startDate: today, endDate, days },
+    snapshot: Boolean(store),
     upcomingMilestones: upcomingMilestones.sort((a, b) => a.start.localeCompare(b.start)),
     recentMilestones: recentMilestones.sort((a, b) => b.start.localeCompare(a.start)),
     classes: classRows,
@@ -483,6 +612,114 @@ async function buildDashboard(days, fresh, deps) {
       .map((clientId) => clientRow(profileFor(clientId), summaryById.get(clientId)))
       .sort((a, b) => b.completedCount - a.completedCount || a.name.localeCompare(b.name))
   };
+}
+
+function needsVisitRefresh(row, nowMs) {
+  if (!row.visits_synced_at) return true;
+
+  const age = nowMs - Date.parse(row.visits_synced_at);
+  const lastVisitMs = row.last_visit ? Date.parse(`${row.last_visit.slice(0, 10)}T12:00:00Z`) : 0;
+  const active = row.upcoming_count > 0 || nowMs - lastVisitMs < ACTIVE_CLIENT_DAYS * 24 * 60 * 60 * 1000;
+  return age >= (active ? ACTIVE_CLIENT_REFRESH_MS : INACTIVE_CLIENT_REFRESH_MS);
+}
+
+async function syncClientList(store, token, deps) {
+  const state = await readSyncState(store);
+  const completedAt = state.client_list_completed_at ? Date.parse(state.client_list_completed_at) : 0;
+
+  if (state.client_list_offset === 0 && Date.now() - completedAt < CLIENT_LIST_REFRESH_MS) {
+    return { listing: false };
+  }
+
+  let offset = Number(state.client_list_offset) || 0;
+  const startedAt = offset === 0 ? new Date().toISOString() : state.client_list_started_at;
+  let finished = false;
+
+  for (let page = 0; page < CLIENT_LIST_PAGES_PER_STEP; page++) {
+    const data = await deps.bookingRequest("/client/clients", {
+      token,
+      params: { "request.limit": "200", "request.offset": String(offset) }
+    });
+    const clients = deps.firstListByKey(data, "Clients").map(clientProfile).filter((profile) => profile.clientId);
+    const listedAt = new Date().toISOString();
+
+    await upsertClientRows(
+      store,
+      clients.map((profile) => ({
+        client_id: profile.clientId,
+        first_name: profile.firstName,
+        last_name: profile.lastName,
+        full_name: profile.name,
+        photo_url: profile.photoUrl,
+        listed_at: listedAt
+      }))
+    );
+
+    offset += clients.length;
+    const total = Number(data?.PaginationResponse?.TotalResults);
+
+    if (clients.length < 200 || (Number.isFinite(total) && offset >= total)) {
+      finished = true;
+      break;
+    }
+  }
+
+  await writeSyncState(store, finished
+    ? { client_list_offset: 0, client_list_started_at: startedAt, client_list_completed_at: new Date().toISOString() }
+    : { client_list_offset: offset, client_list_started_at: startedAt });
+
+  return { listing: !finished };
+}
+
+async function runClientSync(deps, budgetMs) {
+  const store = frontDeskStoreConfig();
+
+  if (!store) {
+    return { configured: false };
+  }
+
+  const startedAt = Date.now();
+  const token = await deps.getMindbodyActionToken("Front desk client sync");
+  const now = studioLocalNow();
+  const endDate = addDays(now.slice(0, 10), MAX_WINDOW_DAYS);
+  let refreshed = 0;
+  let listing = true;
+
+  while (Date.now() - startedAt < budgetMs) {
+    if (listing) {
+      ({ listing } = await syncClientList(store, token, deps));
+      if (listing) continue;
+    }
+
+    const due = (await syncCandidates(store)).filter((row) => needsVisitRefresh(row, Date.now())).slice(0, VISIT_BATCH_PER_STEP);
+    if (!due.length) break;
+
+    const rows = await mapLimit(due, MINDBODY_CONCURRENCY, async (row) =>
+      snapshotRow(profileFromSnapshot(row), await clientVisitSummary(String(row.client_id), now, endDate, false, token, deps))
+    );
+    await upsertClientRows(store, rows);
+    refreshed += rows.length;
+  }
+
+  return { configured: true, refreshed, ...(await syncProgress(store)) };
+}
+
+async function allClientCounts(url) {
+  const store = frontDeskStoreConfig();
+
+  if (!store) {
+    return { configured: false, clients: [], total: 0 };
+  }
+
+  const limit = Math.min(Math.max(Math.floor(Number(url.searchParams.get("limit")) || 50), 1), 200);
+  const offset = Math.max(Math.floor(Number(url.searchParams.get("offset")) || 0), 0);
+  const filter = ["all", "active", "close"].includes(url.searchParams.get("filter")) ? url.searchParams.get("filter") : "active";
+  const [list, progress] = await Promise.all([
+    listClientCounts(store, { query: url.searchParams.get("q") || "", filter, limit, offset }),
+    syncProgress(store)
+  ]);
+
+  return { configured: true, filter, offset, limit, total: list.total, clients: list.clients.map(clientFromSnapshot), ...progress };
 }
 
 async function searchClients(query, fresh, deps) {

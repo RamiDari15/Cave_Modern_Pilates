@@ -25,5 +25,16 @@
         }
       ]
     }
-  ]
+  ],
+  "crons": [
+    {
+      "path": "/api/front-desk/sync",
+      "schedule": "0 10 * * *"
+    }
+  ],
+  "functions": {
+    "api/front-desk/sync.js": {
+      "maxDuration": 60
+    }
+  }
 }

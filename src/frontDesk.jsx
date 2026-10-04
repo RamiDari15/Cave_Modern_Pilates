@@ -229,6 +229,40 @@ function Dashboard({ onSignedOut }) {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const [sync, setSync] = useState(null);
+  const snapshotOn = Boolean(data?.snapshot);
+
+  // Keep the all-client snapshot filling in while the page is open: quick steps
+  // until every client is loaded, then an occasional top-up.
+  useEffect(() => {
+    if (!snapshotOn) return undefined;
+    let timer;
+    let cancelled = false;
+
+    async function step() {
+      let delay = 15 * 60 * 1000;
+      if (document.visibilityState === "visible") {
+        try {
+          const result = await api("/api/front-desk/sync", { method: "POST" });
+          if (cancelled) return;
+          setSync({ ...result, error: "" });
+          if (!result.totalClients || result.syncedClients < result.totalClients) delay = 20 * 1000;
+        } catch (err) {
+          if (err.status === 401) return onSignedOut();
+          if (!cancelled) setSync((current) => ({ ...(current || {}), error: err.message }));
+          delay = 60 * 1000;
+        }
+      }
+      if (!cancelled) timer = window.setTimeout(step, delay);
+    }
+
+    step();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [snapshotOn, onSignedOut]);
+
   useEffect(() => {
     if (!toasts.length) return undefined;
     const timer = window.setTimeout(() => setToasts((current) => current.slice(1)), 9000);
@@ -274,7 +308,7 @@ function Dashboard({ onSignedOut }) {
   const recent = data?.recentMilestones || [];
   const stats = [
     { label: "Classes on the board", value: data?.classes.length ?? "–", icon: CalendarDays },
-    { label: "Clients booked", value: data?.clients.length ?? "–", icon: Users },
+    { label: "Spots booked", value: data ? data.classes.reduce((sum, item) => sum + (item.bookedCount ?? item.clients.length), 0) : "–", icon: Users },
     { label: "Milestones coming up", value: data ? upcoming.length : "–", icon: Sparkles, accent: true },
     { label: "Just celebrated", value: data ? recent.length : "–", icon: PartyPopper }
   ];
@@ -385,7 +419,7 @@ function Dashboard({ onSignedOut }) {
           <button type="button" aria-pressed={tab === "clients"} onClick={() => setTab("clients")}>Client counts</button>
         </nav>
 
-        {tab === "classes" ? <ClassRosters data={data} loading={loading} today={today} /> : <ClientCounts data={data} today={today} onSignedOut={onSignedOut} />}
+        {tab === "classes" ? <ClassRosters data={data} loading={loading} today={today} /> : <ClientCounts data={data} today={today} sync={sync} onSignedOut={onSignedOut} />}
       </main>
 
       <div className="fd-toasts" aria-live="polite">
@@ -465,7 +499,7 @@ function ClassRosters({ data, loading, today }) {
                     <h3>{item.className}</h3>
                     {item.instructor ? <p className="fd-class-instructor">with {item.instructor}</p> : null}
                   </div>
-                  <span className="fd-class-count">{item.clients.length}{item.capacity ? `/${item.capacity}` : ""}</span>
+                  <span className="fd-class-count">{item.bookedCount ?? item.clients.length}{item.capacity ? `/${item.capacity}` : ""}</span>
                 </header>
                 {item.clients.length ? (
                   <ul className="fd-roster">
@@ -480,9 +514,13 @@ function ClassRosters({ data, loading, today }) {
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <p className="fd-roster-empty">No one booked yet.</p>
-                )}
+                ) : null}
+                {item.bookedCount > item.clients.length ? (
+                  <p className="fd-roster-empty">
+                    {item.bookedCount - item.clients.length} {item.clients.length ? "more " : ""}booked. Names fill in as client histories load.
+                  </p>
+                ) : null}
+                {!item.bookedCount && !item.clients.length ? <p className="fd-roster-empty">No one booked yet.</p> : null}
               </article>
             ))}
           </div>
@@ -500,7 +538,104 @@ function Avatar({ client }) {
   );
 }
 
-function ClientCounts({ data, today, onSignedOut }) {
+const CLIENT_FILTERS = [
+  { id: "active", label: "Taken a class" },
+  { id: "close", label: "Close to a milestone" },
+  { id: "all", label: "Everyone" }
+];
+const PAGE_SIZE = 50;
+
+function ClientCounts({ data, today, sync, onSignedOut }) {
+  if (data && !data.snapshot) {
+    return <BookedClientCounts data={data} today={today} onSignedOut={onSignedOut} />;
+  }
+
+  return <AllClientCounts today={today} sync={sync} onSignedOut={onSignedOut} />;
+}
+
+function AllClientCounts({ today, sync, onSignedOut }) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("active");
+  const [state, setState] = useState({ loading: true, clients: [], total: 0, error: "" });
+  const requestRef = useRef(0);
+
+  const fetchPage = useCallback(async (offset) => {
+    const requestId = ++requestRef.current;
+    setState((current) => ({ ...current, loading: true, error: "" }));
+
+    try {
+      const params = new URLSearchParams({ filter, offset: String(offset), limit: String(PAGE_SIZE) });
+      if (query.trim()) params.set("q", query.trim());
+      const result = await api(`/api/front-desk/clients?${params}`);
+      if (requestId !== requestRef.current) return;
+      setState((current) => ({
+        loading: false,
+        error: "",
+        total: result.total,
+        clients: offset ? [...current.clients, ...result.clients] : result.clients
+      }));
+    } catch (err) {
+      if (err.status === 401) return onSignedOut();
+      if (requestId === requestRef.current) setState((current) => ({ ...current, loading: false, error: err.message }));
+    }
+  }, [filter, query, onSignedOut]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => fetchPage(0), query ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchPage, query, sync?.syncedClients]);
+
+  const syncing = sync && sync.totalClients > 0 && sync.syncedClients < sync.totalClients;
+
+  return (
+    <section className="fd-panel">
+      <div className="fd-search">
+        <div className="fd-input-wrap">
+          <Search aria-hidden="true" size={16} strokeWidth={1.7} />
+          <input
+            type="search"
+            placeholder="Search every Cave client by name"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search clients"
+          />
+        </div>
+      </div>
+      <div className="fd-chips" role="group" aria-label="Filter clients">
+        {CLIENT_FILTERS.map((option) => (
+          <button key={option.id} type="button" aria-pressed={filter === option.id} onClick={() => setFilter(option.id)}>
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="fd-search-note">
+        {state.total.toLocaleString()} {state.total === 1 ? "client" : "clients"}
+        {filter === "close" ? " within 3 classes of a milestone" : ""}
+        {syncing
+          ? ` · Loading class history for every client: ${sync.syncedClients.toLocaleString()} of ${sync.totalClients.toLocaleString()} done. Leave this page open and it keeps going.`
+          : sync?.totalClients
+            ? ` · All ${sync.totalClients.toLocaleString()} Cave clients tracked, refreshed automatically.`
+            : ""}
+      </p>
+      {syncing ? (
+        <div className="fd-progress fd-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={sync.totalClients} aria-valuenow={sync.syncedClients}>
+          <span style={{ width: `${Math.round((sync.syncedClients / sync.totalClients) * 100)}%` }} />
+        </div>
+      ) : null}
+      {state.error || sync?.error ? <p className="fd-error">{state.error || sync.error}</p> : null}
+      <ClientTable rows={state.clients} today={today} emptyText={state.loading ? "Loading clients…" : sync && !sync.totalClients ? "Pulling the client list from Mindbody…" : "No clients match."} />
+      {state.clients.length < state.total ? (
+        <div className="fd-load-more">
+          <button type="button" className="fd-button fd-button-ghost fd-button-sm" disabled={state.loading} onClick={() => fetchPage(state.clients.length)}>
+            {state.loading ? "Loading…" : `Show more (${(state.total - state.clients.length).toLocaleString()} left)`}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function BookedClientCounts({ data, today, onSignedOut }) {
   const [filter, setFilter] = useState("");
   const [lookup, setLookup] = useState({ loading: false, query: "", clients: null, error: "" });
 
@@ -555,51 +690,56 @@ function ClientCounts({ data, today, onSignedOut }) {
           Mindbody results for “{lookup.query}”. <button type="button" className="fd-text-button" onClick={clearLookup}>Back to booked clients</button>
         </p>
       ) : (
-        <p className="fd-search-note">Showing clients booked in this window, most classes first.</p>
+        <p className="fd-search-note">Showing clients booked in this window, most classes first. Connect Supabase to track every client.</p>
       )}
       {lookup.error ? <p className="fd-error">{lookup.error}</p> : null}
-
-      <div className="fd-table-wrap">
-        <table className="fd-table">
-          <thead>
-            <tr>
-              <th scope="col">Client</th>
-              <th scope="col" className="fd-num">Classes</th>
-              <th scope="col">Next milestone</th>
-              <th scope="col" className="fd-hide-sm">Booked ahead</th>
-              <th scope="col" className="fd-hide-sm">Last class</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((client) => {
-              const floor = previousMilestone(client.completedCount);
-              const target = nextMilestone(client.completedCount);
-              const progress = Math.round(((client.completedCount - floor) / Math.max(target - floor, 1)) * 100);
-              return (
-                <tr key={client.clientId}>
-                  <th scope="row">
-                    <span className="fd-client-cell"><Avatar client={client} />{client.name}</span>
-                  </th>
-                  <td className="fd-num"><strong>{client.completedCount}</strong></td>
-                  <td>
-                    <div className="fd-progress-label">
-                      <span>{target}</span>
-                      <small>{client.classesToNextMilestone} to go</small>
-                    </div>
-                    <div className="fd-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-                      <span style={{ width: `${progress}%` }} />
-                    </div>
-                  </td>
-                  <td className="fd-hide-sm">{client.upcomingCount || "–"}</td>
-                  <td className="fd-hide-sm">{client.lastVisit ? (client.lastVisit.slice(0, 10) === today ? "Today" : formatShortDate(client.lastVisit)) : "–"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {!rows.length ? <p className="fd-empty">{lookup.clients ? "No Mindbody clients match that search." : "No clients to show yet."}</p> : null}
-      </div>
+      <ClientTable rows={rows} today={today} emptyText={lookup.clients ? "No Mindbody clients match that search." : "No clients to show yet."} />
     </section>
+  );
+}
+
+function ClientTable({ rows, today, emptyText }) {
+  return (
+    <div className="fd-table-wrap">
+      <table className="fd-table">
+        <thead>
+          <tr>
+            <th scope="col">Client</th>
+            <th scope="col" className="fd-num">Classes</th>
+            <th scope="col">Next milestone</th>
+            <th scope="col" className="fd-hide-sm">Booked ahead</th>
+            <th scope="col" className="fd-hide-sm">Last class</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((client) => {
+            const floor = previousMilestone(client.completedCount);
+            const target = nextMilestone(client.completedCount);
+            const progress = Math.round(((client.completedCount - floor) / Math.max(target - floor, 1)) * 100);
+            return (
+              <tr key={client.clientId} className={client.classesToNextMilestone === 1 ? "is-next-milestone" : ""}>
+                <th scope="row">
+                  <span className="fd-client-cell"><Avatar client={client} />{client.name}</span>
+                </th>
+                <td className="fd-num"><strong>{client.completedCount}</strong></td>
+                <td>
+                  <div className="fd-progress-label">
+                    <span>{target}</span>
+                    <small>{client.classesToNextMilestone === 1 ? "next class!" : `${client.classesToNextMilestone} to go`}</small>
+                  </div>
+                  <div className="fd-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+                    <span style={{ width: `${progress}%` }} />
+                  </div>
+                </td>
+                <td className="fd-hide-sm">{client.upcomingCount || "–"}</td>
+                <td className="fd-hide-sm">{client.lastVisit ? (client.lastVisit.slice(0, 10) === today ? "Today" : formatShortDate(client.lastVisit)) : "–"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {!rows.length ? <p className="fd-empty">{emptyText}</p> : null}
+    </div>
   );
 }
 
