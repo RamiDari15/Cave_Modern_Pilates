@@ -25,6 +25,8 @@ const CLIENT_COLUMNS = [
   { id: "last_visit", label: "Last class", sort: "last_visit", firstDir: "desc" }
 ];
 const PAGE_SIZES = [50, 100, 250];
+// Schedule and counts top up on their own this often while the page is open.
+const AUTO_REFRESH_MS = 15 * 60 * 1000;
 const STORAGE_KEYS = {
   celebrated: "cave-front-desk-celebrated-v1",
   notified: "cave-front-desk-notified-v1",
@@ -196,6 +198,7 @@ function Dashboard({ onSignedOut }) {
   alertsRef.current = alertsOn;
 
   const firstLoadRef = useRef(true);
+  const loadedAtRef = useRef(0);
 
   const announce = useCallback((entries) => {
     const fresh = entries.filter((entry) => !notifiedRef.current.has(milestoneKey(entry)));
@@ -227,6 +230,7 @@ function Dashboard({ onSignedOut }) {
     try {
       const result = await api(`/api/front-desk/dashboard?days=${days}${fresh ? "&refresh=1" : ""}`);
       setData(result);
+      loadedAtRef.current = Date.now();
       announce(result.upcomingMilestones);
     } catch (err) {
       if (err.status === 401) {
@@ -245,24 +249,36 @@ function Dashboard({ onSignedOut }) {
   }, [days, load]);
 
   const snapshotOn = Boolean(data?.snapshot);
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
-  // No auto refresh of the schedule: it only reloads when staff press Refresh.
-  // While the first full load of class history is running, one small batch
-  // goes every 2 minutes; after that, a top-up every 30 minutes picks up
-  // clients whose booked class has happened. The daily cron covers the rest.
+  useEffect(() => {
+    if (snapshotOn) return undefined;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadRef.current();
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [snapshotOn]);
+
+  // Light auto refresh while the page is open and visible: every 15 minutes
+  // the sync picks up clients whose booked class has happened, then the
+  // schedule reloads through the server's roster cache. While the first full
+  // load of class history runs, one small batch goes every 2 minutes. The
+  // daily cron covers everything else.
   useEffect(() => {
     if (!snapshotOn) return undefined;
     let timer;
     let cancelled = false;
 
     async function step() {
-      let delay = 30 * 60 * 1000;
+      let delay = AUTO_REFRESH_MS;
       if (document.visibilityState === "visible") {
         try {
           const result = await api("/api/front-desk/sync", { method: "POST" });
           if (cancelled) return;
           setSync({ ...result, error: "" });
           if (!result.totalClients || result.syncedClients < result.totalClients) delay = 2 * 60 * 1000;
+          if (Date.now() - loadedAtRef.current >= AUTO_REFRESH_MS) loadRef.current();
         } catch (err) {
           if (err.status === 401) return onSignedOut();
           if (!cancelled) setSync((current) => ({ ...(current || {}), error: err.message }));
@@ -315,7 +331,7 @@ function Dashboard({ onSignedOut }) {
   }
 
   // Manual refresh: bring in counts for anyone whose class has happened, then
-  // reload today's rosters. Nothing else polls Mindbody on a timer.
+  // reload today's rosters right away instead of waiting for the next top-up.
   async function refreshNow() {
     if (snapshotOn) {
       try {
