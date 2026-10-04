@@ -516,12 +516,8 @@ function ClientsView({ today, sync, onOpen, onSignedOut }) {
       <p className="fd-status">
         {state.total.toLocaleString()} {state.total === 1 ? "client" : "clients"}
         {syncing && sync?.totalClients
-          ? `. Loading class history: ${sync.syncedClients.toLocaleString()} of ${sync.totalClients.toLocaleString()} clients done. Keep this page open and it continues.`
-          : syncing
-            ? ". Pulling the client list from Mindbody."
-            : sync?.totalClients
-              ? `. All ${sync.totalClients.toLocaleString()} Mindbody clients tracked.`
-              : ""}
+          ? ` · loading ${sync.syncedClients.toLocaleString()} of ${sync.totalClients.toLocaleString()}`
+          : ""}
       </p>
       {state.error || sync?.error ? <p className="fd-error">{state.error || sync.error}</p> : null}
 
@@ -565,7 +561,7 @@ function ClientsView({ today, sync, onOpen, onSignedOut }) {
           </tbody>
         </table>
         {!state.clients.length ? (
-          <p className="fd-empty">{state.loading ? "Loading…" : syncing ? "Clients appear here as their history loads." : "No clients match."}</p>
+          <p className="fd-empty">{state.loading ? "Loading…" : "No clients match."}</p>
         ) : null}
       </div>
 
@@ -603,7 +599,6 @@ function ScheduleView({ data, loading, today, days, onDays, onOpen }) {
             </button>
           ))}
         </div>
-        <span className="fd-status">Class number shown after each name. Milestone classes are marked.</span>
       </div>
       {!data && loading ? <p className="fd-empty">Loading…</p> : null}
       {data && !byDay.length ? <p className="fd-empty">No classes scheduled.</p> : null}
@@ -641,7 +636,7 @@ function ScheduleView({ data, loading, today, days, onDays, onOpen }) {
                         </ul>
                       ) : null}
                       {item.bookedCount > item.clients.length ? (
-                        <span className="fd-sub">{item.bookedCount - item.clients.length} {item.clients.length ? "more " : ""}booked, names still loading</span>
+                        <span className="fd-sub">{item.bookedCount - item.clients.length} {item.clients.length ? "more " : ""}booked</span>
                       ) : null}
                     </td>
                   </tr>
@@ -691,11 +686,10 @@ function MilestonesView({ upcoming, recent, today, celebrated, onToggle, onOpen,
 
   return (
     <section>
-      <p className="fd-status">Milestones are classes 5, 10, 25, 50, 75 and 100, then every 25 after that. "Celebrated" is saved on this device.</p>
       <h2 className="fd-h2">Coming up</h2>
-      {table(upcoming, "No milestone classes booked on the schedule shown.")}
+      {table(upcoming, "None booked.")}
       <h2 className="fd-h2">Reached in the last 3 days</h2>
-      {table(recent, "None in the last 3 days.")}
+      {table(recent, "None.")}
     </section>
   );
 }
