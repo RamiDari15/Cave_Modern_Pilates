@@ -25,8 +25,15 @@ const CLIENT_COLUMNS = [
   { id: "last_visit", label: "Last class", sort: "last_visit", firstDir: "desc" }
 ];
 const PAGE_SIZES = [50, 100, 250];
-// Schedule and counts top up on their own this often while the page is open.
-const AUTO_REFRESH_MS = 15 * 60 * 1000;
+// Schedule and counts top up on their own this often while the page is open,
+// but only during studio hours (Chicago time). Refresh works any time.
+const AUTO_REFRESH_MS = 30 * 60 * 1000;
+const AUTO_REFRESH_HOURS = { start: 6, end: 20 };
+
+function inAutoRefreshHours() {
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hourCycle: "h23" }).format(new Date()));
+  return hour >= AUTO_REFRESH_HOURS.start && hour < AUTO_REFRESH_HOURS.end;
+}
 const STORAGE_KEYS = {
   celebrated: "cave-front-desk-celebrated-v1",
   notified: "cave-front-desk-notified-v1",
@@ -255,12 +262,12 @@ function Dashboard({ onSignedOut }) {
   useEffect(() => {
     if (snapshotOn) return undefined;
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") loadRef.current();
+      if (document.visibilityState === "visible" && inAutoRefreshHours()) loadRef.current();
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [snapshotOn]);
 
-  // Light auto refresh while the page is open and visible: every 15 minutes
+  // Light auto refresh while the page is open and visible, 6am to 8pm: every 30 minutes
   // the sync picks up clients whose booked class has happened, then the
   // schedule reloads through the server's roster cache. While the first full
   // load of class history runs, one small batch goes every 2 minutes. The
@@ -272,7 +279,7 @@ function Dashboard({ onSignedOut }) {
 
     async function step() {
       let delay = AUTO_REFRESH_MS;
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && inAutoRefreshHours()) {
         try {
           const result = await api("/api/front-desk/sync", { method: "POST" });
           if (cancelled) return;
