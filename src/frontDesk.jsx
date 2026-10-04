@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Bell, BellOff, CalendarDays, Check, Lock, LogOut, PartyPopper, RefreshCw, Search, Sparkles, Users, X } from "lucide-react";
-import { nextMilestone, ordinal, previousMilestone } from "./milestones";
-import studioPhoto from "../assets/cave-studio-wide.jpg";
+import { ordinal } from "./milestones";
 import "./frontDesk.css";
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -11,11 +9,29 @@ const WINDOW_OPTIONS = [
   { days: 3, label: "3 days" },
   { days: 7, label: "Week" }
 ];
+const CLIENT_FILTERS = [
+  { id: "active", label: "Has taken a class" },
+  { id: "close", label: "Within 3 of a milestone" },
+  { id: "booked", label: "Booked ahead" },
+  { id: "lapsed", label: "Not in for 30+ days" },
+  { id: "all", label: "Everyone in Mindbody" }
+];
+const CLIENT_COLUMNS = [
+  { id: "name", label: "Client", sort: "name", firstDir: "asc" },
+  { id: "classes", label: "Classes", sort: "classes", firstDir: "desc", numeric: true },
+  { id: "milestone", label: "Next milestone", sort: "milestone", firstDir: "asc", numeric: true },
+  { id: "to_go", label: "To go", sort: "to_go", firstDir: "asc", numeric: true },
+  { id: "booked", label: "Booked", sort: "booked", firstDir: "desc", numeric: true },
+  { id: "next", label: "Next class" },
+  { id: "last_visit", label: "Last class", sort: "last_visit", firstDir: "desc" }
+];
+const PAGE_SIZES = [50, 100, 250];
 const STORAGE_KEYS = {
   celebrated: "cave-front-desk-celebrated-v1",
   notified: "cave-front-desk-notified-v1",
   days: "cave-front-desk-days-v1",
-  alerts: "cave-front-desk-alerts-v1"
+  alerts: "cave-front-desk-alerts-v1",
+  clientView: "cave-front-desk-client-view-v1"
 };
 
 function readStored(key, fallback) {
@@ -31,7 +47,7 @@ function writeStored(key, value) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // Storage can be blocked; the board still works without remembering.
+    // Storage can be blocked; the page still works without remembering.
   }
 }
 
@@ -67,29 +83,26 @@ function formatTime(value) {
 
 function formatDay(value, today) {
   const day = String(value || "").slice(0, 10);
-  if (day === today) return "Today";
-  const tomorrow = localDate(`${today}T12:00:00`);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  if (day === tomorrow.toISOString().slice(0, 10)) return "Tomorrow";
-  return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }).format(localDate(value));
+  if (today && day === today) return "Today";
+  if (today) {
+    const tomorrow = localDate(`${today}T12:00:00`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    if (day === tomorrow.toISOString().slice(0, 10)) return "Tomorrow";
+  }
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(localDate(value));
 }
 
-function formatShortDate(value) {
+function formatDate(value) {
   if (!value) return "";
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(localDate(value));
 }
 
-function milestoneKey(entry) {
-  return `${entry.clientId}:${entry.milestone}`;
+function formatWhen(value, today) {
+  return value ? `${formatDay(value, today)}, ${formatTime(value)}` : "";
 }
 
-function initials(name) {
-  return String(name || "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("");
+function milestoneKey(entry) {
+  return `${entry.clientId}:${entry.milestone}`;
 }
 
 function FrontDeskApp() {
@@ -134,33 +147,26 @@ function LoginScreen({ configured, onSignedIn }) {
   }
 
   return (
-    <main className="fd-login" style={{ backgroundImage: `url(${studioPhoto})` }}>
-      <form className="fd-login-card" onSubmit={submit}>
+    <main className="fd-login">
+      <form className="fd-login-box" onSubmit={submit}>
         <span className="fd-wordmark">Cave Modern Pilates</span>
-        <p className="fd-eyebrow">Front Desk</p>
-        <h1>Welcome back.</h1>
-        <p className="fd-login-copy">Class counts and milestone celebrations for today's clients.</p>
-        {!configured ? (
-          <p className="fd-alert">The front desk password has not been set up yet. Add FRONT_DESK_PASSWORD in Vercel to turn this page on.</p>
-        ) : null}
-        <label className="fd-field">
-          <span>Staff password</span>
-          <div className="fd-input-wrap">
-            <Lock aria-hidden="true" size={16} strokeWidth={1.7} />
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              disabled={!configured || busy}
-              autoFocus
-            />
-          </div>
-        </label>
+        <h1>Front desk</h1>
+        {!configured ? <p className="fd-note">The front desk password has not been set up yet. Add FRONT_DESK_PASSWORD in Vercel to turn this page on.</p> : null}
+        <label className="fd-label" htmlFor="fd-password">Staff password</label>
+        <input
+          id="fd-password"
+          className="fd-input"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+          disabled={!configured || busy}
+          autoFocus
+        />
         {error ? <p className="fd-error" role="alert">{error}</p> : null}
-        <button className="fd-button fd-button-dark" type="submit" disabled={!configured || busy || !password}>
-          {busy ? "Checking…" : "Open front desk"}
+        <button className="fd-btn fd-btn-dark" type="submit" disabled={!configured || busy || !password}>
+          {busy ? "Checking…" : "Sign in"}
         </button>
       </form>
     </main>
@@ -172,26 +178,35 @@ function Dashboard({ onSignedOut }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("classes");
+  const [tab, setTab] = useState("clients");
+  const [detailId, setDetailId] = useState("");
   const [celebrated, setCelebrated] = useState(() => new Set(readStored(STORAGE_KEYS.celebrated, [])));
   const [alertsOn, setAlertsOn] = useState(() => readStored(STORAGE_KEYS.alerts, false) && typeof Notification !== "undefined" && Notification.permission === "granted");
   const [toasts, setToasts] = useState([]);
+  const [sync, setSync] = useState(null);
   const notifiedRef = useRef(new Set(readStored(STORAGE_KEYS.notified, [])));
   const alertsRef = useRef(alertsOn);
   alertsRef.current = alertsOn;
 
+  const firstLoadRef = useRef(true);
+
   const announce = useCallback((entries) => {
     const fresh = entries.filter((entry) => !notifiedRef.current.has(milestoneKey(entry)));
+    const silent = firstLoadRef.current;
+    firstLoadRef.current = false;
     if (!fresh.length) return;
 
     fresh.forEach((entry) => notifiedRef.current.add(milestoneKey(entry)));
     writeStored(STORAGE_KEYS.notified, [...notifiedRef.current].slice(-500));
-    setToasts((current) => [...current, ...fresh.map((entry) => ({ ...entry, toastId: `${milestoneKey(entry)}:${Date.now()}` }))].slice(-4));
+    // The banner already lists what's booked when the page opens; pop-ups are
+    // for milestones that get booked while staff have the page up.
+    if (silent) return;
+    setToasts((current) => [...current, ...fresh.map((entry) => ({ ...entry, toastId: `${milestoneKey(entry)}:${Date.now()}` }))].slice(-3));
 
     if (alertsRef.current && typeof Notification !== "undefined" && Notification.permission === "granted") {
       for (const entry of fresh.slice(0, 5)) {
-        new Notification(`${entry.firstName || entry.name} hits ${entry.milestone} classes`, {
-          body: `${ordinal(entry.milestone)} class · ${entry.className} · ${formatTime(entry.start)}`,
+        new Notification(`${entry.name}: ${ordinal(entry.milestone)} class`, {
+          body: `${entry.className}, ${formatTime(entry.start)}`,
           tag: milestoneKey(entry)
         });
       }
@@ -229,10 +244,9 @@ function Dashboard({ onSignedOut }) {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  const [sync, setSync] = useState(null);
   const snapshotOn = Boolean(data?.snapshot);
 
-  // Keep the all-client snapshot filling in while the page is open: quick steps
+  // Keep the all-client list filling in while the page is open: quick steps
   // until every client is loaded, then an occasional top-up.
   useEffect(() => {
     if (!snapshotOn) return undefined;
@@ -287,7 +301,7 @@ function Dashboard({ onSignedOut }) {
     }
 
     if (typeof Notification === "undefined") {
-      setError("This browser does not support desktop alerts. Milestones will still pop up on this page.");
+      setError("This browser does not support desktop alerts. Milestones still pop up on this page.");
       return;
     }
 
@@ -295,7 +309,7 @@ function Dashboard({ onSignedOut }) {
     const enabled = permission === "granted";
     setAlertsOn(enabled);
     writeStored(STORAGE_KEYS.alerts, enabled);
-    if (!enabled) setError("Desktop alerts are blocked in this browser's settings. Milestones will still pop up on this page.");
+    if (!enabled) setError("Desktop alerts are blocked in this browser's settings. Milestones still pop up on this page.");
   }
 
   async function signOut() {
@@ -306,132 +320,74 @@ function Dashboard({ onSignedOut }) {
   const today = data?.studioNow?.slice(0, 10) || "";
   const upcoming = data?.upcomingMilestones || [];
   const recent = data?.recentMilestones || [];
-  const stats = [
-    { label: "Classes on the board", value: data?.classes.length ?? "–", icon: CalendarDays },
-    { label: "Spots booked", value: data ? data.classes.reduce((sum, item) => sum + (item.bookedCount ?? item.clients.length), 0) : "–", icon: Users },
-    { label: "Milestones coming up", value: data ? upcoming.length : "–", icon: Sparkles, accent: true },
-    { label: "Just celebrated", value: data ? recent.length : "–", icon: PartyPopper }
-  ];
+  const openMilestones = upcoming.filter((entry) => !celebrated.has(milestoneKey(entry)));
 
   return (
     <div className="fd-app">
-      <header className="fd-topbar">
-        <div className="fd-brand">
+      <header className="fd-bar">
+        <div className="fd-bar-brand">
           <a className="fd-wordmark" href="/">Cave Modern Pilates</a>
-          <span className="fd-topbar-tag">Front Desk</span>
+          <span className="fd-bar-title">Front desk</span>
         </div>
-        <div className="fd-topbar-actions">
-          <div className="fd-segmented" role="group" aria-label="Days to show">
-            {WINDOW_OPTIONS.map((option) => (
-              <button key={option.days} type="button" aria-pressed={days === option.days} onClick={() => setDays(option.days)}>
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <button className="fd-icon-button" type="button" onClick={toggleAlerts} aria-pressed={alertsOn} title={alertsOn ? "Desktop alerts on" : "Turn on desktop alerts"}>
-            {alertsOn ? <Bell size={18} strokeWidth={1.7} /> : <BellOff size={18} strokeWidth={1.7} />}
-            <span className="fd-hide-sm">{alertsOn ? "Alerts on" : "Alerts off"}</span>
+        <div className="fd-bar-actions">
+          <span className="fd-bar-meta">{data ? `Updated ${new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}</span>
+          <button type="button" className="fd-link" onClick={toggleAlerts} aria-pressed={alertsOn}>
+            Desktop alerts: {alertsOn ? "on" : "off"}
           </button>
-          <button className="fd-icon-button" type="button" onClick={() => load(true)} disabled={loading} title="Refresh from Mindbody">
-            <RefreshCw className={loading ? "fd-spin" : ""} size={18} strokeWidth={1.7} />
-            <span className="fd-hide-sm">Refresh</span>
+          <button type="button" className="fd-link" onClick={() => load(true)} disabled={loading}>
+            {loading ? "Refreshing…" : "Refresh"}
           </button>
-          <button className="fd-icon-button" type="button" onClick={signOut} title="Sign out">
-            <LogOut size={18} strokeWidth={1.7} />
-            <span className="fd-hide-sm">Sign out</span>
-          </button>
+          <button type="button" className="fd-link" onClick={signOut}>Sign out</button>
         </div>
       </header>
 
       <main className="fd-main">
-        <section className="fd-hero">
-          <div>
-            <p className="fd-eyebrow">{today ? formatDay(`${today}T12:00:00`, "") : "Loading"}</p>
-            <h1>Every class counts.</h1>
-            <p className="fd-hero-copy">
-              Class totals come straight from Mindbody visit history. Milestones are 5, 10, 25, 50, 75 and 100 classes, then every 25 after that.
-            </p>
-          </div>
-          {data ? <p className="fd-updated">Updated {new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</p> : null}
-        </section>
-
         {error ? (
-          <p className="fd-alert" role="alert">
-            {error}
-            <button type="button" onClick={() => setError("")} aria-label="Dismiss"><X size={16} /></button>
+          <p className="fd-note fd-note-warn" role="alert">
+            {error} <button type="button" className="fd-link" onClick={() => setError("")}>Dismiss</button>
           </p>
         ) : null}
 
-        <section className="fd-stats" aria-label="Summary">
-          {stats.map(({ label, value, icon: Icon, accent }) => (
-            <div className={`fd-stat${accent ? " is-accent" : ""}`} key={label}>
-              <Icon aria-hidden="true" size={18} strokeWidth={1.6} />
-              <strong>{value}</strong>
-              <span>{label}</span>
-            </div>
-          ))}
-        </section>
-
-        <section className="fd-milestones" aria-labelledby="fd-milestones-title">
-          <div className="fd-section-head">
-            <div>
-              <p className="fd-eyebrow">Celebrate</p>
-              <h2 id="fd-milestones-title">Milestones coming up</h2>
-            </div>
-            <p className="fd-section-note">Booked clients whose next class is a milestone. Have their shout-out ready when they walk in.</p>
-          </div>
-          {!data && loading ? <SkeletonCards /> : null}
-          {data && !upcoming.length ? (
-            <p className="fd-empty">No milestone classes booked in this window yet. New bookings show up on the next refresh.</p>
-          ) : null}
-          <div className="fd-milestone-grid">
-            {upcoming.map((entry) => (
-              <MilestoneCard
-                key={`${milestoneKey(entry)}:${entry.classId}`}
-                entry={entry}
-                today={today}
-                celebrated={celebrated.has(milestoneKey(entry))}
-                onToggle={() => toggleCelebrated(entry)}
-              />
-            ))}
-          </div>
-          {recent.length ? (
-            <div className="fd-recent">
-              <h3>Just hit a milestone</h3>
-              <ul>
-                {recent.map((entry) => (
-                  <li key={`${milestoneKey(entry)}:${entry.classId}`} className={celebrated.has(milestoneKey(entry)) ? "is-done" : ""}>
-                    <span className="fd-recent-badge">{entry.milestone}</span>
-                    <span className="fd-recent-name">{entry.name}</span>
-                    <span className="fd-recent-meta">{formatDay(entry.start, today)} · {entry.className}</span>
-                    <button type="button" className="fd-text-button" onClick={() => toggleCelebrated(entry)}>
-                      {celebrated.has(milestoneKey(entry)) ? <><Check size={14} /> Celebrated</> : "Mark celebrated"}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </section>
+        {openMilestones.length ? (
+          <button type="button" className="fd-banner" onClick={() => setTab("milestones")}>
+            <strong>{openMilestones.length} milestone {openMilestones.length === 1 ? "class" : "classes"} coming up.</strong>{" "}
+            {openMilestones.slice(0, 3).map((entry) => `${entry.name} (${ordinal(entry.milestone)}, ${formatWhen(entry.start, today)})`).join(" · ")}
+            {openMilestones.length > 3 ? ` · and ${openMilestones.length - 3} more` : ""}
+          </button>
+        ) : null}
 
         <nav className="fd-tabs" aria-label="Views">
-          <button type="button" aria-pressed={tab === "classes"} onClick={() => setTab("classes")}>Class rosters</button>
-          <button type="button" aria-pressed={tab === "clients"} onClick={() => setTab("clients")}>Client counts</button>
+          <button type="button" aria-pressed={tab === "clients"} onClick={() => setTab("clients")}>Clients</button>
+          <button type="button" aria-pressed={tab === "schedule"} onClick={() => setTab("schedule")}>Schedule</button>
+          <button type="button" aria-pressed={tab === "milestones"} onClick={() => setTab("milestones")}>
+            Milestones{upcoming.length ? <span className="fd-count">{upcoming.length}</span> : null}
+          </button>
         </nav>
 
-        {tab === "classes" ? <ClassRosters data={data} loading={loading} today={today} /> : <ClientCounts data={data} today={today} sync={sync} onSignedOut={onSignedOut} />}
+        {tab === "clients" ? (
+          data && !data.snapshot ? (
+            <p className="fd-note">The full client list needs Supabase connected (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel).</p>
+          ) : (
+            <ClientsView today={today} sync={sync} onOpen={setDetailId} onSignedOut={onSignedOut} />
+          )
+        ) : null}
+        {tab === "schedule" ? <ScheduleView data={data} loading={loading} today={today} days={days} onDays={setDays} onOpen={setDetailId} /> : null}
+        {tab === "milestones" ? (
+          <MilestonesView upcoming={upcoming} recent={recent} today={today} celebrated={celebrated} onToggle={toggleCelebrated} onOpen={setDetailId} loading={!data && loading} />
+        ) : null}
       </main>
+
+      {detailId ? <ClientDetail clientId={detailId} today={today} onClose={() => setDetailId("")} onSignedOut={onSignedOut} /> : null}
 
       <div className="fd-toasts" aria-live="polite">
         {toasts.map((toast) => (
           <div className="fd-toast" key={toast.toastId}>
-            <span className="fd-toast-badge">{toast.milestone}</span>
             <div>
-              <strong>{toast.name} hits {toast.milestone} classes</strong>
-              <span>{formatDay(toast.start, today)} · {formatTime(toast.start)} · {toast.className}</span>
+              <strong>{toast.name}: {ordinal(toast.milestone)} class</strong>
+              <span>{formatWhen(toast.start, today)} · {toast.className}</span>
             </div>
-            <button type="button" aria-label="Dismiss" onClick={() => setToasts((current) => current.filter((item) => item.toastId !== toast.toastId))}>
-              <X size={16} />
+            <button type="button" className="fd-link" onClick={() => setToasts((current) => current.filter((item) => item.toastId !== toast.toastId))}>
+              Close
             </button>
           </div>
         ))}
@@ -440,36 +396,152 @@ function Dashboard({ onSignedOut }) {
   );
 }
 
-function SkeletonCards() {
+function ClientsView({ today, sync, onOpen, onSignedOut }) {
+  const saved = readStored(STORAGE_KEYS.clientView, {});
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState(saved.filter || "active");
+  const [sort, setSort] = useState(saved.sort || "classes");
+  const [dir, setDir] = useState(saved.dir || "desc");
+  const [pageSize, setPageSize] = useState(saved.pageSize || 50);
+  const [offset, setOffset] = useState(0);
+  const [state, setState] = useState({ loading: true, clients: [], total: 0, error: "" });
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    writeStored(STORAGE_KEYS.clientView, { filter, sort, dir, pageSize });
+  }, [filter, sort, dir, pageSize]);
+
+  useEffect(() => setOffset(0), [query, filter, sort, dir, pageSize]);
+
+  const params = useMemo(() => {
+    const search = new URLSearchParams({ filter, sort, dir });
+    if (query.trim()) search.set("q", query.trim());
+    return search;
+  }, [filter, sort, dir, query]);
+
+  useEffect(() => {
+    const requestId = ++requestRef.current;
+    const timer = window.setTimeout(async () => {
+      setState((current) => ({ ...current, loading: true, error: "" }));
+      try {
+        const result = await api(`/api/front-desk/clients?${params}&offset=${offset}&limit=${pageSize}`);
+        if (requestId === requestRef.current) setState({ loading: false, error: "", clients: result.clients, total: result.total });
+      } catch (err) {
+        if (err.status === 401) return onSignedOut();
+        if (requestId === requestRef.current) setState((current) => ({ ...current, loading: false, error: err.message }));
+      }
+    }, query ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [params, offset, pageSize, query, onSignedOut, sync?.syncedClients]);
+
+  function sortBy(column) {
+    if (!column.sort) return;
+    if (sort === column.sort) {
+      setDir(dir === "asc" ? "desc" : "asc");
+    } else {
+      setSort(column.sort);
+      setDir(column.firstDir);
+    }
+  }
+
+  const syncing = sync && (!sync.totalClients || sync.syncedClients < sync.totalClients);
+  const from = state.total ? offset + 1 : 0;
+  const to = Math.min(offset + state.clients.length, state.total);
+
   return (
-    <div className="fd-milestone-grid" aria-hidden="true">
-      {[0, 1, 2].map((index) => <div className="fd-milestone-card fd-skeleton" key={index} />)}
-    </div>
+    <section>
+      <div className="fd-toolbar">
+        <input
+          className="fd-input fd-search"
+          type="search"
+          placeholder="Search by name"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          aria-label="Search clients by name"
+        />
+        <label className="fd-select-label">
+          <span>Show</span>
+          <select className="fd-select" value={filter} onChange={(event) => setFilter(event.target.value)}>
+            {CLIENT_FILTERS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select>
+        </label>
+        <label className="fd-select-label">
+          <span>Rows</span>
+          <select className="fd-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
+        <a className="fd-btn" href={`/api/front-desk/clients?${params}&format=csv`} download>Export CSV</a>
+      </div>
+
+      <p className="fd-status">
+        {state.total.toLocaleString()} {state.total === 1 ? "client" : "clients"}
+        {syncing && sync?.totalClients
+          ? `. Loading class history: ${sync.syncedClients.toLocaleString()} of ${sync.totalClients.toLocaleString()} clients done. Keep this page open and it continues.`
+          : syncing
+            ? ". Pulling the client list from Mindbody."
+            : sync?.totalClients
+              ? `. All ${sync.totalClients.toLocaleString()} Mindbody clients tracked.`
+              : ""}
+      </p>
+      {state.error || sync?.error ? <p className="fd-error">{state.error || sync.error}</p> : null}
+
+      <div className="fd-table-wrap">
+        <table className="fd-table fd-clickable">
+          <thead>
+            <tr>
+              {CLIENT_COLUMNS.map((column) => (
+                <th
+                  key={column.id}
+                  scope="col"
+                  className={`${column.numeric ? "fd-num" : ""} ${["next", "booked", "milestone"].includes(column.id) ? "fd-hide-sm" : ""}`}
+                  aria-sort={sort === column.sort ? (dir === "asc" ? "ascending" : "descending") : undefined}
+                >
+                  {column.sort ? (
+                    <button type="button" className="fd-sort" onClick={() => sortBy(column)}>
+                      {column.label}
+                      <span className="fd-sort-mark" aria-hidden="true">{sort === column.sort ? (dir === "asc" ? "↑" : "↓") : ""}</span>
+                    </button>
+                  ) : column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {state.clients.map((client) => (
+              <tr key={client.clientId} className={client.classesToNextMilestone === 1 ? "is-close" : ""} onClick={() => onOpen(client.clientId)}>
+                <th scope="row">
+                  <button type="button" className="fd-name" onClick={(event) => { event.stopPropagation(); onOpen(client.clientId); }}>
+                    {client.name}
+                  </button>
+                </th>
+                <td className="fd-num">{client.completedCount}</td>
+                <td className="fd-num fd-hide-sm">{client.nextMilestone}</td>
+                <td className="fd-num">{client.classesToNextMilestone === 1 ? <strong>1</strong> : client.classesToNextMilestone}</td>
+                <td className="fd-num fd-hide-sm">{client.upcomingCount || ""}</td>
+                <td className="fd-hide-sm">{client.nextBooking ? formatWhen(client.nextBooking.start, today) : ""}</td>
+                <td>{client.lastVisit ? formatDate(client.lastVisit) : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!state.clients.length ? (
+          <p className="fd-empty">{state.loading ? "Loading…" : syncing ? "Clients appear here as their history loads." : "No clients match."}</p>
+        ) : null}
+      </div>
+
+      <div className="fd-pager">
+        <span>{from ? `${from.toLocaleString()}–${to.toLocaleString()} of ${state.total.toLocaleString()}` : ""}</span>
+        <div>
+          <button type="button" className="fd-btn" disabled={!offset || state.loading} onClick={() => setOffset(Math.max(offset - pageSize, 0))}>Previous</button>
+          <button type="button" className="fd-btn" disabled={to >= state.total || state.loading} onClick={() => setOffset(offset + pageSize)}>Next</button>
+        </div>
+      </div>
+    </section>
   );
 }
 
-function MilestoneCard({ entry, today, celebrated, onToggle }) {
-  const isToday = entry.start.slice(0, 10) === today;
-
-  return (
-    <article className={`fd-milestone-card${isToday ? " is-today" : ""}${celebrated ? " is-done" : ""}`}>
-      <div className="fd-milestone-ring" aria-hidden="true">
-        <span>{entry.milestone}</span>
-        <small>classes</small>
-      </div>
-      <div className="fd-milestone-body">
-        <p className="fd-milestone-when">{isToday ? "Today" : formatDay(entry.start, today)} · {formatTime(entry.start)}</p>
-        <h3>{entry.name}</h3>
-        <p className="fd-milestone-class">{ordinal(entry.milestone)} class · {entry.className}{entry.instructor ? ` with ${entry.instructor}` : ""}</p>
-        <button type="button" className={`fd-button ${celebrated ? "fd-button-ghost" : "fd-button-dark"} fd-button-sm`} onClick={onToggle}>
-          {celebrated ? <><Check size={14} /> Celebrated</> : "Mark celebrated"}
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function ClassRosters({ data, loading, today }) {
+function ScheduleView({ data, loading, today, days, onDays, onOpen }) {
   const byDay = useMemo(() => {
     const groups = new Map();
     for (const item of data?.classes || []) {
@@ -480,265 +552,214 @@ function ClassRosters({ data, loading, today }) {
     return [...groups.entries()];
   }, [data]);
 
-  if (!data && loading) return <div className="fd-panel fd-skeleton fd-skeleton-tall" aria-hidden="true" />;
-  if (data && !byDay.length) return <p className="fd-empty">No classes scheduled in this window.</p>;
-
   const now = data?.studioNow || "";
 
   return (
-    <div className="fd-days">
+    <section>
+      <div className="fd-toolbar">
+        <div className="fd-segmented" role="group" aria-label="Days to show">
+          {WINDOW_OPTIONS.map((option) => (
+            <button key={option.days} type="button" aria-pressed={days === option.days} onClick={() => onDays(option.days)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <span className="fd-status">Class number shown after each name. Milestone classes are marked.</span>
+      </div>
+      {!data && loading ? <p className="fd-empty">Loading…</p> : null}
+      {data && !byDay.length ? <p className="fd-empty">No classes scheduled.</p> : null}
       {byDay.map(([day, classes]) => (
-        <section className="fd-day" key={day}>
-          <h2 className="fd-day-title">{formatDay(`${day}T12:00:00`, today)}</h2>
-          <div className="fd-class-grid">
-            {classes.map((item) => (
-              <article className={`fd-class-card${item.end && item.end < now ? " is-past" : ""}`} key={item.classId}>
-                <header>
-                  <div>
-                    <p className="fd-class-time">{formatTime(item.start)}</p>
-                    <h3>{item.className}</h3>
-                    {item.instructor ? <p className="fd-class-instructor">with {item.instructor}</p> : null}
-                  </div>
-                  <span className="fd-class-count">{item.bookedCount ?? item.clients.length}{item.capacity ? `/${item.capacity}` : ""}</span>
-                </header>
-                {item.clients.length ? (
-                  <ul className="fd-roster">
-                    {item.clients.map((client) => (
-                      <li key={client.clientId} className={client.isMilestone ? "is-milestone" : ""}>
-                        <Avatar client={client} />
-                        <span className="fd-roster-name">{client.name}</span>
-                        <span className="fd-class-number" title={`This is their ${ordinal(client.classNumber)} class`}>
-                          {client.isMilestone ? <Sparkles aria-hidden="true" size={12} /> : null}
-                          {ordinal(client.classNumber)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {item.bookedCount > item.clients.length ? (
-                  <p className="fd-roster-empty">
-                    {item.bookedCount - item.clients.length} {item.clients.length ? "more " : ""}booked. Names fill in as client histories load.
-                  </p>
-                ) : null}
-                {!item.bookedCount && !item.clients.length ? <p className="fd-roster-empty">No one booked yet.</p> : null}
-              </article>
-            ))}
+        <div className="fd-day" key={day}>
+          <h2>{formatDay(`${day}T12:00:00`, today)}</h2>
+          <div className="fd-table-wrap">
+            <table className="fd-table fd-schedule">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Class</th>
+                  <th scope="col" className="fd-num">Booked</th>
+                  <th scope="col">Clients</th>
+                </tr>
+              </thead>
+              <tbody>
+                {classes.map((item) => (
+                  <tr key={item.classId} className={item.end && item.end < now ? "is-past" : ""}>
+                    <td className="fd-nowrap">{formatTime(item.start)}</td>
+                    <td>
+                      {item.className}
+                      {item.instructor ? <span className="fd-sub">{item.instructor}</span> : null}
+                    </td>
+                    <td className="fd-num fd-nowrap">{item.bookedCount ?? item.clients.length}{item.capacity ? ` / ${item.capacity}` : ""}</td>
+                    <td>
+                      {item.clients.length ? (
+                        <ul className="fd-roster">
+                          {item.clients.map((client) => (
+                            <li key={client.clientId} className={client.isMilestone ? "is-milestone" : ""}>
+                              <button type="button" className="fd-name" onClick={() => onOpen(client.clientId)}>{client.name}</button>
+                              <span className="fd-sub-inline">{client.classNumber ? ordinal(client.classNumber) : ""}{client.isMilestone ? " · milestone" : ""}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {item.bookedCount > item.clients.length ? (
+                        <span className="fd-sub">{item.bookedCount - item.clients.length} {item.clients.length ? "more " : ""}booked, names still loading</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </section>
+        </div>
       ))}
-    </div>
-  );
-}
-
-function Avatar({ client }) {
-  return client.photoUrl ? (
-    <img className="fd-avatar" src={client.photoUrl} alt="" loading="lazy" />
-  ) : (
-    <span className="fd-avatar" aria-hidden="true">{initials(client.name)}</span>
-  );
-}
-
-const CLIENT_FILTERS = [
-  { id: "active", label: "Taken a class" },
-  { id: "close", label: "Close to a milestone" },
-  { id: "all", label: "Everyone" }
-];
-const PAGE_SIZE = 50;
-
-function ClientCounts({ data, today, sync, onSignedOut }) {
-  if (data && !data.snapshot) {
-    return <BookedClientCounts data={data} today={today} onSignedOut={onSignedOut} />;
-  }
-
-  return <AllClientCounts today={today} sync={sync} onSignedOut={onSignedOut} />;
-}
-
-function AllClientCounts({ today, sync, onSignedOut }) {
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("active");
-  const [state, setState] = useState({ loading: true, clients: [], total: 0, error: "" });
-  const requestRef = useRef(0);
-
-  const fetchPage = useCallback(async (offset) => {
-    const requestId = ++requestRef.current;
-    setState((current) => ({ ...current, loading: true, error: "" }));
-
-    try {
-      const params = new URLSearchParams({ filter, offset: String(offset), limit: String(PAGE_SIZE) });
-      if (query.trim()) params.set("q", query.trim());
-      const result = await api(`/api/front-desk/clients?${params}`);
-      if (requestId !== requestRef.current) return;
-      setState((current) => ({
-        loading: false,
-        error: "",
-        total: result.total,
-        clients: offset ? [...current.clients, ...result.clients] : result.clients
-      }));
-    } catch (err) {
-      if (err.status === 401) return onSignedOut();
-      if (requestId === requestRef.current) setState((current) => ({ ...current, loading: false, error: err.message }));
-    }
-  }, [filter, query, onSignedOut]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => fetchPage(0), query ? 300 : 0);
-    return () => window.clearTimeout(timer);
-  }, [fetchPage, query, sync?.syncedClients]);
-
-  const syncing = sync && sync.totalClients > 0 && sync.syncedClients < sync.totalClients;
-
-  return (
-    <section className="fd-panel">
-      <div className="fd-search">
-        <div className="fd-input-wrap">
-          <Search aria-hidden="true" size={16} strokeWidth={1.7} />
-          <input
-            type="search"
-            placeholder="Search every Cave client by name"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search clients"
-          />
-        </div>
-      </div>
-      <div className="fd-chips" role="group" aria-label="Filter clients">
-        {CLIENT_FILTERS.map((option) => (
-          <button key={option.id} type="button" aria-pressed={filter === option.id} onClick={() => setFilter(option.id)}>
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <p className="fd-search-note">
-        {state.total.toLocaleString()} {state.total === 1 ? "client" : "clients"}
-        {filter === "close" ? " within 3 classes of a milestone" : ""}
-        {syncing
-          ? ` · Loading class history for every client: ${sync.syncedClients.toLocaleString()} of ${sync.totalClients.toLocaleString()} done. Leave this page open and it keeps going.`
-          : sync?.totalClients
-            ? ` · All ${sync.totalClients.toLocaleString()} Cave clients tracked, refreshed automatically.`
-            : ""}
-      </p>
-      {syncing ? (
-        <div className="fd-progress fd-sync-progress" role="progressbar" aria-valuemin={0} aria-valuemax={sync.totalClients} aria-valuenow={sync.syncedClients}>
-          <span style={{ width: `${Math.round((sync.syncedClients / sync.totalClients) * 100)}%` }} />
-        </div>
-      ) : null}
-      {state.error || sync?.error ? <p className="fd-error">{state.error || sync.error}</p> : null}
-      <ClientTable rows={state.clients} today={today} emptyText={state.loading ? "Loading clients…" : sync && !sync.totalClients ? "Pulling the client list from Mindbody…" : "No clients match."} />
-      {state.clients.length < state.total ? (
-        <div className="fd-load-more">
-          <button type="button" className="fd-button fd-button-ghost fd-button-sm" disabled={state.loading} onClick={() => fetchPage(state.clients.length)}>
-            {state.loading ? "Loading…" : `Show more (${(state.total - state.clients.length).toLocaleString()} left)`}
-          </button>
-        </div>
-      ) : null}
     </section>
   );
 }
 
-function BookedClientCounts({ data, today, onSignedOut }) {
-  const [filter, setFilter] = useState("");
-  const [lookup, setLookup] = useState({ loading: false, query: "", clients: null, error: "" });
-
-  const rows = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    const source = lookup.clients || data?.clients || [];
-    return needle && !lookup.clients ? source.filter((client) => client.name.toLowerCase().includes(needle)) : source;
-  }, [data, filter, lookup.clients]);
-
-  async function searchMindbody(event) {
-    event.preventDefault();
-    const query = filter.trim();
-    if (query.length < 2) return;
-    setLookup({ loading: true, query, clients: null, error: "" });
-
-    try {
-      const result = await api(`/api/front-desk/client-search?q=${encodeURIComponent(query)}`);
-      setLookup({ loading: false, query, clients: result.clients, error: "" });
-    } catch (err) {
-      if (err.status === 401) return onSignedOut();
-      setLookup({ loading: false, query, clients: null, error: err.message });
-    }
-  }
-
-  function clearLookup() {
-    setLookup({ loading: false, query: "", clients: null, error: "" });
-    setFilter("");
-  }
-
-  return (
-    <section className="fd-panel">
-      <form className="fd-search" onSubmit={searchMindbody}>
-        <div className="fd-input-wrap">
-          <Search aria-hidden="true" size={16} strokeWidth={1.7} />
-          <input
-            type="search"
-            placeholder="Filter booked clients, or search anyone in Mindbody"
-            value={filter}
-            onChange={(event) => {
-              setFilter(event.target.value);
-              if (lookup.clients) setLookup({ loading: false, query: "", clients: null, error: "" });
-            }}
-            aria-label="Search clients"
-          />
-        </div>
-        <button className="fd-button fd-button-dark fd-button-sm" type="submit" disabled={filter.trim().length < 2 || lookup.loading}>
-          {lookup.loading ? "Searching…" : "Search Mindbody"}
-        </button>
-      </form>
-      {lookup.clients ? (
-        <p className="fd-search-note">
-          Mindbody results for “{lookup.query}”. <button type="button" className="fd-text-button" onClick={clearLookup}>Back to booked clients</button>
-        </p>
-      ) : (
-        <p className="fd-search-note">Showing clients booked in this window, most classes first. Connect Supabase to track every client.</p>
-      )}
-      {lookup.error ? <p className="fd-error">{lookup.error}</p> : null}
-      <ClientTable rows={rows} today={today} emptyText={lookup.clients ? "No Mindbody clients match that search." : "No clients to show yet."} />
-    </section>
-  );
-}
-
-function ClientTable({ rows, today, emptyText }) {
-  return (
+function MilestonesView({ upcoming, recent, today, celebrated, onToggle, onOpen, loading }) {
+  const table = (rows, emptyText) => (
     <div className="fd-table-wrap">
       <table className="fd-table">
         <thead>
           <tr>
+            <th scope="col">When</th>
             <th scope="col">Client</th>
-            <th scope="col" className="fd-num">Classes</th>
-            <th scope="col">Next milestone</th>
-            <th scope="col" className="fd-hide-sm">Booked ahead</th>
-            <th scope="col" className="fd-hide-sm">Last class</th>
+            <th scope="col" className="fd-num">Class #</th>
+            <th scope="col">Class</th>
+            <th scope="col">Celebrated</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((client) => {
-            const floor = previousMilestone(client.completedCount);
-            const target = nextMilestone(client.completedCount);
-            const progress = Math.round(((client.completedCount - floor) / Math.max(target - floor, 1)) * 100);
-            return (
-              <tr key={client.clientId} className={client.classesToNextMilestone === 1 ? "is-next-milestone" : ""}>
-                <th scope="row">
-                  <span className="fd-client-cell"><Avatar client={client} />{client.name}</span>
-                </th>
-                <td className="fd-num"><strong>{client.completedCount}</strong></td>
-                <td>
-                  <div className="fd-progress-label">
-                    <span>{target}</span>
-                    <small>{client.classesToNextMilestone === 1 ? "next class!" : `${client.classesToNextMilestone} to go`}</small>
-                  </div>
-                  <div className="fd-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-                    <span style={{ width: `${progress}%` }} />
-                  </div>
-                </td>
-                <td className="fd-hide-sm">{client.upcomingCount || "–"}</td>
-                <td className="fd-hide-sm">{client.lastVisit ? (client.lastVisit.slice(0, 10) === today ? "Today" : formatShortDate(client.lastVisit)) : "–"}</td>
-              </tr>
-            );
-          })}
+          {rows.map((entry) => (
+            <tr key={`${milestoneKey(entry)}:${entry.classId}`} className={celebrated.has(milestoneKey(entry)) ? "is-past" : ""}>
+              <td className="fd-nowrap">{formatWhen(entry.start, today)}</td>
+              <td><button type="button" className="fd-name" onClick={() => onOpen(entry.clientId)}>{entry.name}</button></td>
+              <td className="fd-num"><strong>{entry.milestone}</strong></td>
+              <td>
+                {entry.className}
+                {entry.instructor ? <span className="fd-sub">{entry.instructor}</span> : null}
+              </td>
+              <td>
+                <input type="checkbox" checked={celebrated.has(milestoneKey(entry))} onChange={() => onToggle(entry)} aria-label={`Celebrated ${entry.name}`} />
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
-      {!rows.length ? <p className="fd-empty">{emptyText}</p> : null}
+      {!rows.length ? <p className="fd-empty">{loading ? "Loading…" : emptyText}</p> : null}
+    </div>
+  );
+
+  return (
+    <section>
+      <p className="fd-status">Milestones are classes 5, 10, 25, 50, 75 and 100, then every 25 after that. "Celebrated" is saved on this device.</p>
+      <h2 className="fd-h2">Coming up</h2>
+      {table(upcoming, "No milestone classes booked on the schedule shown.")}
+      <h2 className="fd-h2">Reached in the last 3 days</h2>
+      {table(recent, "None in the last 3 days.")}
+    </section>
+  );
+}
+
+function ClientDetail({ clientId, today, onClose, onSignedOut }) {
+  const [state, setState] = useState({ loading: true, client: null, error: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, client: null, error: "" });
+    api(`/api/front-desk/client?id=${encodeURIComponent(clientId)}`)
+      .then((client) => !cancelled && setState({ loading: false, client, error: "" }))
+      .catch((err) => {
+        if (err.status === 401) return onSignedOut();
+        if (!cancelled) setState({ loading: false, client: null, error: err.message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, onSignedOut]);
+
+  useEffect(() => {
+    const onKey = (event) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const client = state.client;
+  const upcoming = client?.visits.filter((visit) => !visit.completed).reverse() || [];
+  const history = client?.visits.filter((visit) => visit.completed) || [];
+
+  return (
+    <div className="fd-drawer-backdrop" onClick={onClose}>
+      <aside className="fd-drawer" role="dialog" aria-modal="true" aria-label="Client details" onClick={(event) => event.stopPropagation()}>
+        <div className="fd-drawer-head">
+          <h2>{client?.name || (state.loading ? "Loading…" : "Client")}</h2>
+          <button type="button" className="fd-link" onClick={onClose}>Close</button>
+        </div>
+        {state.error ? <p className="fd-error">{state.error}</p> : null}
+        {client ? (
+          <>
+            <dl className="fd-facts">
+              <div><dt>Classes taken</dt><dd>{client.completedCount}</dd></div>
+              <div><dt>Next milestone</dt><dd>{client.nextMilestone} ({client.classesToNextMilestone} to go)</dd></div>
+              <div><dt>Booked ahead</dt><dd>{client.upcomingCount}</dd></div>
+              <div><dt>First class</dt><dd>{client.firstVisit ? formatDate(client.firstVisit) : "None yet"}</dd></div>
+              <div><dt>Last class</dt><dd>{client.lastVisit ? formatDate(client.lastVisit) : "None yet"}</dd></div>
+            </dl>
+
+            <h3>Milestones</h3>
+            {client.milestones.length ? (
+              <table className="fd-table fd-compact">
+                <tbody>
+                  {client.milestones.map((visit) => (
+                    <tr key={`${visit.classId}:${visit.classNumber}`}>
+                      <td className="fd-num"><strong>{visit.classNumber}</strong></td>
+                      <td>{visit.completed ? formatDate(visit.start) : `Booked ${formatWhen(visit.start, today)}`}</td>
+                      <td>{visit.className}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="fd-sub">No milestones yet.</p>}
+
+            <h3>Booked classes</h3>
+            {upcoming.length ? (
+              <table className="fd-table fd-compact">
+                <tbody>
+                  {upcoming.map((visit) => (
+                    <tr key={visit.classId}>
+                      <td className="fd-num">{visit.classNumber}</td>
+                      <td className="fd-nowrap">{formatWhen(visit.start, today)}</td>
+                      <td>{visit.className}{visit.isMilestone ? " · milestone" : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="fd-sub">Nothing booked.</p>}
+
+            <h3>Class history ({history.length})</h3>
+            {history.length ? (
+              <table className="fd-table fd-compact">
+                <thead>
+                  <tr>
+                    <th scope="col" className="fd-num">#</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Class</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((visit) => (
+                    <tr key={visit.classId} className={visit.isMilestone ? "is-close" : ""}>
+                      <td className="fd-num">{visit.classNumber}</td>
+                      <td className="fd-nowrap">{formatDate(visit.start)}, {formatTime(visit.start)}</td>
+                      <td>{visit.className}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="fd-sub">No classes yet.</p>}
+          </>
+        ) : null}
+      </aside>
     </div>
   );
 }

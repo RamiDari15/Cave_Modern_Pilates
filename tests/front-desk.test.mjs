@@ -329,3 +329,43 @@ test("rosters Mindbody leaves empty are filled from the snapshot", async () => {
     classTotalBooked = undefined;
   }
 });
+
+test("client list sorts, exports CSV and opens full detail", async () => {
+  const login = await request("/api/front-desk/login", { method: "POST", body: { password: "reformer-desk-test" } });
+  const cookie = frontDeskCookie(login);
+
+  const byName = await request("/api/front-desk/clients?filter=active&sort=name&dir=asc", { cookie });
+  assert.equal(byName.status, 200);
+  assert.equal(byName.body.sort, "name");
+  assert.equal(byName.body.direction, "asc");
+
+  const bogus = await request("/api/front-desk/clients?sort=password&dir=sideways", { cookie });
+  assert.equal(bogus.body.sort, "classes");
+  assert.equal(bogus.body.direction, "desc");
+
+  const booked = await request("/api/front-desk/clients?filter=booked", { cookie });
+  assert.ok(booked.body.clients.every((client) => client.upcomingCount > 0));
+  assert.ok(booked.body.clients.every((client) => client.nextBooking && client.nextBooking.classId === 501));
+
+  const csvRequest = Readable.from([]);
+  Object.assign(csvRequest, { url: "/api/front-desk/clients?filter=active&format=csv", method: "GET", headers: { host: "localhost", cookie }, socket: { remoteAddress: "front-desk-test" } });
+  const headers = new Map();
+  let csv = "";
+  await handleApiRequest(csvRequest, { statusCode: 200, setHeader: (name, value) => headers.set(name.toLowerCase(), value), getHeader: (name) => headers.get(name.toLowerCase()), end: (value = "") => { csv += value; } });
+  assert.match(headers.get("content-type"), /text\/csv/);
+  const lines = csv.trim().split("\n");
+  assert.equal(lines[0], "First name,Last name,Classes taken,Next milestone,Classes to go,Booked ahead,Next class,Last class,Mindbody client ID");
+  assert.equal(lines.length, 4);
+  assert.match(lines[1], /^Lina,Saleh,49,50,1,0,,/);
+
+  const detail = await request("/api/front-desk/client?id=101", { cookie });
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.name, "Amira Haddad");
+  assert.equal(detail.body.completedCount, 24);
+  assert.deepEqual(detail.body.milestones.map((visit) => [visit.classNumber, visit.completed]), [[5, true], [10, true], [25, false]]);
+  assert.equal(detail.body.visits.length, 25);
+  assert.equal(detail.body.visits[0].classNumber, 25);
+
+  assert.equal((await request("/api/front-desk/client?id=../../etc", { cookie })).status, 400);
+  assert.equal((await request("/api/front-desk/client?id=101")).status, 401);
+});

@@ -122,15 +122,45 @@ function searchPattern(query) {
   return cleaned ? `*${cleaned}*` : "";
 }
 
-export async function listClientCounts(config, { query = "", filter = "all", limit = 50, offset = 0 } = {}) {
+export const CLIENT_SORTS = Object.freeze({
+  name: ["last_name", "first_name"],
+  classes: ["completed_count"],
+  to_go: ["classes_to_next_milestone"],
+  milestone: ["next_milestone"],
+  booked: ["upcoming_count"],
+  last_visit: ["last_visit"]
+});
+export const CLIENT_FILTERS = Object.freeze(["all", "active", "close", "booked", "lapsed"]);
+
+function filterParams(filter, today) {
+  switch (filter) {
+    case "active":
+      return { completed_count: "gt.0" };
+    case "close":
+      return { classes_to_next_milestone: "lte.3", completed_count: "gt.0" };
+    case "booked":
+      return { upcoming_count: "gt.0" };
+    case "lapsed": {
+      const cutoff = new Date(`${today}T12:00:00Z`);
+      cutoff.setUTCDate(cutoff.getUTCDate() - 30);
+      return { completed_count: "gt.0", last_visit: `lt.${cutoff.toISOString().slice(0, 10)}` };
+    }
+    default:
+      return {};
+  }
+}
+
+export async function listClientCounts(config, { query = "", filter = "all", sort = "classes", direction = "desc", limit = 50, offset = 0, today = new Date().toISOString().slice(0, 10) } = {}) {
   const pattern = searchPattern(query);
+  const dir = direction === "asc" ? "asc" : "desc";
+  const columns = CLIENT_SORTS[sort] || CLIENT_SORTS.classes;
+  const order = [...columns.map((column) => `${column}.${dir}${dir === "desc" ? ".nullslast" : ""}`), "full_name.asc", "client_id.asc"].join(",");
   const params = {
-    select: LIST_COLUMNS,
-    order: filter === "close" ? "classes_to_next_milestone.asc,completed_count.desc,full_name.asc" : "completed_count.desc,full_name.asc",
+    select: `${LIST_COLUMNS},upcoming_visits`,
+    order,
     full_name: pattern ? `ilike.${pattern}` : undefined,
     visits_synced_at: "not.is.null",
-    completed_count: filter === "all" ? undefined : "gt.0",
-    classes_to_next_milestone: filter === "close" ? "lte.3" : undefined
+    ...filterParams(filter, today)
   };
   const { data, total } = await storeRequest(config, CLIENTS_TABLE, {
     query: params,
@@ -138,4 +168,11 @@ export async function listClientCounts(config, { query = "", filter = "all", lim
     range: `${offset}-${offset + limit - 1}`
   });
   return { clients: Array.isArray(data) ? data : [], total: total ?? (Array.isArray(data) ? data.length : 0) };
+}
+
+export async function readClientRow(config, clientId) {
+  const { data } = await storeRequest(config, CLIENTS_TABLE, {
+    query: { select: `${LIST_COLUMNS},upcoming_visits`, client_id: `eq.${clientId}`, limit: 1 }
+  });
+  return Array.isArray(data) ? data[0] || null : null;
 }

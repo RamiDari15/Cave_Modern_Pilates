@@ -2,9 +2,12 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { isCancelledVisit } from "../src/bookingGuard.js";
 import { isMilestone, nextMilestone } from "../src/milestones.js";
 import {
+  CLIENT_FILTERS,
+  CLIENT_SORTS,
   clientsWithBookings,
   frontDeskStoreConfig,
   listClientCounts,
+  readClientRow,
   readSyncState,
   syncCandidates,
   syncProgress,
@@ -101,7 +104,7 @@ export async function handleFrontDeskRequest(request, response, url, deps) {
     return true;
   }
 
-  if (!["/api/front-desk/dashboard", "/api/front-desk/client-search", "/api/front-desk/clients"].includes(path)) {
+  if (!["/api/front-desk/dashboard", "/api/front-desk/client-search", "/api/front-desk/clients", "/api/front-desk/client"].includes(path)) {
     return false;
   }
 
@@ -114,7 +117,28 @@ export async function handleFrontDeskRequest(request, response, url, deps) {
   }
 
   if (path === "/api/front-desk/clients") {
+    if (url.searchParams.get("format") === "csv") {
+      const csv = await clientCountsCsv(url);
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "text/csv; charset=utf-8");
+      response.setHeader("Content-Disposition", `attachment; filename="cave-class-counts-${studioLocalNow().slice(0, 10)}.csv"`);
+      response.setHeader("Cache-Control", "no-store");
+      response.end(csv);
+      return true;
+    }
+
     sendJson(response, 200, await allClientCounts(url));
+    return true;
+  }
+
+  if (path === "/api/front-desk/client") {
+    const clientId = String(url.searchParams.get("id") || "").trim();
+
+    if (!/^[\w-]{1,40}$/.test(clientId)) {
+      throw httpError(400, "Missing client.");
+    }
+
+    sendJson(response, 200, await clientDetail(clientId, deps));
     return true;
   }
 
@@ -704,6 +728,23 @@ async function runClientSync(deps, budgetMs) {
   return { configured: true, refreshed, ...(await syncProgress(store)) };
 }
 
+function listOptions(url) {
+  const sort = Object.hasOwn(CLIENT_SORTS, url.searchParams.get("sort")) ? url.searchParams.get("sort") : "classes";
+  const filter = CLIENT_FILTERS.includes(url.searchParams.get("filter")) ? url.searchParams.get("filter") : "active";
+  return {
+    query: url.searchParams.get("q") || "",
+    filter,
+    sort,
+    direction: url.searchParams.get("dir") === "asc" ? "asc" : "desc",
+    today: studioLocalNow().slice(0, 10)
+  };
+}
+
+function nextBooking(row) {
+  const visits = Array.isArray(row.upcoming_visits) ? row.upcoming_visits : [];
+  return [...visits].sort((a, b) => String(a.start).localeCompare(String(b.start)))[0] || null;
+}
+
 async function allClientCounts(url) {
   const store = frontDeskStoreConfig();
 
@@ -711,15 +752,94 @@ async function allClientCounts(url) {
     return { configured: false, clients: [], total: 0 };
   }
 
-  const limit = Math.min(Math.max(Math.floor(Number(url.searchParams.get("limit")) || 50), 1), 200);
+  const limit = Math.min(Math.max(Math.floor(Number(url.searchParams.get("limit")) || 50), 1), 500);
   const offset = Math.max(Math.floor(Number(url.searchParams.get("offset")) || 0), 0);
-  const filter = ["all", "active", "close"].includes(url.searchParams.get("filter")) ? url.searchParams.get("filter") : "active";
-  const [list, progress] = await Promise.all([
-    listClientCounts(store, { query: url.searchParams.get("q") || "", filter, limit, offset }),
-    syncProgress(store)
-  ]);
+  const options = listOptions(url);
+  const [list, progress] = await Promise.all([listClientCounts(store, { ...options, limit, offset }), syncProgress(store)]);
 
-  return { configured: true, filter, offset, limit, total: list.total, clients: list.clients.map(clientFromSnapshot), ...progress };
+  return {
+    configured: true,
+    ...options,
+    offset,
+    limit,
+    total: list.total,
+    clients: list.clients.map((row) => ({ ...clientFromSnapshot(row), nextBooking: nextBooking(row) })),
+    ...progress
+  };
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  // Leading = + - @ would run as formulas when the file is opened in a spreadsheet.
+  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+}
+
+async function clientCountsCsv(url) {
+  const store = frontDeskStoreConfig();
+
+  if (!store) {
+    return "Client list needs Supabase to be connected.\n";
+  }
+
+  const options = listOptions(url);
+  const rows = [];
+
+  for (let offset = 0; offset < 20000; offset += 1000) {
+    const page = await listClientCounts(store, { ...options, limit: 1000, offset });
+    rows.push(...page.clients);
+    if (page.clients.length < 1000) break;
+  }
+
+  const header = ["First name", "Last name", "Classes taken", "Next milestone", "Classes to go", "Booked ahead", "Next class", "Last class", "Mindbody client ID"];
+  const lines = rows.map((row) => {
+    const next = nextBooking(row);
+    return [
+      row.first_name,
+      row.last_name,
+      row.completed_count,
+      row.next_milestone,
+      row.classes_to_next_milestone,
+      row.upcoming_count,
+      next ? next.start.replace("T", " ").slice(0, 16) : "",
+      row.last_visit ? row.last_visit.slice(0, 10) : "",
+      row.client_id
+    ].map(csvCell).join(",");
+  });
+
+  return `${[header.join(","), ...lines].join("\n")}\n`;
+}
+
+async function clientDetail(clientId, deps) {
+  const token = await deps.getMindbodyActionToken("Front desk client detail");
+  const store = frontDeskStoreConfig();
+  const now = studioLocalNow();
+  const endDate = addDays(now.slice(0, 10), 60);
+  const [row, summary] = await Promise.all([
+    store ? readClientRow(store, clientId).catch(() => null) : null,
+    clientVisitSummary(clientId, now, endDate, true, token, deps)
+  ]);
+  const profile = row ? profileFromSnapshot(row) : (await fetchClientProfiles([clientId], token, deps)).get(clientId) || { clientId, firstName: "", lastName: "", name: "Client", photoUrl: "" };
+
+  if (store) {
+    await upsertClientRows(store, [snapshotRow(profile, summary)]).catch(() => {});
+  }
+
+  const visits = [...summary.byClassId.values()].map(({ classId, start, classNumber, className: name, completed }) => ({
+    classId,
+    start,
+    classNumber,
+    className: name,
+    completed,
+    isMilestone: isMilestone(classNumber)
+  }));
+
+  return {
+    ...clientRow(profile, summary),
+    firstVisit: visits.find((visit) => visit.completed)?.start || "",
+    milestones: visits.filter((visit) => visit.isMilestone),
+    visits: visits.reverse()
+  };
 }
 
 async function searchClients(query, fresh, deps) {
