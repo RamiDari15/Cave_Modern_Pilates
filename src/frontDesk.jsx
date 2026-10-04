@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import { ordinal } from "./milestones";
 import "./frontDesk.css";
 
-const REFRESH_MS = 5 * 60 * 1000;
 const WINDOW_OPTIONS = [
   { days: 1, label: "Today" },
   { days: 3, label: "3 days" },
@@ -75,6 +74,14 @@ function localDate(value) {
   const [y, m, d] = date.split("-").map(Number);
   const [h, mi] = time.split(":").map(Number);
   return new Date(Date.UTC(y, (m || 1) - 1, d || 1, h || 0, mi || 0));
+}
+
+function formatStamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (date.toDateString() === new Date().toDateString()) return time;
+  return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
 }
 
 function formatTime(value) {
@@ -174,7 +181,7 @@ function LoginScreen({ configured, onSignedIn }) {
 }
 
 function Dashboard({ onSignedOut }) {
-  const [days, setDays] = useState(() => readStored(STORAGE_KEYS.days, 3));
+  const [days, setDays] = useState(() => readStored(STORAGE_KEYS.days, 1));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -237,34 +244,29 @@ function Dashboard({ onSignedOut }) {
     load();
   }, [days, load]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") load();
-    }, REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [load]);
-
   const snapshotOn = Boolean(data?.snapshot);
 
-  // Keep the all-client list filling in while the page is open: quick steps
-  // until every client is loaded, then an occasional top-up.
+  // No auto refresh of the schedule: it only reloads when staff press Refresh.
+  // While the first full load of class history is running, one small batch
+  // goes every 2 minutes; after that, a top-up every 30 minutes picks up
+  // clients whose booked class has happened. The daily cron covers the rest.
   useEffect(() => {
     if (!snapshotOn) return undefined;
     let timer;
     let cancelled = false;
 
     async function step() {
-      let delay = 15 * 60 * 1000;
+      let delay = 30 * 60 * 1000;
       if (document.visibilityState === "visible") {
         try {
           const result = await api("/api/front-desk/sync", { method: "POST" });
           if (cancelled) return;
           setSync({ ...result, error: "" });
-          if (!result.totalClients || result.syncedClients < result.totalClients) delay = 20 * 1000;
+          if (!result.totalClients || result.syncedClients < result.totalClients) delay = 2 * 60 * 1000;
         } catch (err) {
           if (err.status === 401) return onSignedOut();
           if (!cancelled) setSync((current) => ({ ...(current || {}), error: err.message }));
-          delay = 60 * 1000;
+          delay = 5 * 60 * 1000;
         }
       }
       if (!cancelled) timer = window.setTimeout(step, delay);
@@ -312,6 +314,20 @@ function Dashboard({ onSignedOut }) {
     if (!enabled) setError("Desktop alerts are blocked in this browser's settings. Milestones still pop up on this page.");
   }
 
+  // Manual refresh: bring in counts for anyone whose class has happened, then
+  // reload today's rosters. Nothing else polls Mindbody on a timer.
+  async function refreshNow() {
+    if (snapshotOn) {
+      try {
+        const result = await api("/api/front-desk/sync", { method: "POST" });
+        setSync({ ...result, error: "" });
+      } catch (err) {
+        if (err.status === 401) return onSignedOut();
+      }
+    }
+    load(true);
+  }
+
   async function signOut() {
     await api("/api/front-desk/logout", { method: "POST" }).catch(() => {});
     onSignedOut();
@@ -330,11 +346,11 @@ function Dashboard({ onSignedOut }) {
           <span className="fd-bar-title">Front desk</span>
         </div>
         <div className="fd-bar-actions">
-          <span className="fd-bar-meta">{data ? `Updated ${new Date(data.generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}</span>
+          <span className="fd-bar-meta">{sync?.lastSyncedAt ? `Counts updated ${formatStamp(sync.lastSyncedAt)}` : data ? `Updated ${formatStamp(data.generatedAt)}` : ""}</span>
           <button type="button" className="fd-link" onClick={toggleAlerts} aria-pressed={alertsOn}>
             Desktop alerts: {alertsOn ? "on" : "off"}
           </button>
-          <button type="button" className="fd-link" onClick={() => load(true)} disabled={loading}>
+          <button type="button" className="fd-link" onClick={refreshNow} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
           </button>
           <button type="button" className="fd-link" onClick={signOut}>Sign out</button>
@@ -432,7 +448,7 @@ function ClientsView({ today, sync, onOpen, onSignedOut }) {
       }
     }, query ? 250 : 0);
     return () => window.clearTimeout(timer);
-  }, [params, offset, pageSize, query, onSignedOut, sync?.syncedClients]);
+  }, [params, offset, pageSize, query, onSignedOut, sync?.syncedClients, sync?.lastSyncedAt]);
 
   function sortBy(column) {
     if (!column.sort) return;

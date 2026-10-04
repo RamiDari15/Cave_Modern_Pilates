@@ -91,15 +91,31 @@ export async function upsertClientRows(config, rows) {
   }
 }
 
-export async function syncCandidates(config, limit = 200) {
-  const { data } = await storeRequest(config, CLIENTS_TABLE, {
-    query: {
-      select: "client_id,first_name,last_name,full_name,photo_url,visits_synced_at,last_visit,upcoming_count",
-      order: "visits_synced_at.asc.nullsfirst",
-      limit
-    }
-  });
-  return Array.isArray(data) ? data : [];
+// Rows the sync might need to refresh: never-synced clients, clients with a
+// booked class (their count changes once it happens) and the longest-unsynced.
+export async function syncCandidates(config, limit = 100) {
+  const select = "client_id,first_name,last_name,full_name,photo_url,visits_synced_at,last_visit,upcoming_count,upcoming_visits";
+  const [fresh, booked, oldest] = await Promise.all([
+    storeRequest(config, CLIENTS_TABLE, { query: { select, visits_synced_at: "is.null", limit } }),
+    storeRequest(config, CLIENTS_TABLE, { query: { select, upcoming_count: "gt.0", limit: 2000 } }),
+    storeRequest(config, CLIENTS_TABLE, { query: { select, visits_synced_at: "not.is.null", order: "visits_synced_at.asc", limit } })
+  ]);
+  const rows = new Map();
+  for (const row of [...(fresh.data || []), ...(booked.data || []), ...(oldest.data || [])]) rows.set(String(row.client_id), row);
+  return [...rows.values()];
+}
+
+export async function readClientRows(config, clientIds) {
+  const rows = [];
+  for (let i = 0; i < clientIds.length; i += 100) {
+    const chunk = clientIds.slice(i, i + 100).map((id) => String(id).replace(/[^\w-]/g, "")).filter(Boolean);
+    if (!chunk.length) continue;
+    const { data } = await storeRequest(config, CLIENTS_TABLE, {
+      query: { select: `${LIST_COLUMNS},upcoming_visits`, client_id: `in.(${chunk.join(",")})`, limit: 100 }
+    });
+    rows.push(...(Array.isArray(data) ? data : []));
+  }
+  return rows;
 }
 
 export async function clientsWithBookings(config) {
@@ -110,11 +126,12 @@ export async function clientsWithBookings(config) {
 }
 
 export async function syncProgress(config) {
-  const [all, synced] = await Promise.all([
+  const [all, synced, latest] = await Promise.all([
     storeRequest(config, CLIENTS_TABLE, { query: { select: "client_id", limit: 1 }, prefer: "count=exact" }),
-    storeRequest(config, CLIENTS_TABLE, { query: { select: "client_id", visits_synced_at: "not.is.null", limit: 1 }, prefer: "count=exact" })
+    storeRequest(config, CLIENTS_TABLE, { query: { select: "client_id", visits_synced_at: "not.is.null", limit: 1 }, prefer: "count=exact" }),
+    storeRequest(config, CLIENTS_TABLE, { query: { select: "visits_synced_at", visits_synced_at: "not.is.null", order: "visits_synced_at.desc", limit: 1 } })
   ]);
-  return { totalClients: all.total ?? 0, syncedClients: synced.total ?? 0 };
+  return { totalClients: all.total ?? 0, syncedClients: synced.total ?? 0, lastSyncedAt: latest.data?.[0]?.visits_synced_at || "" };
 }
 
 function searchPattern(query) {

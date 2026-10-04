@@ -71,6 +71,8 @@ const store = { front_desk_client_counts: new Map(), front_desk_sync_state: new 
 function matches(row, key, condition) {
   const value = row[key];
   if (condition === "not.is.null") return value != null;
+  if (condition === "is.null") return value == null;
+  if (condition.startsWith("in.(")) return condition.slice(4, -1).split(",").includes(String(value));
   const [op, ...rest] = condition.split(".");
   const target = rest.join(".");
   if (op === "eq") return String(value) === target;
@@ -98,6 +100,7 @@ function fakeSupabase(url, options) {
   if (order.startsWith("completed_count.desc")) rows.sort((a, b) => b.completed_count - a.completed_count);
   if (order.startsWith("classes_to_next_milestone.asc")) rows.sort((a, b) => a.classes_to_next_milestone - b.classes_to_next_milestone);
   if (order.startsWith("visits_synced_at")) rows.sort((a, b) => String(a.visits_synced_at || "").localeCompare(String(b.visits_synced_at || "")));
+  if (order.startsWith("visits_synced_at.desc")) rows.reverse();
   const total = rows.length;
   const [from, to] = (options.headers.Range || `0-${Number(url.searchParams.get("limit") || 1000) - 1}`).split("-").map(Number);
   return Response.json(rows.slice(from, to + 1), { headers: { "content-range": `${from}-${to}/${total}` } });
@@ -297,6 +300,16 @@ test("every client is tracked through the synced snapshot", async () => {
   upstreamCalls = [];
   await request("/api/front-desk/sync", { method: "POST", cookie });
   assert.equal(upstreamCalls.filter((url) => url.pathname.endsWith("/client/clientvisits")).length, 0);
+
+  // The dashboard reads counts from the snapshot, and a reload inside the
+  // roster cache window makes no Mindbody calls at all.
+  upstreamCalls = [];
+  const dashboard = await request("/api/front-desk/dashboard?days=1", { cookie });
+  assert.equal(dashboard.status, 200);
+  assert.equal(upstreamCalls.filter((url) => url.pathname.endsWith("/client/clientvisits")).length, 0);
+  upstreamCalls = [];
+  await request("/api/front-desk/dashboard?days=1", { cookie });
+  assert.equal(upstreamCalls.filter((url) => !url.pathname.endsWith("/usertoken/issue")).length, 0);
 });
 
 test("cron can run the sync with CRON_SECRET", async () => {

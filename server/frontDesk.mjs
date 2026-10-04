@@ -8,6 +8,7 @@ import {
   frontDeskStoreConfig,
   listClientCounts,
   readClientRow,
+  readClientRows,
   readSyncState,
   syncCandidates,
   syncProgress,
@@ -28,17 +29,18 @@ const DEFAULT_WINDOW_DAYS = 3;
 const RECENT_MILESTONE_DAYS = 3;
 const MINDBODY_CONCURRENCY = 6;
 const VISIT_CACHE_TTL_MS = 10 * 60 * 1000;
-const ROSTER_CACHE_TTL_MS = 3 * 60 * 1000;
+const ROSTER_CACHE_TTL_MS = 10 * 60 * 1000;
 const LOGIN_LIMIT = { count: 8, windowMs: 15 * 60 * 1000 };
-// All-client snapshot sync: each step lists up to a few pages of clients and
-// refreshes a small batch of visit histories, so Mindbody calls stay spread out.
+// All-client snapshot sync, built to keep Mindbody calls low: the client list
+// is re-read weekly, a client's history is re-read only after a class they
+// were booked into has happened (or monthly as a safety net), and the first
+// full load goes in small batches.
 const CLIENT_LIST_PAGES_PER_STEP = 5;
-const CLIENT_LIST_REFRESH_MS = 24 * 60 * 60 * 1000;
+const CLIENT_LIST_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
 const VISIT_BATCH_PER_STEP = 25;
-const ACTIVE_CLIENT_REFRESH_MS = 12 * 60 * 60 * 1000;
-const INACTIVE_CLIENT_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
-const ACTIVE_CLIENT_DAYS = 45;
-const STAFF_SYNC_BUDGET_MS = 8_000;
+const SAFETY_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
+// A staff page runs one batch per call; the daily cron keeps going for longer.
+const STAFF_SYNC_BUDGET_MS = 0;
 const CRON_SYNC_BUDGET_MS = 50_000;
 
 const visitCache = new Map();
@@ -535,6 +537,42 @@ function clientFromSnapshot(row) {
   };
 }
 
+// Works out class numbers from the saved snapshot instead of calling Mindbody:
+// booked classes are numbered on from the last synced total, and any booked
+// class that has already happened counts as taken until the next sync.
+function snapshotSummary(row, now, rosterBookings = []) {
+  const known = new Map((Array.isArray(row.upcoming_visits) ? row.upcoming_visits : []).map((visit) => [Number(visit.classId), visit]));
+  let added = false;
+
+  for (const booking of rosterBookings) {
+    if (!known.has(booking.classId)) {
+      known.set(booking.classId, { classId: booking.classId, start: booking.start, className: booking.className });
+      added = true;
+    }
+  }
+
+  const base = Number(row.completed_count) || 0;
+  const visits = [...known.values()]
+    .filter((visit) => visit.start)
+    .sort((a, b) => String(a.start).localeCompare(String(b.start)))
+    .map((visit, index) => ({ ...visit, classId: Number(visit.classId), classNumber: base + index + 1, completed: visit.start <= now }));
+  const passed = visits.filter((visit) => visit.completed);
+  const completedCount = base + passed.length;
+  const recentCutoff = `${addDays(now, -RECENT_MILESTONE_DAYS)}T00:00:00`;
+
+  return {
+    completedCount,
+    upcomingCount: visits.length - passed.length,
+    lastVisit: [row.last_visit || "", passed.at(-1)?.start || ""].sort().at(-1),
+    nextMilestone: nextMilestone(completedCount),
+    classesToNextMilestone: nextMilestone(completedCount) - completedCount,
+    byClassId: new Map(visits.map((visit) => [visit.classId, visit])),
+    upcomingMilestones: visits.filter((visit) => !visit.completed && isMilestone(visit.classNumber)),
+    recentMilestones: passed.filter((visit) => visit.start >= recentCutoff && isMilestone(visit.classNumber)),
+    mergedVisits: added ? visits.map(({ classId, start, classNumber, className: name }) => ({ classId, start, classNumber, className: name })) : null
+  };
+}
+
 async function buildDashboard(days, fresh, deps) {
   const token = await deps.getMindbodyActionToken("Front desk class counts");
   const store = frontDeskStoreConfig();
@@ -560,19 +598,45 @@ async function buildDashboard(days, fresh, deps) {
 
   const clientIds = [...new Set(classes.flatMap((item) => item.clientIds))];
   const snapshotById = new Map(bookedSnapshot.map((row) => [String(row.client_id), row]));
-  const missingProfiles = clientIds.filter((clientId) => !snapshotById.has(clientId));
+  const unseen = clientIds.filter((clientId) => !snapshotById.has(clientId));
 
-  const [profiles, summaries] = await Promise.all([
-    missingProfiles.length ? fetchClientProfiles(missingProfiles, token, deps) : new Map(),
-    mapLimit(clientIds, MINDBODY_CONCURRENCY, async (clientId) => [clientId, await clientVisitSummary(clientId, now, endDate, fresh, token, deps)])
+  if (store && unseen.length) {
+    for (const row of await readClientRows(store, unseen).catch(() => [])) {
+      if (row.visits_synced_at) snapshotById.set(String(row.client_id), row);
+    }
+  }
+
+  const bookingsFor = (clientId) =>
+    classes.filter((item) => item.clientIds.includes(clientId)).map((item) => ({ classId: item.classId, start: item.start, className: item.className }));
+
+  // Only clients the snapshot has never seen cost a Mindbody call.
+  const liveIds = clientIds.filter((clientId) => !snapshotById.has(clientId));
+  const [profiles, liveSummaries] = await Promise.all([
+    liveIds.length ? fetchClientProfiles(liveIds, token, deps) : new Map(),
+    mapLimit(liveIds, MINDBODY_CONCURRENCY, async (clientId) => [clientId, await clientVisitSummary(clientId, now, endDate, fresh, token, deps)])
   ]);
-  const summaryById = new Map(summaries);
+  const summaryById = new Map(liveSummaries);
+
+  for (const clientId of clientIds) {
+    if (!summaryById.has(clientId)) summaryById.set(clientId, snapshotSummary(snapshotById.get(clientId), now, bookingsFor(clientId)));
+  }
+
   const profileFor = (clientId) =>
     profiles.get(clientId) || (snapshotById.has(clientId) ? profileFromSnapshot(snapshotById.get(clientId)) : { clientId, firstName: "", lastName: "", name: "Client", photoUrl: "" });
 
-  if (store && clientIds.length) {
-    // Booked clients are the ones most likely to change, so keep them fresh.
-    await upsertClientRows(store, clientIds.map((clientId) => snapshotRow(profileFor(clientId), summaryById.get(clientId)))).catch(() => {});
+  if (store) {
+    // New clients get a full row; known clients just record new bookings so the
+    // sync knows to re-read them once the class has happened. Neither calls Mindbody.
+    const writes = [
+      ...liveIds.map((clientId) => snapshotRow(profileFor(clientId), summaryById.get(clientId))),
+      ...clientIds
+        .filter((clientId) => summaryById.get(clientId)?.mergedVisits)
+        .map((clientId) => {
+          const summary = summaryById.get(clientId);
+          return { client_id: clientId, upcoming_visits: summary.mergedVisits, upcoming_count: summary.mergedVisits.length };
+        })
+    ];
+    if (writes.length) await upsertClientRows(store, writes).catch(() => {});
   }
 
   const classRows = classes.map((item) => ({
@@ -638,16 +702,17 @@ async function buildDashboard(days, fresh, deps) {
   };
 }
 
-function needsVisitRefresh(row, nowMs) {
+function needsVisitRefresh(row, now, nowMs) {
   if (!row.visits_synced_at) return true;
 
-  const age = nowMs - Date.parse(row.visits_synced_at);
-  const lastVisitMs = row.last_visit ? Date.parse(`${row.last_visit.slice(0, 10)}T12:00:00Z`) : 0;
-  const active = row.upcoming_count > 0 || nowMs - lastVisitMs < ACTIVE_CLIENT_DAYS * 24 * 60 * 60 * 1000;
-  return age >= (active ? ACTIVE_CLIENT_REFRESH_MS : INACTIVE_CLIENT_REFRESH_MS);
+  // A booked class has happened since the last read, so the total moved.
+  const visits = Array.isArray(row.upcoming_visits) ? row.upcoming_visits : [];
+  if (visits.some((visit) => visit.start && visit.start <= now)) return true;
+
+  return nowMs - Date.parse(row.visits_synced_at) >= SAFETY_REFRESH_MS;
 }
 
-async function syncClientList(store, token, deps) {
+async function syncClientList(store, getToken, deps) {
   const state = await readSyncState(store);
   const completedAt = state.client_list_completed_at ? Date.parse(state.client_list_completed_at) : 0;
 
@@ -661,7 +726,7 @@ async function syncClientList(store, token, deps) {
 
   for (let page = 0; page < CLIENT_LIST_PAGES_PER_STEP; page++) {
     const data = await deps.bookingRequest("/client/clients", {
-      token,
+      token: await getToken(),
       params: { "request.limit": "200", "request.offset": String(offset) }
     });
     const clients = deps.firstListByKey(data, "Clients").map(clientProfile).filter((profile) => profile.clientId);
@@ -703,27 +768,28 @@ async function runClientSync(deps, budgetMs) {
   }
 
   const startedAt = Date.now();
-  const token = await deps.getMindbodyActionToken("Front desk client sync");
+  let token = "";
+  const getToken = async () => (token ||= await deps.getMindbodyActionToken("Front desk client sync"));
   const now = studioLocalNow();
   const endDate = addDays(now.slice(0, 10), MAX_WINDOW_DAYS);
   let refreshed = 0;
   let listing = true;
 
-  while (Date.now() - startedAt < budgetMs) {
+  do {
     if (listing) {
-      ({ listing } = await syncClientList(store, token, deps));
+      ({ listing } = await syncClientList(store, getToken, deps));
       if (listing) continue;
     }
 
-    const due = (await syncCandidates(store)).filter((row) => needsVisitRefresh(row, Date.now())).slice(0, VISIT_BATCH_PER_STEP);
+    const due = (await syncCandidates(store)).filter((row) => needsVisitRefresh(row, now, Date.now())).slice(0, VISIT_BATCH_PER_STEP);
     if (!due.length) break;
 
     const rows = await mapLimit(due, MINDBODY_CONCURRENCY, async (row) =>
-      snapshotRow(profileFromSnapshot(row), await clientVisitSummary(String(row.client_id), now, endDate, false, token, deps))
+      snapshotRow(profileFromSnapshot(row), await clientVisitSummary(String(row.client_id), now, endDate, false, await getToken(), deps))
     );
     await upsertClientRows(store, rows);
     refreshed += rows.length;
-  }
+  } while (Date.now() - startedAt < budgetMs);
 
   return { configured: true, refreshed, ...(await syncProgress(store)) };
 }
@@ -817,7 +883,7 @@ async function clientDetail(clientId, deps) {
   const endDate = addDays(now.slice(0, 10), 60);
   const [row, summary] = await Promise.all([
     store ? readClientRow(store, clientId).catch(() => null) : null,
-    clientVisitSummary(clientId, now, endDate, true, token, deps)
+    clientVisitSummary(clientId, now, endDate, false, token, deps)
   ]);
   const profile = row ? profileFromSnapshot(row) : (await fetchClientProfiles([clientId], token, deps)).get(clientId) || { clientId, firstName: "", lastName: "", name: "Client", photoUrl: "" };
 
