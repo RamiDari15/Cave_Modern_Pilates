@@ -138,6 +138,15 @@ The sign-up form includes the required client fields returned by the studio API:
 - mobile phone
 - email
 
+## Front Desk Class Counts
+
+`/front-desk` is a staff-only page (not linked or indexed) showing each booked client's class count, class rosters with the class number each client is about to take, and milestone alerts at 5, 10, 25, 50, 75, 100 and then every 25 classes.
+
+- Set `FRONT_DESK_PASSWORD` in Vercel. The password is checked server-side and unlocks a 12-hour HttpOnly cookie sealed with `SESSION_SECRET`. Changing the password signs every front desk device out.
+- Counts come from Mindbody `/client/clientvisits` through the server-side source-credential token. Cancelled, late-cancelled and missed visits do not count. Rosters come from `/class/classes` and `/class/classvisits`.
+- Each refresh makes roughly one Mindbody call per class plus one per booked client (cached 3 to 10 minutes), so the "Week" view uses the most API calls.
+- Alerts: milestone pop-ups on the page, plus optional desktop notifications from the bell button. "Celebrated" marks are saved per device.
+
 ## Ad Tracking
 
 Meta and Google tags load only when their IDs are set, so nothing runs until the ad accounts exist. Browser events live in `src/tracking.js`; server-side Meta purchase events live in `server/adConversions.mjs` and share the browser's event ID so Meta counts each purchase once.

@@ -9,6 +9,7 @@ import { getGuestPassPeriod } from "../src/guestPass.js";
 import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
 import { cartPurchaseEvents, buildMetaEvent, recordConversion } from "./adConversions.mjs";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
+import { handleFrontDeskRequest } from "./frontDesk.mjs";
 
 function confirmedPurchaseTotal(result) {
   const candidate = result?.ShoppingCart?.GrandTotal ?? result?.GrandTotal;
@@ -343,6 +344,10 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/gift-cards/purchase") {
       enforceGiftCardRateLimit(request);
+    }
+
+    if (path.startsWith("/api/front-desk/") && await handleFrontDeskRequest(request, response, url, frontDeskDependencies())) {
+      return true;
     }
 
     if (path === "/api/auth/status") {
@@ -3554,6 +3559,23 @@ const staffToken = await getMindbodyActionToken("Waitlist booking");
     });
     return true;
   }
+}
+
+function frontDeskDependencies() {
+  return {
+    appendSetCookie,
+    bookingRequest,
+    buildCookie,
+    firstListByKey,
+    getBookingConfig,
+    getMindbodyActionToken,
+    httpError,
+    parseCookies,
+    readJsonBody,
+    seal,
+    sendJson,
+    unseal
+  };
 }
 
 function fulfilledValue(result) {
