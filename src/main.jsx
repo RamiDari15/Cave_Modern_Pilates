@@ -7,7 +7,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod, hasAvailableMonthlyGuestPass } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage } from "./promotionWindows";
+import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage, withoutOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -2148,7 +2148,10 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   const categoryItems = groups[category.key] || [];
   const octoberItems = category.key === "classPacks" && isOctoberOfferView() ? categoryItems.filter(isOctoberBuyThreeGetOnePackage) : [];
   const showOctoberOnly = octoberItems.length > 0;
-  const items = [...(showOctoberOnly ? octoberItems : categoryItems)].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
+  const standardItems = category.key === "classPacks"
+    ? withoutOctoberBuyThreeGetOnePackage(categoryItems)
+    : categoryItems;
+  const items = [...(showOctoberOnly ? octoberItems : standardItems)].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
   const introPack = items.find((item) => /3\s*class/i.test(item.name) && item.sellOnline !== false);
   const claimIntro = () => {
     if (!introPack || !cart) return;

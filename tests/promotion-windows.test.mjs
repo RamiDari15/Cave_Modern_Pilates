@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   isBackToSchoolPromotionActive,
   isOctoberBuyThreeGetOnePackage,
+  withoutOctoberBuyThreeGetOnePackage,
   isPricingItemCurrentlyVisible,
   OCTOBER_PACKAGE_WINDOW
 } from "../src/promotionWindows.js";
@@ -14,6 +15,14 @@ test("recognizes the October package despite punctuation and spacing", () => {
   assert.equal(isOctoberBuyThreeGetOnePackage(promotion), true);
   assert.equal(isOctoberBuyThreeGetOnePackage({ sourceName: "BUY 3 CLASS GET 1 FREE" }), true);
   assert.equal(isOctoberBuyThreeGetOnePackage({ name: "10 Class Pack" }), false);
+});
+
+test("keeps the October offer out of the standard class-pack list", () => {
+  const standardPack = { name: "10 Class Pack" };
+  assert.deepEqual(
+    withoutOctoberBuyThreeGetOnePackage([standardPack, promotion]),
+    [standardPack]
+  );
 });
 
 test("shows the October package only from October 1 through October 31 in Chicago (studio) time", () => {
