@@ -10,5 +10,31 @@
       "source": "/:path*",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "headers": [
+    {
+      "source": "/front-desk(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/front-desk/sync",
+      "schedule": "0 10 * * *"
+    }
+  ],
+  "functions": {
+    "api/front-desk/sync.js": {
+      "maxDuration": 60
+    }
+  }
 }
