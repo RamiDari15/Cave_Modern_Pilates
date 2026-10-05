@@ -15,6 +15,12 @@ export function isOctoberBuyThreeGetOnePackage(item) {
   return /\bbuy 3 class(?:es)? get 1 free\b/.test(name);
 }
 
+export function withoutOctoberBuyThreeGetOnePackage(items) {
+  return (Array.isArray(items) ? items : []).filter(
+    (item) => !isOctoberBuyThreeGetOnePackage(item)
+  );
+}
+
 export function isPricingItemCurrentlyVisible(item, now = Date.now()) {
   if (!isOctoberBuyThreeGetOnePackage(item)) {
     return true;
