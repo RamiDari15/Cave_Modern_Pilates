@@ -33,6 +33,7 @@ import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
 import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
 import stretchLabPartnerLogo from "../assets/local-partner-stretchlab.png";
 import qahwaPartnerLogo from "../assets/local-partner-the-qahwa.png";
+import houseOfLalaPartnerLogo from "../assets/local-partner-house-of-lala.png";
 import "./styles.css";
 
 const ROUTES = {
@@ -182,7 +183,8 @@ const PRIVATE_PRICING_OPTIONS = [
 const LOCAL_PARTNERS = [
   { name: "Oxygen Spa and Boutique", logo: oxygenPartnerLogo, className: "oxygen" },
   { name: "StretchLab Orland Park", logo: stretchLabPartnerLogo, className: "stretchlab" },
-  { name: "The Qahwa", logo: qahwaPartnerLogo, className: "qahwa" }
+  { name: "The Qahwa", logo: qahwaPartnerLogo, className: "qahwa" },
+  { name: "House of Lala", logo: houseOfLalaPartnerLogo, className: "house-of-lala" }
 ];
 
 const FAQ_CATEGORIES = ["All", "Getting Started", "Booking", "Memberships", "Purchases", "Studio Policy", "Privacy"];
