@@ -26,7 +26,6 @@ import {
   trackConversionReceipt,
   trackPageView,
 } from "./tracking";
-import newbiePhoto from "../assets/cave-studio-wide.jpg";
 import octoberOfferImage from "../assets/cave-october-buy3-get1.png";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
@@ -2236,10 +2235,6 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   );
 }
 
-// Shown to new clients who join a membership after the intro package.
-// Set to "" to remove the offer from the page.
-const NEWBIE_MEMBERSHIP_CREDIT_NOTE = "Join a membership after your intro and your intro package price comes off your first month.";
-
 function newbieHeadline(items) {
   const pack = items.find((item) => /\b3\s*class/i.test(String(item.name || "")) && item.price);
   return pack ? `3 reformer classes for ${compactPrice(pack.price)}` : "";
@@ -2249,9 +2244,7 @@ function NewbieIntroLead({ onClaim, available }) {
   return (
     <div className="newbie-intro-lead">
       <p>New clients only. Women's reformer Pilates at Orland Square. No experience needed: your instructor sets up your reformer and guides every move.</p>
-      {NEWBIE_MEMBERSHIP_CREDIT_NOTE ? <p className="newbie-intro-credit">{NEWBIE_MEMBERSHIP_CREDIT_NOTE}</p> : null}
       <button className="pill-button black newbie-intro-cta" type="button" onClick={onClaim} disabled={!available}>Claim my intro</button>
-      <img className="newbie-intro-photo" src={newbiePhoto} alt="Cave Modern Pilates studio" width="600" height="400" />
     </div>
   );
 }

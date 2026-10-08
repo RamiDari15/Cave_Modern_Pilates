@@ -6711,10 +6711,6 @@ body.interior:has(.page-policies),
   line-height: 1.5;
 }
 
-.newbie-intro-credit {
-  font-weight: 700;
-}
-
 .newbie-intro-cta {
   margin-top: 8px;
   color: var(--black);
@@ -6761,7 +6757,6 @@ body.interior:has(.page-policies),
   color: var(--stone);
 }
 
-.newbie-intro-photo { width: 100%; height: 220px; object-fit: cover; border-radius: 20px; }
 .newbie-intro-cta.pill-button { background: #000; color: #fff; }
 .newbie-expect details { padding: 14px 0; border-bottom: 1px solid #ccc; }
 .newbie-expect summary { cursor: pointer; font-weight: 600; }
