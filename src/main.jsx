@@ -1549,22 +1549,22 @@ function usePricingCatalog(store, memberships) {
   const groups = pricingStoreGroups(store, memberships);
 
   const membershipItems = sortMembershipItems(
-    catalog?.memberships?.length
-      ? catalog.memberships
+    catalog
+      ? filterPublicPricingItems(catalog.memberships || [])
       : groups.memberships || []
   );
 
   return {
-    newbie: catalog?.newbie?.length
-      ? catalog.newbie
+    newbie: catalog
+      ? filterPublicPricingItems(catalog.newbie || [])
       : groups.newbie || [],
 
-    classPacks: catalog?.classPacks?.length
-      ? sortBySessionsAsc(filterPublicPricingItems(catalog.classPacks))
+    classPacks: catalog
+      ? sortBySessionsAsc(filterPublicPricingItems(catalog.classPacks || []))
       : groups.classPacks || [],
 
-    dropIn: catalog?.dropIn?.length
-      ? filterPublicPricingItems(catalog.dropIn)
+    dropIn: catalog
+      ? filterPublicPricingItems(catalog.dropIn || [])
       : groups.dropIn || [],
 
     memberships: membershipItems,

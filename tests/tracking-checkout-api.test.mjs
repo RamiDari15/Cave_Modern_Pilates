@@ -66,7 +66,7 @@ async function request(body, path = "/api/pricing/contracts/purchase", method = 
 }
 
 
-const cartBody = { items: [{ id: "100007", kind: "service", name: "untrusted client name", price: "$65", quantity: 1 }], storedCardLastFour: "1234", trackingEventId: "checkout-123" };
+const cartBody = { items: [{ id: "100006", kind: "service", name: "untrusted client name", price: "$25", quantity: 1 }], storedCardLastFour: "1234", trackingEventId: "checkout-123" };
 function reset() { decline = false; metaUnavailable = false; metaEvents = []; charges = 0; }
 
 test("checkout integration with fake payment provider only", async (t) => {
@@ -96,7 +96,7 @@ test("checkout integration with fake payment provider only", async (t) => {
   });
   await t.test("legacy store checkout tracks only a successful provider charge", async () => {
     reset();
-    const body = { itemId: "100007", kind: "service", acceptWaiver: true, storedCardLastFour: "1234", trackingEventId: "store-123" };
+    const body = { itemId: "100006", kind: "service", acceptWaiver: true, storedCardLastFour: "1234", trackingEventId: "store-123" };
     const result = await request(body, "/api/store/purchase");
     assert.equal(result.status, 200, JSON.stringify(result.body));
     assert.equal(metaEvents[0].custom_data.value, 55.25);

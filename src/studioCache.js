@@ -61,18 +61,6 @@ export const FALLBACK_CACHE = {
         sellOnline: true,
         requiresWaiver: true,
         requiresTerms: false
-      },
-      {
-        id: "100007",
-        kind: "service",
-        category: "newbie",
-        name: "New Client 3 Class Package",
-        price: "$65.00",
-        sessions: 3,
-        description: "Expires in 1 months",
-        sellOnline: true,
-        requiresWaiver: true,
-        requiresTerms: false
       }
     ],
     memberships: [
@@ -217,18 +205,6 @@ export const FALLBACK_CACHE = {
         price: "$279.00",
         sessions: 10,
         description: "Expires in 1 months",
-        sellOnline: true,
-        requiresWaiver: true,
-        requiresTerms: false
-      },
-      {
-        id: "100037",
-        kind: "service",
-        category: "classPacks",
-        name: "Unlimited Class Pack",
-        price: "$355.00",
-        sessions: null,
-        description: "Unlimited classes",
         sellOnline: true,
         requiresWaiver: true,
         requiresTerms: false
