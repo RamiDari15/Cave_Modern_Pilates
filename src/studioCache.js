@@ -33,7 +33,7 @@ export const FALLBACK_CACHE = {
       sessions: 5,
       serviceType: "Classes",
       serviceCategory: "CAVE MODERN PILATES",
-      price: "$179.00",
+      price: "$159.00",
       sellOnline: true,
       imagePosition: "72% 48%"
     },
@@ -43,7 +43,7 @@ export const FALLBACK_CACHE = {
       sessions: 10,
       serviceType: "Classes",
       serviceCategory: "CAVE MODERN PILATES",
-      price: "$289.00",
+      price: "$279.00",
       sellOnline: true,
       imagePosition: "60% 72%"
     }
@@ -202,7 +202,7 @@ export const FALLBACK_CACHE = {
         kind: "service",
         category: "classPacks",
         name: "5 Class Pack",
-        price: "$179.00",
+        price: "$159.00",
         sessions: 5,
         description: "Expires in 1 months",
         sellOnline: true,
@@ -214,7 +214,7 @@ export const FALLBACK_CACHE = {
         kind: "service",
         category: "classPacks",
         name: "10 Class Pack",
-        price: "$289.00",
+        price: "$279.00",
         sessions: 10,
         description: "Expires in 1 months",
         sellOnline: true,
