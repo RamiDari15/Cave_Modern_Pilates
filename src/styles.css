@@ -2482,6 +2482,15 @@ body.interior:has(.page-policies),
   accent-color: var(--green);
 }
 
+.pricing-purchase-note {
+  max-width: 30ch;
+  margin: 4px auto 0;
+  color: var(--stone);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .pricing-card-actions {
   display: grid;
   gap: 12px;

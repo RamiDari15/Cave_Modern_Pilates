@@ -152,7 +152,19 @@ test("the public pricing route passes live agreement and billing fields through 
     const url = new URL(input);
     calls.push({ path: url.pathname, method: options.method || "GET" });
     if (url.pathname.endsWith("/sale/services")) return Response.json({ Services: [] });
-    if (url.pathname.endsWith("/sale/contracts")) return Response.json({ Contracts: [monthlyContract, { ...monthlyContract, Id: 9002, SoldOnline: false }] });
+    if (url.pathname.endsWith("/sale/contracts")) return Response.json({ Contracts: [
+      monthlyContract,
+      {
+        ...monthlyContract,
+        Id: 101,
+        Name: "4 Class Membership-3 Month Contract",
+        NumberOfAutopays: 3,
+        FirstPaymentAmountTotal: 139,
+        RecurringPaymentAmountTotal: 139,
+        TotalContractAmountTotal: 417
+      },
+      { ...monthlyContract, Id: 9002, SoldOnline: false }
+    ] });
     throw new Error(`Unexpected upstream request ${url.pathname}`);
   };
   t.after(() => {
@@ -172,11 +184,19 @@ test("the public pricing route passes live agreement and billing fields through 
   await handleApiRequest(req, res);
   assert.equal(res.statusCode, 200);
   const catalog = JSON.parse(output).catalog;
-  assert.equal(catalog.memberships.length, 1);
-  assert.equal(catalog.memberships[0].id, "9001");
-  assert.equal(catalog.memberships[0].agreementTerms, monthlyContract.AgreementTerms);
-  assert.equal(catalog.memberships[0].billingPeriod, "month");
-  assert.equal(catalog.memberships[0].recurringPaymentAmountTotal, 105);
-  assert.equal(catalog.memberships[0].totalContractAmountTotal, 630);
+  assert.equal(catalog.memberships.length, 2);
+  const unchanged = catalog.memberships.find((item) => item.id === "9001");
+  assert.equal(unchanged.agreementTerms, monthlyContract.AgreementTerms);
+  assert.equal(unchanged.billingPeriod, "month");
+  assert.equal(unchanged.recurringPaymentAmountTotal, 105);
+  assert.equal(unchanged.totalContractAmountTotal, 630);
+
+  const updated = catalog.memberships.find((item) => item.id === "101");
+  assert.equal(updated.name, "4 Class Membership-3 Months Contract");
+  assert.equal(updated.price, "$119.00");
+  assert.equal(updated.providerPrice, "$139.00");
+  assert.equal(updated.providerPriceVerified, false);
+  assert.equal(updated.purchaseAvailable, false);
+  assert.equal(updated.recurringPaymentAmountTotal, 139);
   assert.deepEqual(calls, [{ path: "/public/v6/sale/services", method: "GET" }, { path: "/public/v6/sale/contracts", method: "GET" }]);
 });

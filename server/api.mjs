@@ -2792,9 +2792,31 @@ const isSoldOnlineValue = (item) => {
   return true;
 };
 
+      const advertisedMembershipsById = new Map(
+        (storeGroups.memberships || []).map((item) => [String(item.id || ""), item])
+      );
+
       const contractItems = liveContracts
         .filter((item) => isSoldOnlineValue(item))
         .map(normalizeMindbodyContract)
+        .map((item) => {
+          const advertised = advertisedMembershipsById.get(item.id);
+          if (!advertised?.price) return item;
+
+          const advertisedAmount = moneyAmount(advertised.price);
+          const providerAmount = moneyAmount(item.recurringPaymentAmountTotal);
+          const providerPriceVerified = advertisedAmount !== null && providerAmount !== null &&
+            Math.round(advertisedAmount * 100) === Math.round(providerAmount * 100);
+
+          return {
+            ...item,
+            name: advertised.name || item.name,
+            price: advertised.price,
+            providerPrice: item.price,
+            providerPriceVerified,
+            purchaseAvailable: process.env.MINDBODY_CONTRACT_PRICES_VERIFIED === "true" && providerPriceVerified
+          };
+        })
         .filter((item) => item.id && item.name);
 
 
@@ -3310,27 +3332,37 @@ return true;
       const { locationId, paymentAuthenticationCallbackUrl } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Membership purchase");
 
+      // Reload the selected provider contract immediately before checkout.
+      // Never trust the cached catalog or a client-supplied charge amount.
+      let currentContracts = [];
+      try {
+        const data = await bookingRequest("/sale/contracts", {
+          token: staffToken,
+          params: {
+            "request.contractIds": String(body.contractId),
+            "request.soldOnline": "true",
+            "request.limit": "100",
+            "request.offset": "0",
+            "request.locationId": String(Number(locationId) || 1)
+          }
+        });
+        currentContracts = firstListByKey(data, "Contracts").filter((contract) =>
+          String(contract.Id ?? contract.ContractId ?? "") === String(body.contractId));
+      } catch (_) {
+        // An unavailable current quote must never fall through to a charge.
+      }
+
+      if (currentContracts.length !== 1 || !membershipContractMatchesAdvertisedPrice(currentContracts[0])) {
+        sendJson(response, 409, {
+          ok: false,
+          code: "MEMBERSHIP_PRICE_NOT_SYNCED",
+          message: "This membership's updated price is still syncing with Mindbody. No charge was made. Please contact the studio to purchase at the advertised price."
+        });
+        return true;
+      }
+
       if (appCheckout) {
-        // Reload the selected provider contract immediately before checkout.
-        // Never trust the cached catalog or a client-supplied charge amount.
-        let currentContracts = [];
-        try {
-          const data = await bookingRequest("/sale/contracts", {
-            token: staffToken,
-            params: {
-              "request.contractIds": String(body.contractId),
-              "request.soldOnline": "true",
-              "request.limit": "100",
-              "request.offset": "0",
-              "request.locationId": String(Number(locationId) || 1)
-            }
-          });
-          currentContracts = firstListByKey(data, "Contracts").filter((contract) =>
-            String(contract.Id ?? contract.ContractId ?? "") === String(body.contractId));
-        } catch (_) {
-          // An unavailable current quote must never fall through to a charge.
-        }
-        if (currentContracts.length !== 1 || !membershipQuoteMatches(currentContracts[0], body.quote)) {
+        if (!membershipQuoteMatches(currentContracts[0], body.quote)) {
           sendJson(response, 409, { ok: false, code: "MEMBERSHIP_QUOTE_CHANGED", message: "The membership details changed or could not be verified. Please reload the membership and review its agreement and payment schedule. No charge was made." });
           return true;
         }
@@ -5813,6 +5845,26 @@ function readStoreCache() {
   } catch (error) {
     return {};
   }
+}
+
+function moneyAmount(value) {
+  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
+  const normalized = String(value ?? "").trim().replace(/^\$/, "").replace(/,/g, "");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function membershipContractMatchesAdvertisedPrice(contract) {
+  const contractId = String(contract?.Id ?? contract?.ContractId ?? "");
+  const advertised = publicStoreGroups(readStoreCache().store || {}).memberships
+    .find((item) => String(item.id || "") === contractId);
+  if (!advertised?.price) return true;
+
+  const providerAmount = normalizeMindbodyContract(contract).recurringPaymentAmountTotal;
+  const advertisedAmount = moneyAmount(advertised.price);
+  return providerAmount !== null && advertisedAmount !== null &&
+    Math.round(providerAmount * 100) === Math.round(advertisedAmount * 100);
 }
 
 async function readStoreCacheWithFreshSchedule() {

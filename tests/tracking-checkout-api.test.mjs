@@ -42,6 +42,9 @@ globalThis.fetch = async (input, options = {}) => {
     charges++;
     return Response.json(decline ? { PaymentProcessingFailures: [{ Message: "Card declined" }] } : { GiftCardId: 1 });
   }
+  if (url.pathname.endsWith("/sale/contracts")) {
+    return Response.json({ Contracts: [{ Id: 1, Name: "Synthetic Membership", RecurringPaymentAmountTotal: 100 }] });
+  }
   if (url.pathname.endsWith("/sale/purchasecontract")) {
     charges++;
     return Response.json(decline ? { PaymentProcessingFailures: [{ Message: "Card declined" }] } : { ContractId: 1, GrandTotal: 100 });

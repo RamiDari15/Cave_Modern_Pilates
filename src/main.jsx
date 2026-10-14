@@ -2523,6 +2523,20 @@ function moneyValue(value) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function membershipQuoteFromItem(item) {
+  return {
+    agreementTerms: item.agreementTerms,
+    firstPaymentAmountTotal: item.firstPaymentAmountTotal,
+    recurringPaymentAmountTotal: item.recurringPaymentAmountTotal,
+    totalContractAmountTotal: item.totalContractAmountTotal,
+    numberOfAutopays: item.numberOfAutopays,
+    billingPeriod: item.billingPeriod,
+    billingInterval: item.billingInterval,
+    commitmentMonths: item.commitmentMonths,
+    actionUponCompletionOfAutopays: item.actionUponCompletionOfAutopays
+  };
+}
+
 function membershipDetails(item) {
   const identity = membershipIdentity(item);
   const directMonths = Number(item?.commitmentMonths ?? item?.termMonths ?? item?.contractLengthMonths);
@@ -2655,7 +2669,9 @@ const trackingEventId = newTrackingEventId();
 
 const payload = isContract
   ? {
+      checkoutVersion: 2,
       contractId: item.id,
+      quote: membershipQuoteFromItem(item),
       storedCardLastFour,
       acceptTerms: true,
       acceptWaiver: true,
@@ -2707,11 +2723,16 @@ const payload = isContract
               View Membership Details
             </button>
           ) : null}
+          {isContract && item.purchaseAvailable === false ? (
+            <p className="pricing-purchase-note">Purchase at this updated price by contacting the studio.</p>
+          ) : null}
         </div>
 
         <div className="pricing-card-actions">
           {isCurrentMembership ? (
             <span className="pricing-current-status" aria-label="This is your active membership">Active</span>
+          ) : isContract && item.purchaseAvailable === false ? (
+            <a className="pill-button black" href="tel:+17146036995">Call to Purchase</a>
           ) : !clientSession?.signedIn ? (
             <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/pricing")}`}>
               Sign In to Buy
@@ -2756,6 +2777,8 @@ const payload = isContract
             <div className="membership-details-actions">
               {isCurrentMembership ? (
                 <span className="pricing-current-status">Your active membership</span>
+              ) : item.purchaseAvailable === false ? (
+                <a className="pill-button black" href="tel:+17146036995">Call to Purchase</a>
               ) : clientSession?.signedIn ? (
                 <button className="pill-button black" type="button" onClick={() => { setShowDetails(false); openModal(); }}>Buy Membership</button>
               ) : (
