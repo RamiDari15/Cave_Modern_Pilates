@@ -1549,9 +1549,10 @@ function usePricingCatalog(store, memberships) {
   const groups = pricingStoreGroups(store, memberships);
 
   const membershipItems = sortMembershipItems(
-    catalog
+    (catalog
       ? filterPublicPricingItems(catalog.memberships || [])
-      : groups.memberships || []
+      : groups.memberships || [])
+      .filter((item) => membershipCommitmentMonths(item) !== 6)
   );
 
   return {

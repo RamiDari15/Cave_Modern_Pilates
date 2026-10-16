@@ -163,6 +163,15 @@ test("the public pricing route passes live agreement and billing fields through 
         RecurringPaymentAmountTotal: 139,
         TotalContractAmountTotal: 417
       },
+      {
+        ...monthlyContract,
+        Id: 102,
+        Name: "4 Class Membership-6 Months Contract",
+        NumberOfAutopays: 6,
+        FirstPaymentAmountTotal: 129,
+        RecurringPaymentAmountTotal: 129,
+        TotalContractAmountTotal: 774
+      },
       { ...monthlyContract, Id: 9002, SoldOnline: false }
     ] });
     throw new Error(`Unexpected upstream request ${url.pathname}`);
@@ -185,6 +194,7 @@ test("the public pricing route passes live agreement and billing fields through 
   assert.equal(res.statusCode, 200);
   const catalog = JSON.parse(output).catalog;
   assert.equal(catalog.memberships.length, 2);
+  assert.equal(catalog.memberships.some((item) => item.id === "102"), false);
   const unchanged = catalog.memberships.find((item) => item.id === "9001");
   assert.equal(unchanged.agreementTerms, monthlyContract.AgreementTerms);
   assert.equal(unchanged.billingPeriod, "month");

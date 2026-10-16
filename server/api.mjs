@@ -86,15 +86,14 @@ const PROMO_ELIGIBLE_CLASS_PACKS = new Set([
 
 const ADVERTISED_MEMBERSHIPS = Object.freeze({
   "101": { name: "4 Class Membership-3 Months Contract", price: "$119.00" },
-  "102": { name: "4 Class Membership-6 Months Contract", price: "$129.00" },
   "103": { name: "4 Class Membership-12 Months Contract", price: "$109.00" },
   "104": { name: "8 Class Membership-3 Months Contract", price: "$199.00" },
-  "105": { name: "8 Class Membership-6 Months Contract", price: "$225.00" },
   "106": { name: "8 Class Membership-12 Months Contract", price: "$189.00" },
   "113": { name: "Unlimited Membership-3 Months Contract", price: "$279.00" },
-  "114": { name: "Unlimited Membership-6 Months Contract", price: "$289.00" },
   "115": { name: "Unlimited Membership-12 Months Contract", price: "$259.00" }
 });
+
+const HIDDEN_MEMBERSHIP_CONTRACT_IDS = new Set(["102", "105", "114"]);
 
 
 function normalizePromoCode(value) {
@@ -2812,6 +2811,7 @@ const isSoldOnlineValue = (item) => {
       const contractItems = liveContracts
         .filter((item) => isSoldOnlineValue(item))
         .map(normalizeMindbodyContract)
+        .filter((item) => !HIDDEN_MEMBERSHIP_CONTRACT_IDS.has(item.id))
         .map((item) => {
           const advertised = ADVERTISED_MEMBERSHIPS[item.id] || advertisedMembershipsById.get(item.id);
           if (!advertised?.price) return item;
