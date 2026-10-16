@@ -252,7 +252,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
   });
 
   await t.test("a terminated membership cannot regain a guest benefit from leftover services", async () => {
-    membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Terminated", Remaining: 0, ExpirationDate: "2099-08-05" };
+    membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", TerminationDate: "2026-09-08T00:00:00", Remaining: 0, EndDate: "2099-08-05" };
     completeMemberships = [{ Id: 8, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-08-05" }];
     services = [
       { Id: 18, Name: "Unlimited Membership", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" },

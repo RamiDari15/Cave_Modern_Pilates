@@ -160,6 +160,30 @@ test("booking requests with a synthetic provider never create duplicate reservat
     assert.equal(result.body.code,"NO_GUEST_PASS");
     assert.equal(posts,0);
   });
+  await t.test("termination date without status removes membership and guest access but preserves paid drop-ins", async () => {
+    reset();
+    contracts = [{ Id: 20, ContractName: "Unlimited Members- 12 Month Contract", EndDate: "2099-08-05", TerminationDate: "2026-09-08T00:00:00" }];
+    completeMemberships = [{ Id: 20, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-08-05" }];
+    services = [
+      { Id: 10, Name: "Unlimited Membership", Remaining: 99999, ExpirationDate: "2099-08-05" },
+      { Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-08-05" }
+    ];
+    let info = await request(null, "/api/mindbody/client-info", "GET");
+    assert.equal(info.status, 200);
+    assert.deepEqual(info.body.data.activeMemberships, []);
+    assert.equal((await request({classId:77})).status, 402);
+    assert.equal((await request({classId:77, guest:{firstName:"Test",lastName:"Guest",email:"guest@example.invalid",mobilePhone:"3135550100"}}, "/api/mindbody/book-guest")).status, 402);
+    assert.equal(posts, 0);
+    services.push({ Id: 12, Name: "Drop in", Remaining: 1, ExpirationDate: "2099-12-31" });
+    assert.equal((await request({classId:77})).status, 200);
+    assert.equal(posts, 1);
+  });
+  await t.test("a future termination does not end today's membership early", async () => {
+    reset();
+    contracts = [{ Id: 20, ContractName: "Unlimited Membership - 12 Months", EndDate: "2099-12-31", TerminationDate: "2099-06-01T00:00:00" }];
+    const info = await request(null, "/api/mindbody/client-info", "GET");
+    assert.equal(info.body.data.activeMemberships.length, 1);
+  });
   await t.test("a guest pass never counts as a member class credit", async () => {
     reset();
     services = [{ Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-12-31" }];

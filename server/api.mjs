@@ -6246,8 +6246,13 @@ async function fetchClientCompleteInfo(clientId, session) {
       .toLowerCase();
 
   const today = currentDetroitDate();
-  const hasInactiveStatus = (item) =>
-    /expired|cancelled|canceled|terminated|inactive|suspended/.test(getStatus(item));
+  const hasInactiveStatus = (item) => {
+    const termination = String(item.TerminationDate || "").slice(0, 10);
+    // Mindbody ClientContract has TerminationDate even when Status is absent
+    // and EndDate still contains the original end of the commitment.
+    const terminated = /^\d{4}-\d{2}-\d{2}$/.test(termination) && termination <= today;
+    return terminated || /expired|cancelled|canceled|terminated|inactive|suspended/.test(getStatus(item));
+  };
   const hasExpiredDate = (item) => {
     const expiration = getExpiration(item);
     return Boolean(expiration && /^\d{4}-\d{2}-\d{2}$/.test(expiration) && expiration < today);
