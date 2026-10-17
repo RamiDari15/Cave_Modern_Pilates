@@ -23,7 +23,7 @@ syncBuiltinESMExports();
 const { handleApiRequest } = await import("../server/api.mjs");
 const originalFetch = globalThis.fetch;
 
-let decline = false, metaUnavailable = false, metaEvents = [], charges = 0;
+let decline = false, metaUnavailable = false, contractUnavailable = false, metaEvents = [], charges = 0;
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input);
   const body = options.body ? JSON.parse(options.body) : {};
@@ -43,7 +43,8 @@ globalThis.fetch = async (input, options = {}) => {
     return Response.json(decline ? { PaymentProcessingFailures: [{ Message: "Card declined" }] } : { GiftCardId: 1 });
   }
   if (url.pathname.endsWith("/sale/contracts")) {
-    return Response.json({ Contracts: [{ Id: 1, Name: "Synthetic Membership", RecurringPaymentAmountTotal: 100 }] });
+    if (contractUnavailable) throw new Error("Synthetic contract outage");
+    return Response.json({ Contracts: [{ Id: 1, Name: "Synthetic membership", RecurringPaymentAmountTotal: 100 }] });
   }
   if (url.pathname.endsWith("/sale/purchasecontract")) {
     charges++;
@@ -59,9 +60,9 @@ function cookie() {
   return `cave_session=${[iv, cipher.getAuthTag(), encrypted].map((part) => part.toString("base64url")).join(".")}`;
 }
 
-async function request(body, path = "/api/pricing/contracts/purchase", method = "POST") {
+async function request(body, path = "/api/pricing/contracts/purchase", method = "POST", extraHeaders = {}) {
   const req = Readable.from(body == null ? [] : [JSON.stringify(body)]);
-  Object.assign(req, { url: path, method, headers: { host: "localhost", origin: "http://localhost", cookie: cookie(), "content-type": "application/json" }, socket: { remoteAddress: "tracking-checkout-test" } });
+  Object.assign(req, { url: path, method, headers: { host: "localhost", origin: "http://localhost", cookie: cookie(), "content-type": "application/json", ...extraHeaders }, socket: { remoteAddress: "tracking-checkout-test" } });
   const headers = new Map(); let output = "";
   const res = { statusCode: 200, setHeader(k, v) { headers.set(k.toLowerCase(), v); }, getHeader(k) { return headers.get(k.toLowerCase()); }, end(value = "") { output += value; } };
   await handleApiRequest(req, res);
@@ -70,7 +71,7 @@ async function request(body, path = "/api/pricing/contracts/purchase", method = 
 
 
 const cartBody = { items: [{ id: "100006", kind: "service", name: "untrusted client name", price: "$25", quantity: 1 }], storedCardLastFour: "1234", trackingEventId: "checkout-123" };
-function reset() { decline = false; metaUnavailable = false; metaEvents = []; charges = 0; }
+function reset() { contractUnavailable = false; decline = false; metaUnavailable = false; metaEvents = []; charges = 0; }
 
 test("checkout integration with fake payment provider only", async (t) => {
   t.after(() => { globalThis.fetch = originalFetch; fs.existsSync = originalExistsSync; fs.readFileSync = originalReadFileSync; syncBuiltinESMExports(); });
@@ -120,6 +121,29 @@ test("checkout integration with fake payment provider only", async (t) => {
     const rejected = await request(body, "/api/gift-cards/purchase");
     assert.notEqual(rejected.status, 200);
     assert.equal(metaEvents.length, 0);
+  });
+  await t.test("unavailable current membership quote never charges or records purchase events", async () => {
+    reset(); contractUnavailable = true;
+    const result = await request({ contractId: 1, acceptTerms: true, storedCardLastFour: "1234" });
+    assert.equal(result.status, 409);
+    assert.equal(result.body.code, "MEMBERSHIP_PRICE_NOT_SYNCED");
+    assert.equal(charges, 0);
+    assert.equal(metaEvents.length, 0);
+  });
+  await t.test("app purchases do not send advertising data while payments still succeed", async () => {
+    for (const headers of [{ "x-cave-client": "app" }, { authorization: "Bearer legacy-app-session" }]) {
+      for (const [path, body] of [
+        ["/api/cart/checkout", cartBody],
+        ["/api/pricing/contracts/purchase", { contractId: 1, acceptTerms: true, storedCardLastFour: "1234" }],
+        ["/api/gift-cards/purchase", { giftCardId: 1, layoutId: 1, storedCardLastFour: "1234", recipientName: "Synthetic Recipient", recipientEmail: "recipient@example.invalid", deliveryDate: "2099-01-01" }]
+      ]) {
+        reset(); const result = await request(body, path, "POST", headers);
+        assert.equal(result.status, 200, JSON.stringify(result.body));
+        assert.equal(charges, 1);
+        assert.equal(metaEvents.length, 0);
+        assert.equal(result.body.tracking, null);
+      }
+    }
   });
   await t.test("membership records purchase and subscription only after success", async () => {
     reset(); const result = await request({ contractId: 1, acceptTerms: true, storedCardLastFour: "1234", trackingEventId: "membership-123" });

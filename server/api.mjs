@@ -7867,7 +7867,7 @@ function applyCorsHeaders(request, response) {
   response.setHeader("Access-Control-Allow-Origin", origin);
   response.setHeader("Access-Control-Allow-Credentials", "true");
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  response.setHeader("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type");
+  response.setHeader("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Cave-Client");
   appendVaryHeader(response, "Origin");
 }
 

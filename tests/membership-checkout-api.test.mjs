@@ -149,11 +149,9 @@ test("versioned membership checkout revalidates consent and provider quote befor
     assert.deepEqual(second.body.catalog, first.body.catalog); noCharge();
   });
 
-  await t.test("legacy website payload also refreshes the provider contract before purchase", async () => {
+  await t.test("legacy website payload rechecks the current contract before payment", async () => {
     reset(); const result = await request({ contractId: "9001", acceptTerms: true, storedCardLastFour: "1234" });
-    assert.equal(result.status, 200); assert.deepEqual(calls.map((call) => call.path), [
-      "/public/v6/sale/contracts", "/public/v6/sale/purchasecontract"
-    ]);
+    assert.equal(result.status, 200); assert.deepEqual(calls.map((call) => call.path), ["/public/v6/sale/contracts", "/public/v6/sale/purchasecontract"]);
   });
 
   await t.test("unknown checkout versions and raw card fields cannot bypass the app protocol", async () => {

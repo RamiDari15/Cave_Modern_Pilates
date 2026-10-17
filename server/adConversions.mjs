@@ -64,6 +64,8 @@ export function cleanSourceUrl(value) {
 }
 
 export function buildMetaEvent({ eventName, eventId, value, contentName, email, phone, externalId, request, now = Date.now() }) {
+  // Native app traffic must not be shared with advertising providers.
+  if (request?.headers?.["x-cave-client"] === "app" || /^Bearer\s/i.test(String(request?.headers?.authorization || ""))) return null;
   const context = requestContext(request);
   const userData = {
     em: email ? [hashForMeta(email)] : undefined,
@@ -164,7 +166,8 @@ export function cartPurchaseEvents({ items, total, eventId, email, externalId, r
 export async function recordConversion(buildEvents, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
   if (env.BOOKING_TEST_MODE === "true") return null;
   try {
-    const events = buildEvents();
+    const events = buildEvents().filter(Boolean);
+    if (!events.length) return null;
     await sendMetaEvents(events, { env, fetchImpl });
     return { events: events.map((event) => ({ name: event.event_name, id: event.event_id, data: event.custom_data })) };
   } catch {
