@@ -1,3 +1,4 @@
+import { deletionHandoff, deactivateStudioAccount } from "./accountDeletion.mjs";
 import { createBookingSingleFlight } from "./bookingGuard.mjs";
 import { isActiveClassBooking, isCancelledVisit } from "../src/bookingGuard.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
@@ -2201,26 +2202,33 @@ fullProfile.waiverDate =
     }
 
     if (path === "/api/account/delete") {
-      if (request.method !== "POST") {
-        response.setHeader("Allow", "POST");
-        sendJson(response, 405, { message: "Method not allowed. Use POST /api/account/delete." });
+      if (request.method === "POST") {
+        enforceRateLimit(request);
+        const session = readSession(request);
+        const body = await readJsonBody(request);
+        const result = await deactivateStudioAccount({
+          session,
+          confirmed: body.confirmDeactivation,
+          updateClient: async (payload) => {
+            const token = await getMindbodyActionToken("Cave account deactivation");
+            return bookingRequest("/client/updateclient", { method: "POST", token, body: payload });
+          }
+        });
+        if (result.status === 200) clearSessionCookie(response);
+        sendJson(response, result.status, result.body);
         return true;
       }
-
-      const session = await readHydratedSession(request, response);
-
-      if (!session) {
+      if (request.method !== "GET") {
+        response.setHeader("Allow", "GET, POST");
+        sendJson(response, 405, { ok: false, message: "Update the Cave app to open Mindbody account deletion. No deletion request was submitted." });
+        return true;
+      }
+      if (!readSession(request)) {
         sendJson(response, 401, { ok: false, message: "Please sign in first." });
         return true;
       }
-
-      const result = await deactivateMindbodyClientAccount(session);
-      clearSessionCookie(response);
-      sendJson(response, 200, {
-        ok: true,
-        message: "Your studio profile was deactivated.",
-        data: result
-      });
+      const result = deletionHandoff();
+      sendJson(response, result.status, result.body);
       return true;
     }
 
