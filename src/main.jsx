@@ -7,6 +7,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod, hasAvailableMonthlyGuestPass } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
+import { findIntroOffer, introButtonLabel, introHeadline, sortIntroOfferFirst } from "./introOffer";
 import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage, withoutOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
@@ -2153,8 +2154,9 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   const standardItems = category.key === "classPacks"
     ? withoutOctoberBuyThreeGetOnePackage(categoryItems)
     : categoryItems;
-  const items = [...(showOctoberOnly ? octoberItems : standardItems)].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
-  const introPack = items.find((item) => /3\s*class/i.test(item.name) && item.sellOnline !== false);
+  const listedItems = showOctoberOnly ? octoberItems : standardItems;
+  const items = category.key === "newbie" ? sortIntroOfferFirst(listedItems) : [...listedItems];
+  const introPack = category.key === "newbie" ? findIntroOffer(items) : null;
   const claimIntro = () => {
     if (!introPack || !cart) return;
     if (cart.items.some((item) => item.id === introPack.id)) cart.open();
@@ -2186,10 +2188,10 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   return (
     <>
       <section className={`pricing-category-heading section page-section ${category.key}`}>
-        <h1>{showOctoberOnly ? "Buy 3, Get 1 Free" : category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
+        <h1>{showOctoberOnly ? "Buy 3, Get 1 Free" : category.key === "newbie" ? introHeadline(introPack) || category.title : category.title}</h1>
         {showOctoberOnly ? <a className="october-offer-all-link" href={ROUTES.classPacks}>See all class packs</a> : null}
         {category.key === "memberships" ? <MembershipPerks /> : null}
-        {category.key === "newbie" ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(introPack && cart)} /> : null}
+        {category.key === "newbie" ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(introPack && cart)} offer={introPack} /> : null}
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
@@ -2219,7 +2221,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
 
       {category.key === "newbie" ? <>
         <NewbieWhatToExpect />
-        {introPack && cart && !cart.isOpen ? <button className="pill-button black newbie-sticky-cta" onClick={claimIntro}>Claim my intro · {compactPrice(introPack.price)}</button> : null}
+        {introPack && cart && !cart.isOpen ? <button className="pill-button black newbie-sticky-cta" onClick={claimIntro}>{introButtonLabel(introPack)} · {compactPrice(introPack.price)}</button> : null}
       </> : null}
 
       {cart && totalQty > 0 ? (
@@ -2236,16 +2238,11 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
   );
 }
 
-function newbieHeadline(items) {
-  const pack = items.find((item) => /\b3\s*class/i.test(String(item.name || "")) && item.price);
-  return pack ? `3 reformer classes for ${compactPrice(pack.price)}` : "";
-}
-
-function NewbieIntroLead({ onClaim, available }) {
+function NewbieIntroLead({ onClaim, available, offer }) {
   return (
     <div className="newbie-intro-lead">
       <p>New clients only. Women's reformer Pilates at Orland Square. No experience needed: your instructor sets up your reformer and guides every move.</p>
-      <button className="pill-button black newbie-intro-cta" type="button" onClick={onClaim} disabled={!available}>Claim my intro</button>
+      <button className="pill-button black newbie-intro-cta" type="button" onClick={onClaim} disabled={!available}>{introButtonLabel(offer)}</button>
     </div>
   );
 }
