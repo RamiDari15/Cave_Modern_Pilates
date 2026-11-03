@@ -1,7 +1,7 @@
 import { createBookingGuard } from "./bookingGuard";
 import React, { useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
 import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
@@ -33,6 +33,10 @@ import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
 import stretchLabPartnerLogo from "../assets/local-partner-stretchlab.png";
 import qahwaPartnerLogo from "../assets/local-partner-the-qahwa.png";
 import houseOfLalaPartnerLogo from "../assets/local-partner-house-of-lala.png";
+import reformerCarriageImage from "../assets/reformer-carriage.jpg";
+import reformerBalancePoleImage from "../assets/reformer-balance-pole.jpg";
+import reformerCaveStrapsImage from "../assets/reformer-cave-straps.jpg";
+import reformerGreyStrapsImage from "../assets/reformer-grey-straps.jpg";
 import "./styles.css";
 
 const ROUTES = {
@@ -46,6 +50,7 @@ const ROUTES = {
   about: "/about",
   contact: "/contact",
   faq: "/faq",
+  meetYourReformer: "/meet-your-reformer",
   login: "/login",
   signup: "/signup",
   sms: "/sms",
@@ -56,6 +61,13 @@ const ROUTES = {
 
 const NAV_ITEMS = [
   { label: "Home", href: ROUTES.home, page: "home" },
+  {
+    label: "The Cave Method",
+    page: "cave-method",
+    children: [
+      { label: "Meet your reformer", href: ROUTES.meetYourReformer, page: "meet-your-reformer" }
+    ]
+  },
   { label: "Pricing", href: ROUTES.pricing, page: "pricing" },
   { label: "Schedule", href: ROUTES.schedule, page: "schedule" },
   { label: "About Us", href: ROUTES.about, page: "about" },
@@ -82,6 +94,7 @@ const PAGE_TITLES = {
   about: "Women's Pilates Studio in Orland Park | Cave Modern Pilates",
   contact: "Contact Our Orland Park Pilates Studio | Cave Modern Pilates",
   faq: "Pilates Membership & Booking FAQ | Cave Modern Pilates",
+  "meet-your-reformer": "Meet Your Reformer | The Cave Method | Cave Modern Pilates",
   login: "Login | Cave Modern Pilates",
   signup: "Sign Up | Cave Modern Pilates",
   sms: "Cave Text Updates | Cave Modern Pilates",
@@ -101,6 +114,7 @@ const PAGE_DESCRIPTIONS = {
   about: "Meet Cave Modern Pilates, a women-focused Pilates studio in Orland Park created to build strength, confidence, and community through movement.",
   contact: "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions.",
   faq: "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies.",
+  "meet-your-reformer": "Get to know the Cave reformer before your first class: the carriage, platforms, handle bars, balance pole, straps, and the pit, explained part by part.",
   login: "Sign in to your Cave Modern Pilates account.",
   signup: "Create your Cave Modern Pilates client account and complete the first-class liability waiver.",
   sms: "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers.",
@@ -133,7 +147,8 @@ const CAVE_UPDATES_NUDGE_PAGES = new Set([
   "schedule",
   "about",
   "contact",
-  "faq"
+  "faq",
+  "meet-your-reformer"
 ]);
 const PRICING_CATEGORIES = [
   {
@@ -481,7 +496,7 @@ function getPageFromPath() {
     return "newbie";
   }
 
-  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
+  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -1053,9 +1068,13 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
         <nav className="desktop-nav" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => (
-            <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
-              {item.label}
-            </a>
+            item.children ? (
+              <DesktopNavGroup key={item.page} item={item} activePage={activePage} />
+            ) : (
+              <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
+                {item.label}
+              </a>
+            )
           ))}
         </nav>
 
@@ -1082,9 +1101,13 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
       <div className={`mobile-menu${menuOpen ? " is-open" : ""}`} id="mobile-menu" aria-hidden={!menuOpen} hidden={!menuOpen}>
         <nav aria-label="Mobile navigation">
           {NAV_ITEMS.map((item) => (
-            <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
-              {item.label}
-            </a>
+            item.children ? (
+              <MobileNavGroup key={item.page} item={item} activePage={activePage} onCloseMenu={onCloseMenu} />
+            ) : (
+              <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
+                {item.label}
+              </a>
+            )
           ))}
         </nav>
         <a className="mobile-book" href={accountHref} onClick={onCloseMenu}>
@@ -1092,6 +1115,94 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
         </a>
       </div>
     </>
+  );
+}
+
+function isNavGroupActive(item, activePage) {
+  return item.children.some((child) => child.page === activePage);
+}
+
+function DesktopNavGroup({ item, activePage }) {
+  const [open, setOpen] = useState(false);
+  const groupRef = useRef(null);
+  const menuId = useId();
+  const isActive = isNavGroupActive(item, activePage);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointer = (event) => {
+      if (groupRef.current && !groupRef.current.contains(event.target)) setOpen(false);
+    };
+    const handleKey = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        groupRef.current?.querySelector("button")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", handlePointer);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointer);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={groupRef}
+      className={`nav-group${open ? " is-open" : ""}${isActive ? " is-active" : ""}`}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        className="nav-group-toggle"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {item.label}
+        <ChevronDown aria-hidden="true" size={15} strokeWidth={2} />
+      </button>
+      <div className="nav-group-menu" id={menuId} hidden={!open}>
+        {item.children.map((child) => (
+          <a key={child.page} href={child.href} aria-current={activePage === child.page ? "page" : undefined}>
+            {child.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MobileNavGroup({ item, activePage, onCloseMenu }) {
+  const isActive = isNavGroupActive(item, activePage);
+  const [open, setOpen] = useState(isActive);
+  const menuId = useId();
+
+  return (
+    <div className={`mobile-nav-group${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="mobile-nav-group-toggle"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>{item.label}</span>
+        <ChevronDown aria-hidden="true" size={22} strokeWidth={1.7} />
+      </button>
+      <div className="mobile-nav-group-links" id={menuId} hidden={!open}>
+        {item.children.map((child) => (
+          <a key={child.page} href={child.href} aria-current={activePage === child.page ? "page" : undefined} onClick={onCloseMenu}>
+            {child.label}
+          </a>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1121,6 +1232,10 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
 
   if (page === "faq") {
     return <FaqPage />;
+  }
+
+  if (page === "meet-your-reformer") {
+    return <MeetYourReformerPage />;
   }
 
   if (page === "login") {
@@ -3228,6 +3343,146 @@ function AboutPage() {
             </p>
           </div>
           <p className="about-welcome">No matter what season you're in, there's a place for you at Cave.</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+const REFORMER_STATIONS = [
+  {
+    key: "front",
+    eyebrow: "01 · Front of the reformer",
+    title: "Where you start.",
+    image: reformerCarriageImage,
+    alt: "Cave reformer from the front, labeled: the carriage, the handle bars, and the front platform.",
+    parts: [
+      {
+        name: "The Carriage",
+        text: "The moving part of the reformer that glides back and forth, with numbered lines to guide your body positioning and straps on each side for support."
+      },
+      {
+        name: "Handle Bars",
+        text: "The two padded bars at the front. Hold them for stability as you step on and off, and during standing and kneeling work."
+      },
+      {
+        name: "Front Platform",
+        text: "The padded platform that stays still at the front of the machine. You will stand, kneel, and lunge from here while the carriage moves beneath you."
+      }
+    ]
+  },
+  {
+    key: "support",
+    eyebrow: "02 · Support and resistance",
+    title: "What keeps you steady.",
+    image: reformerBalancePoleImage,
+    alt: "Cave reformer with the balance pole beside it, labeled: balance pole, bungee strap, and water bottle holder.",
+    parts: [
+      {
+        name: "Balance Pole",
+        text: "The tall pole beside your reformer. Rest a hand on it for balance during standing and single-leg exercises."
+      },
+      {
+        name: "Bungee Strap",
+        text: "The cord clipped to the handle bar. It adds extra resistance for arm and leg work when your instructor calls for it."
+      },
+      {
+        name: "Water Bottle Holder",
+        text: "Mounted at the front of the machine so your water stays within reach for the whole class."
+      }
+    ]
+  },
+  {
+    key: "carriage",
+    eyebrow: "03 · On the carriage",
+    title: "Your tools for the work.",
+    image: reformerCaveStrapsImage,
+    alt: "Close-up of the carriage, labeled: the Cave straps and the pit, a tray of dumbbells and a small ball.",
+    parts: [
+      {
+        name: "The Cave Straps",
+        text: "The padded black straps along the sides of the carriage. Slip your hands or feet in to stay secure while you press and pull."
+      },
+      {
+        name: "The Pit",
+        text: "Where your props live: dumbbells and a small ball, ready to grab when the workout calls for them."
+      }
+    ]
+  },
+  {
+    key: "back",
+    eyebrow: "04 · Back of the reformer",
+    title: "Where you finish.",
+    image: reformerGreyStrapsImage,
+    alt: "Back corner of the reformer, labeled: the back platform and the grey Cave straps hanging from the back post.",
+    parts: [
+      {
+        name: "Back Platform",
+        text: "The padded platform that stays still at the back of the machine, used for standing, kneeling, and seated work."
+      },
+      {
+        name: "The Grey Straps",
+        text: "The grey Cave straps that hang from the back posts. They connect to the resistance cables for pulling work with your arms or legs."
+      }
+    ]
+  }
+];
+
+function MeetYourReformerPage() {
+  return (
+    <div className="reformer-page">
+      <section className="reformer-hero" aria-labelledby="reformer-title">
+        <div className="reformer-hero-copy">
+          <p className="reformer-kicker">The Cave Method</p>
+          <h1 id="reformer-title">
+            <span>Get to know your</span>
+            Reformer
+          </h1>
+          <p>
+            Every Cave class is built on one machine. Here is every part of it, so you can walk in
+            on day one knowing exactly where to step, what to hold, and what each strap is for.
+          </p>
+        </div>
+      </section>
+
+      <nav className="reformer-index" aria-label="Parts of the reformer">
+        {REFORMER_STATIONS.flatMap((station) => station.parts).map((part) => (
+          <a key={part.name} href={`#reformer-${part.name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+            {part.name}
+          </a>
+        ))}
+      </nav>
+
+      {REFORMER_STATIONS.map((station, index) => (
+        <section
+          key={station.key}
+          className={`reformer-station${index % 2 ? " is-reversed" : ""}`}
+          aria-labelledby={`reformer-station-${station.key}`}
+        >
+          <figure className="reformer-station-image">
+            <img src={station.image} alt={station.alt} width="1080" height="1350" loading={index ? "lazy" : "eager"} />
+          </figure>
+          <div className="reformer-station-copy">
+            <p className="reformer-kicker">{station.eyebrow}</p>
+            <h2 id={`reformer-station-${station.key}`}>{station.title}</h2>
+            <dl className="reformer-parts">
+              {station.parts.map((part) => (
+                <div key={part.name} id={`reformer-${part.name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+                  <dt>{part.name}</dt>
+                  <dd>{part.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+      ))}
+
+      <section className="reformer-cta">
+        <h2>Ready to meet it in person?</h2>
+        <p>Arrive 10 minutes early for your first class and your instructor will help you get comfortable on the reformer.</p>
+        <div className="reformer-cta-actions">
+          <a className="reformer-cta-primary" href={ROUTES.newbie}>See the new client offer</a>
+          <a className="reformer-cta-secondary" href={ROUTES.schedule}>View the schedule</a>
         </div>
       </section>
     </div>
