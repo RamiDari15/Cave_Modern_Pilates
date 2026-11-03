@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { handleApiRequest } from "./server/api.mjs";
 
-const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies", "front-desk"];
+const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "login", "signup", "sms", "account", "terms", "policies", "front-desk"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
 const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
 const siteUrl = "https://www.cavemodernpilates.com";
@@ -19,6 +19,7 @@ const seoPages = {
   about: ["Women's Pilates Studio in Orland Park | Cave Modern Pilates", "Meet Cave Modern Pilates, a women-focused Pilates studio in Orland Park created to build strength, confidence, and community through movement."],
   contact: ["Contact Our Orland Park Pilates Studio | Cave Modern Pilates", "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions."],
   faq: ["Pilates Membership & Booking FAQ | Cave Modern Pilates", "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies."],
+  "meet-your-reformer": ["Meet Your Reformer | The Cave Method | Cave Modern Pilates", "Get to know the Cave reformer before your first class: the carriage, platforms, handle bars, balance pole, straps, and the pit, explained part by part."],
   login: ["Login | Cave Modern Pilates", "Sign in to your Cave Modern Pilates account."],
   signup: ["Sign Up | Cave Modern Pilates", "Create your Cave Modern Pilates client account and complete the first-class liability waiver."],
   sms: ["Cave Text Updates | Cave Modern Pilates", "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers."],
