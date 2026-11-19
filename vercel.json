@@ -13,6 +13,15 @@
   ],
   "headers": [
     {
+      "source": "/leaderboard(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    },
+    {
       "source": "/front-desk(.*)",
       "headers": [
         {

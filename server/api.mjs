@@ -11,6 +11,7 @@ import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "..
 import { cartPurchaseEvents, buildMetaEvent, recordConversion } from "./adConversions.mjs";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 import { handleFrontDeskRequest } from "./frontDesk.mjs";
+import { handleLeaderboardRequest } from "./leaderboard.mjs";
 
 function confirmedPurchaseTotal(result) {
   const candidate = result?.ShoppingCart?.GrandTotal ?? result?.GrandTotal;
@@ -357,6 +358,10 @@ export async function handleApiRequest(request, response) {
 
     if (path === "/api/gift-cards/purchase") {
       enforceGiftCardRateLimit(request);
+    }
+
+    if (path === "/api/leaderboard" && await handleLeaderboardRequest(request, response, url, frontDeskDependencies())) {
+      return true;
     }
 
     if (path.startsWith("/api/front-desk/") && await handleFrontDeskRequest(request, response, url, frontDeskDependencies())) {

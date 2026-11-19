@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { handleApiRequest } from "./server/api.mjs";
 
-const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "login", "signup", "sms", "account", "terms", "policies", "front-desk"];
+const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "login", "signup", "sms", "account", "terms", "policies", "front-desk", "leaderboard"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
 const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
 const siteUrl = "https://www.cavemodernpilates.com";
@@ -26,6 +26,7 @@ const seoPages = {
   account: ["Account | Cave Modern Pilates", "View your Cave Modern Pilates account, bookings, credits, and memberships."],
   terms: ["Terms of Service | Cave Modern Pilates", "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions."],
   "front-desk": ["Front Desk | Cave Modern Pilates", "Cave Modern Pilates staff front desk."],
+  leaderboard: ["Class Challenge Leaderboard | Cave Modern Pilates", "Cave Modern Pilates class challenge leaderboard."],
   policies: ["Studio Policies | Cave Modern Pilates", "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."]
 };
 
@@ -49,7 +50,7 @@ function studioServerPlugin() {
       const [title, description] = seoPages[page] || seoPages.index;
       const path = page === "index" ? "/" : `/${page}`;
       const canonical = `${siteUrl}${path}`;
-      const isPrivate = ["login", "signup", "sms", "account", "front-desk"].includes(page);
+      const isPrivate = ["login", "signup", "sms", "account", "front-desk", "leaderboard"].includes(page);
       const graph = [
           {
             "@type": ["HealthClub", "SportsActivityLocation", "LocalBusiness"],
