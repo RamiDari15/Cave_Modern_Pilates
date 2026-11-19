@@ -25,8 +25,8 @@ const seoPages = {
   account: ["Account | Cave Modern Pilates", "View your Cave Modern Pilates account, bookings, credits, and memberships."],
   terms: ["Terms of Service | Cave Modern Pilates", "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions."],
   "front-desk": ["Front Desk | Cave Modern Pilates", "Cave Modern Pilates staff front desk."],
-  challenge: ["The Cave Challenge Leaderboard | Cave Modern Pilates", "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
-  leaderboard: ["The Cave Challenge Leaderboard | Cave Modern Pilates", "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
+  challenge: ["The Cave Countdown Leaderboard | Cave Modern Pilates", "The Cave Countdown: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
+  leaderboard: ["The Cave Countdown Leaderboard | Cave Modern Pilates", "The Cave Countdown: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
   policies: ["Studio Policies | Cave Modern Pilates", "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."]
 };
 

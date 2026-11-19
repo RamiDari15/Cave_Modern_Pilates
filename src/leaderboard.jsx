@@ -426,7 +426,7 @@ export function ChallengePage() {
       {showBoard && phase === "final" && <Confetti />}
 
       <section className="lb-hero">
-        <h1>{phase === "final" ? "Final standings" : "The Cave Challenge"}</h1>
+        <h1>{phase === "final" ? "Final standings" : "The Cave Countdown"}</h1>
       </section>
 
       <div className="lb-panel">
