@@ -91,7 +91,7 @@ const PAGE_TITLES = {
   "class-types": "Class Types | Cave Modern Pilates",
   "prenatal-postnatal": "Prenatal & Postnatal | Cave Modern Pilates",
   "meet-your-reformer": "The Cave Method — Meet Your Reformer | Cave Modern Pilates",
-  challenge: "The Cave Countdown Leaderboard | Cave Modern Pilates",
+  challenge: "The Cave Countdown | Cave Modern Pilates",
   home: "Women's Reformer Pilates in Orland Park | Cave Modern Pilates",
   pricing: "Pilates Pricing in Orland Park | Cave Modern Pilates",
   newbie: "New Client Pilates Offer in Orland Park | Cave Modern Pilates",

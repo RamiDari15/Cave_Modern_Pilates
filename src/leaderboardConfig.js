@@ -1,11 +1,11 @@
-// Cave class leaderboard: one point for every class a client takes. Dates are
+// Cave challenges use completed attendance and daily-capped member points. Dates are
 // studio time (America/Chicago), both days included.
 //
 // Until the challenge starts the page shows a countdown. At midnight on
 // startDate it switches to the live board on its own, everyone starting at
 // zero, and only classes from startDate through endDate count.
 export const LEADERBOARD = {
-  title: "Cave Class Challenge",
+  title: "Cave Member Leaderboard",
   startDate: "2026-12-06",
   endDate: "2026-12-20"
 };
