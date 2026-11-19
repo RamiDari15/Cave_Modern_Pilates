@@ -38,6 +38,7 @@ import reformerBalancePoleImage from "../assets/reformer-balance-pole.jpg";
 import reformerCaveStrapsImage from "../assets/reformer-cave-straps.jpg";
 import reformerGreyStrapsImage from "../assets/reformer-grey-straps.jpg";
 import "./styles.css";
+import { ChallengePage } from "./leaderboard.jsx";
 
 const ROUTES = {
   home: "/",
@@ -51,6 +52,7 @@ const ROUTES = {
   contact: "/contact",
   faq: "/faq",
   meetYourReformer: "/meet-your-reformer",
+  challenge: "/challenge",
   login: "/login",
   signup: "/signup",
   sms: "/sms",
@@ -70,6 +72,7 @@ const NAV_ITEMS = [
   },
   { label: "Pricing", href: ROUTES.pricing, page: "pricing" },
   { label: "Schedule", href: ROUTES.schedule, page: "schedule" },
+  { label: "Challenge", href: ROUTES.challenge, page: "challenge" },
   { label: "About Us", href: ROUTES.about, page: "about" },
   { label: "Contact Us", href: ROUTES.contact, page: "contact" },
   { label: "FAQ", href: ROUTES.faq, page: "faq" }
@@ -95,6 +98,7 @@ const PAGE_TITLES = {
   contact: "Contact Our Orland Park Pilates Studio | Cave Modern Pilates",
   faq: "Pilates Membership & Booking FAQ | Cave Modern Pilates",
   "meet-your-reformer": "Meet Your Reformer | The Cave Method | Cave Modern Pilates",
+  challenge: "The Cave Challenge Leaderboard | Cave Modern Pilates",
   login: "Login | Cave Modern Pilates",
   signup: "Sign Up | Cave Modern Pilates",
   sms: "Cave Text Updates | Cave Modern Pilates",
@@ -115,6 +119,7 @@ const PAGE_DESCRIPTIONS = {
   contact: "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions.",
   faq: "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies.",
   "meet-your-reformer": "Get to know the Cave reformer before your first class: the carriage, platforms, handle bars, balance pole, straps, and the pit, explained part by part.",
+  challenge: "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point.",
   login: "Sign in to your Cave Modern Pilates account.",
   signup: "Create your Cave Modern Pilates client account and complete the first-class liability waiver.",
   sms: "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers.",
@@ -496,7 +501,11 @@ function getPageFromPath() {
     return "newbie";
   }
 
-  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
+  if (name === "leaderboard") {
+    return "challenge";
+  }
+
+  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "challenge", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -1236,6 +1245,10 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
 
   if (page === "meet-your-reformer") {
     return <MeetYourReformerPage />;
+  }
+
+  if (page === "challenge") {
+    return <ChallengePage />;
   }
 
   if (page === "login") {
