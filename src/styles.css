@@ -114,6 +114,41 @@ svg {
   font-weight: 800;
 }
 
+.desktop-nav > a,
+.desktop-nav .nav-group-toggle {
+  white-space: nowrap;
+}
+
+@media (max-width: 1440px) {
+  .site-header {
+    gap: 22px;
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+
+  .desktop-nav {
+    gap: 20px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 1280px) {
+  .site-header {
+    gap: 16px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .desktop-nav {
+    gap: 15px;
+    font-size: 0.86rem;
+  }
+
+  .nav-actions {
+    gap: 10px;
+  }
+}
+
 .nav-actions {
   display: inline-flex;
   justify-self: end;
@@ -348,7 +383,8 @@ svg {
 .page-signup,
 .page-account,
 .page-terms,
-.page-policies {
+.page-policies,
+.page-challenge {
   background:
     radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.08), transparent 24%),
     radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.06), transparent 26%),
@@ -377,7 +413,9 @@ body.interior:has(.page-policies),
 .app-shell.interior:has(.page-signup),
 .app-shell.interior:has(.page-account),
 .app-shell.interior:has(.page-terms),
-.app-shell.interior:has(.page-policies) {
+.app-shell.interior:has(.page-policies),
+body.interior:has(.page-challenge),
+.app-shell.interior:has(.page-challenge) {
   background:
     radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.08), transparent 24%),
     radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.06), transparent 26%),

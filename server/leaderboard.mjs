@@ -4,7 +4,8 @@ import { LEADERBOARD, leaderboardName } from "../src/leaderboardConfig.js";
 import { studioLocalNow } from "./frontDesk.mjs";
 
 // Public class leaderboard (/leaderboard). One point per class a client takes
-// inside the challenge window. Counts come from Mindbody class rosters
+// during the challenge. Before the start date there is nothing to count (the
+// page shows a countdown); at midnight on the start date everyone begins at zero. Counts come from Mindbody class rosters
 // (/class/classvisits) for classes that have finished, using the same rule as
 // the front desk page: a visit counts unless it was cancelled, late-cancelled,
 // or marked missed. Only first name + last initial ever leave the server.
@@ -19,6 +20,7 @@ const PAST_ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
 const RESULT_TTL_MS = 4 * 60 * 1000;
 const MAX_LEADERS = 250;
+const PREVIEW_DAYS = 14;
 
 const rosterCache = new Map();
 const profileCache = new Map();
@@ -41,7 +43,7 @@ export async function handleLeaderboardRequest(request, response, url, deps) {
   }
 
   try {
-    const result = await leaderboardSnapshot(deps);
+    const result = await leaderboardSnapshot(deps, url.searchParams.get("preview") === "1");
     const edgeSeconds = result.status === "final" ? 3600 : 240;
     sendLeaderboardJson(response, 200, result, `public, max-age=0, s-maxage=${edgeSeconds}, stale-while-revalidate=600`);
   } catch (error) {
@@ -65,11 +67,27 @@ export function leaderboardStatus(now) {
   return "live";
 }
 
+// The dates whose classes count. The "preview" phase is a dress rehearsal for
+// before launch: the real board, scored on the last two weeks of real classes.
+export function leaderboardWindow(status, now = "") {
+  if (status === "preview") return { from: addDays(now.slice(0, 10), -(PREVIEW_DAYS - 1)), to: now.slice(0, 10) };
+  return { from: LEADERBOARD.startDate, to: LEADERBOARD.endDate };
+}
+
+function addDays(isoDate, days) {
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function baseResult(now, status) {
+  const window = leaderboardWindow(status, now);
   return {
     title: LEADERBOARD.title,
     startDate: LEADERBOARD.startDate,
     endDate: LEADERBOARD.endDate,
+    windowFrom: window.from,
+    windowTo: window.to,
     status,
     studioNow: now,
     updatedAt: new Date().toISOString(),
@@ -80,25 +98,27 @@ function baseResult(now, status) {
   };
 }
 
-async function leaderboardSnapshot(deps) {
+async function leaderboardSnapshot(deps, preview = false) {
   const now = deps.studioNow ? deps.studioNow() : studioLocalNow();
-  const status = leaderboardStatus(now);
+  const phase = leaderboardStatus(now);
+  const status = phase === "upcoming" && preview ? "preview" : phase;
 
-  // The board resets on the start date: before it there is nothing to count.
   if (status === "upcoming") return baseResult(now, status);
 
-  if (resultCache && resultCache.expiresAt > Date.now()) return resultCache.value;
-  if (!inFlight) {
-    inFlight = buildLeaderboard(now, status, deps)
+  // A cached result from another phase is never reused.
+  if (resultCache && resultCache.status === status && resultCache.expiresAt > Date.now()) return resultCache.value;
+  if (!inFlight || inFlight.status !== status) {
+    const promise = buildLeaderboard(now, status, deps)
       .then((value) => {
-        resultCache = { value, expiresAt: Date.now() + (status === "final" ? PAST_ROSTER_TTL_MS : RESULT_TTL_MS) };
+        resultCache = { status, value, expiresAt: Date.now() + (status === "final" ? PAST_ROSTER_TTL_MS : RESULT_TTL_MS) };
         return value;
       })
       .finally(() => {
-        inFlight = null;
+        if (inFlight?.promise === promise) inFlight = null;
       });
+    inFlight = { status, promise };
   }
-  return inFlight;
+  return inFlight.promise;
 }
 
 async function mapLimit(items, limit, worker) {
@@ -214,13 +234,14 @@ export function rankLeaders(classesTaken, names) {
 async function buildLeaderboard(now, status, deps) {
   const token = await deps.getMindbodyActionToken("Class leaderboard");
   const today = now.slice(0, 10);
-  const lastDay = today < LEADERBOARD.endDate ? today : LEADERBOARD.endDate;
+  const window = leaderboardWindow(status, now);
+  const lastDay = today < window.to ? today : window.to;
 
   const rawClasses = await pagedList(
     deps,
     "/class/classes",
     {
-      "request.startDateTime": `${LEADERBOARD.startDate}T00:00:00`,
+      "request.startDateTime": `${window.from}T00:00:00`,
       "request.endDateTime": `${lastDay}T23:59:59`,
       "request.hideCanceledClasses": "true"
     },
@@ -237,7 +258,7 @@ async function buildLeaderboard(now, status, deps) {
       start: localTimestamp(item.StartDateTime),
       end: localTimestamp(item.EndDateTime || item.StartDateTime)
     }))
-    .filter((item) => item.start >= `${LEADERBOARD.startDate}T00:00:00` && item.start <= `${LEADERBOARD.endDate}T23:59:59` && item.end && item.end <= now);
+    .filter((item) => item.start >= `${window.from}T00:00:00` && item.start <= `${window.to}T23:59:59` && item.end && item.end <= now);
 
   const uniqueClasses = [...new Map(finished.map((item) => [item.classId, item])).values()];
   const rosters = await mapLimit(uniqueClasses, MINDBODY_CONCURRENCY, (item) => classRoster(item, today, token, deps));

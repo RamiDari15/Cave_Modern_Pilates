@@ -1,55 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
 import { LEADERBOARD } from "./leaderboardConfig.js";
 import "./leaderboard.css";
 
 const REFRESH_MS = 5 * 60 * 1000;
-const SAMPLE_TICK_MS = 4200;
 const STUDIO_TIME_ZONE = "America/Chicago";
 
-const SAMPLE_NAMES = [
-  "Layla M.", "Sofia R.", "Nour A.", "Emma K.", "Maya S.", "Hana B.", "Olivia T.", "Yasmin D.",
-  "Ava P.", "Rania H.", "Chloe W.", "Lina F.", "Grace L.", "Dina Z.", "Mia C.", "Sara J.",
-  "Zoe G.", "Reem Q.", "Ella N.", "Jana O."
-];
-const SAMPLE_COUNTS = [14, 13, 11, 10, 10, 9, 8, 8, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1];
-
-function sampleBoard() {
-  const leaders = SAMPLE_NAMES.map((name, index) => ({ key: `sample-${index}`, name, classes: SAMPLE_COUNTS[index], position: index + 1 }));
-  return withTotals({
-    title: LEADERBOARD.title,
-    startDate: LEADERBOARD.startDate,
-    endDate: LEADERBOARD.endDate,
-    status: "live",
-    sample: true,
-    updatedAt: new Date().toISOString(),
-    classesHeld: 96,
-    leaders
-  });
-}
-
-function withTotals(board) {
-  return {
-    ...board,
-    participants: board.leaders.length,
-    totalClasses: board.leaders.reduce((sum, row) => sum + row.classes, 0)
-  };
-}
-
-// Sample mode adds a class to someone every few seconds so the motion can be seen.
-function sampleTick(board) {
-  const leaders = board.leaders.map((row) => ({ ...row }));
-  const weights = leaders.map((_, index) => 1 / (index + 2));
-  let pick = Math.random() * weights.reduce((a, b) => a + b, 0);
-  let index = 0;
-  while (pick > weights[index] && index < leaders.length - 1) pick -= weights[index++];
-  leaders[index].classes += 1;
-  leaders[index].bumpedAt = Date.now();
-  leaders.sort((a, b) => b.classes - a.classes || (a.bumpedAt || 0) - (b.bumpedAt || 0));
-  return withTotals({ ...board, classesHeld: board.classesHeld + 1, updatedAt: new Date().toISOString(), leaders: leaders.map((row, i) => ({ ...row, position: i + 1 })) });
-}
-
-// Milliseconds from now until midnight (Chicago) of the given date.
 function studioMidnightMs(isoDate) {
   const guess = new Date(`${isoDate}T06:00:00Z`).getTime();
   const parts = Object.fromEntries(
@@ -289,12 +244,12 @@ function RankList({ leaders, topCount, bumps }) {
   );
 }
 
-function Stats({ board, now }) {
+function Stats({ board, now, phase }) {
   const daysLeft = Math.max(0, Math.ceil((END_MS - Math.max(now, START_MS)) / 86_400_000));
   const items = [
     ["Classes taken", board.totalClasses],
     ["On the board", board.participants],
-    board.status === "final" ? ["Classes held", board.classesHeld] : ["Days left", daysLeft]
+    phase === "live" ? ["Days left", daysLeft] : ["Classes held", board.classesHeld]
   ];
   return (
     <dl className="lb-stats">
@@ -341,47 +296,69 @@ function Confetti() {
   );
 }
 
-function StatusPill({ status, sample }) {
-  if (sample) return <span className="lb-pill is-sample">Sample data</span>;
+function readPreviewFlag() {
+  try {
+    return new URLSearchParams(window.location.search).get("preview") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function phaseAt(time) {
+  if (time < START_MS) return "upcoming";
+  if (time >= END_MS) return "final";
+  return "live";
+}
+
+function StatusPill({ status }) {
   if (status === "live")
     return (
       <span className="lb-pill is-live">
         <i /> Live
       </span>
     );
+  if (status === "preview") return <span className="lb-pill is-preview">Preview</span>;
   if (status === "final") return <span className="lb-pill is-final">Final standings</span>;
   return <span className="lb-pill">Starts {new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>;
 }
 
-function readSampleFlag() {
-  try {
-    return new URLSearchParams(window.location.search).has("preview");
-  } catch {
-    return false;
-  }
+function Rules() {
+  const startLabel = new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return (
+    <ul className="lb-rules">
+      <li>
+        <strong>1 class = 1 point.</strong> Every Cave class you take from {formatRange()} counts.
+      </li>
+      <li>
+        <strong>Fresh start.</strong> Everyone begins at zero at midnight on {startLabel}.
+      </li>
+      <li>
+        <strong>Top three take the podium.</strong> Gold, silver and bronze.
+      </li>
+    </ul>
+  );
 }
 
-function setSampleFlag(on) {
-  const url = new URL(window.location.href);
-  if (on) url.searchParams.set("preview", "1");
-  else url.searchParams.delete("preview");
-  window.history.replaceState(null, "", url);
-}
-
-function App() {
-  const now = useNow(30_000);
-  const [sample, setSample] = useState(readSampleFlag);
-  const [live, setLive] = useState(null);
-  const [demo, setDemo] = useState(() => (readSampleFlag() ? sampleBoard() : null));
+// The Challenge page: a countdown until the start date, then (on its own, at
+// midnight) the live leaderboard. /challenge?preview=1 shows the live board
+// before launch, scored on the last two weeks of real classes.
+export function ChallengePage() {
+  const now = useNow(1000);
+  const [preview] = useState(readPreviewFlag);
+  const phase = preview && phaseAt(now) === "upcoming" ? "preview" : phaseAt(now);
+  const [board, setBoard] = useState(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(!readSampleFlag());
+  const [loading, setLoading] = useState(phase !== "upcoming");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (currentPhase) => {
     try {
-      const response = await fetch("/api/leaderboard", { headers: { Accept: "application/json" } });
+      // The phase in the URL gives each phase its own cached copy, so the
+      // switch at midnight never shows an older phase's response.
+      const query = currentPhase === "preview" ? "preview=1" : `phase=${currentPhase}`;
+      const response = await fetch(`/api/leaderboard?${query}`, { headers: { Accept: "application/json" } });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || "Could not load the leaderboard.");
-      setLive(data);
+      setBoard(data);
       setError("");
     } catch (err) {
       setError(err.message || "Could not load the leaderboard.");
@@ -391,129 +368,88 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (sample) return undefined;
-    load();
+    if (phase === "upcoming") return undefined;
+    setLoading(true);
+    load(phase);
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") load();
+      if (document.visibilityState === "visible") load(phase);
     }, REFRESH_MS);
-    const onVisible = () => document.visibilityState === "visible" && load();
+    const onVisible = () => document.visibilityState === "visible" && load(phase);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [sample, load]);
+  }, [phase, load]);
 
-  useEffect(() => {
-    if (!sample || prefersReducedMotion()) return undefined;
-    const timer = setInterval(() => setDemo((board) => (board ? sampleTick(board) : board)), SAMPLE_TICK_MS);
-    return () => clearInterval(timer);
-  }, [sample]);
-
-  const toggleSample = (on) => {
-    setSampleFlag(on);
-    setSample(on);
-    if (on) setDemo(sampleBoard());
-    else setLoading(!live);
-  };
-
-  const fallbackStatus = now < START_MS ? "upcoming" : now >= END_MS ? "final" : "live";
-  const board = sample ? demo : live;
-  const status = board?.status || fallbackStatus;
-  const leaders = board?.leaders || [];
+  const leaders = phase !== "upcoming" && board?.status === phase ? board.leaders || [] : [];
   const bumps = useBumps(leaders);
-  const showBoard = sample || (status !== "upcoming" && leaders.length > 0);
-
-  useEffect(() => {
-    document.title = `${LEADERBOARD.title} | Cave Modern Pilates`;
-  }, []);
+  const showBoard = phase !== "upcoming" && leaders.length > 0;
+  const startLong = new Date(START_MS).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   return (
-    <div className={`lb-page is-${status}${sample ? " is-sample" : ""}`}>
-      <div className="lb-glow" aria-hidden="true" />
-      {showBoard && (status === "final" || sample) && <Confetti key={sample ? "s" : "f"} />}
+    <div className={`lb-page is-${phase}`}>
+      {showBoard && phase === "final" && <Confetti />}
 
-      <header className="lb-header">
-        <p className="lb-wordmark">Cave Modern Pilates</p>
-        <StatusPill status={status} sample={sample} />
-      </header>
+      <section className="lb-hero">
+        <p className="lb-kicker">
+          {formatRange()} · One class, one point
+        </p>
+        <h1>
+          {phase === "final" ? "And the winners are" : "The Cave Challenge"}
+          <span>Leaderboard</span>
+        </h1>
+        <StatusPill status={phase} />
+      </section>
 
-      <main className="lb-main">
-        <section className="lb-hero">
-          <p className="lb-kicker">{formatRange()} · One class, one point</p>
-          <h1>
-            {status === "final" && !sample ? "And the winners are" : "Class Challenge"}
-            <span>Leaderboard</span>
-          </h1>
-        </section>
-
-        {sample && (
+      <div className="lb-panel">
+        {phase === "preview" && (
           <div className="lb-banner">
             <p>
-              You're looking at sample names and numbers. Real standings start counting on{" "}
-              {new Date(START_MS).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.
+              <strong>Preview.</strong> This is the board as it will look from {startLong}, scored on the last two weeks of
+              real classes. Everyone else sees the countdown until then, and the board starts from zero at midnight.
             </p>
-            <button type="button" onClick={() => toggleSample(false)}>
-              Back to the real board
-            </button>
           </div>
         )}
 
-        {!sample && status === "upcoming" && (
+        {phase === "upcoming" && (
           <section className="lb-upcoming">
-            <p className="lb-upcoming-lead">The board opens in</p>
+            <p className="lb-upcoming-lead">The challenge starts in</p>
             <Countdown target={START_MS} />
-            <ul className="lb-rules">
-              <li>
-                <strong>1 class = 1 point.</strong> Every Cave class you take from {formatRange()} counts.
-              </li>
-              <li>
-                <strong>Fresh start.</strong> Everyone begins at zero on {new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.
-              </li>
-              <li>
-                <strong>Top three take the podium.</strong> Gold, silver and bronze.
-              </li>
-            </ul>
-            <button type="button" className="lb-button" onClick={() => toggleSample(true)}>
-              Preview with sample data
-            </button>
+            <Rules />
           </section>
         )}
 
-        {!sample && status !== "upcoming" && loading && !live && <p className="lb-empty">Loading the standings…</p>}
+        {phase !== "upcoming" && loading && !showBoard && <p className="lb-empty">Loading the standings…</p>}
 
-        {!sample && status !== "upcoming" && !loading && leaders.length === 0 && !error && (
+        {phase !== "upcoming" && !loading && !showBoard && !error && (
           <section className="lb-upcoming">
             <p className="lb-upcoming-lead">The challenge is on</p>
-            <p className="lb-empty">The first classes are counted as soon as they finish. Check back after class.</p>
-            <button type="button" className="lb-button" onClick={() => toggleSample(true)}>
-              Preview with sample data
-            </button>
+            <p className="lb-empty">Classes are counted as soon as they finish. The first names appear here after the first class of the day.</p>
+            <Rules />
           </section>
         )}
 
-        {error && !sample && <p className="lb-error">{error}</p>}
+        {error && <p className="lb-error">{error}</p>}
 
-        {showBoard && board && (
+        {showBoard && (
           <>
-            <Stats board={board} now={now} />
+            <Stats board={board} now={now} phase={phase} />
             <Podium leaders={leaders} bumps={bumps} />
             <RankList leaders={leaders} topCount={leaders[0]?.classes || 1} bumps={bumps} />
           </>
         )}
-      </main>
 
-      <footer className="lb-footer">
-        <p>Late cancels and no-shows don't count. Ties go to whoever reached the total first.</p>
-        {board?.updatedAt && !sample && status !== "upcoming" && (
-          <p>
-            Updated {new Date(board.updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-            {status === "live" ? " · refreshes every few minutes" : ""}
-          </p>
-        )}
-      </footer>
+        <div className="lb-note">
+          <p>Late cancels and no-shows don't count. Ties go to whoever reached the total first.</p>
+          {showBoard && board?.updatedAt && (
+            <p>
+              Updated {new Date(board.updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+              {phase === "final" ? "" : " · refreshes every few minutes"}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
-
-createRoot(document.getElementById("root")).render(<App />);

@@ -111,3 +111,15 @@ test("ties go to whoever reached the total first", () => {
   );
   assert.deepEqual(ranked.map((row) => row.name), ["Bea B.", "Ann A.", "Cy C."]);
 });
+
+test("before launch, ?preview=1 scores the last two weeks of real classes", async () => {
+  resetLeaderboardCaches();
+  const calls = [];
+  const response = fakeResponse();
+  await handleLeaderboardRequest({ method: "GET" }, response, new URL("http://x/api/leaderboard?preview=1"), fakeDeps("2026-12-05T12:00:00", calls));
+  assert.equal(response.body.status, "preview");
+  assert.equal(response.body.windowFrom, "2026-11-22");
+  assert.ok(calls.includes("/class/classes"));
+  // Dec 5 class counts in the preview window; Dec 6+ classes are in the future.
+  assert.deepEqual(response.body.leaders.map((row) => row.name), ["Amira H.", "Dana R."]);
+});

@@ -1,6 +1,9 @@
-// Cave class leaderboard: one point for every class a client takes between
-// these dates (studio time, America/Chicago, both days included). Counting
-// starts fresh on the start date; nothing before it carries over.
+// Cave class leaderboard: one point for every class a client takes. Dates are
+// studio time (America/Chicago), both days included.
+//
+// Until the challenge starts the page shows a countdown. At midnight on
+// startDate it switches to the live board on its own, everyone starting at
+// zero, and only classes from startDate through endDate count.
 export const LEADERBOARD = {
   title: "Cave Class Challenge",
   startDate: "2026-12-06",
