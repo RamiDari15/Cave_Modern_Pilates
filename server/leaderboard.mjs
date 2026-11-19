@@ -19,7 +19,7 @@ const TODAY_ROSTER_TTL_MS = 4 * 60 * 1000;
 const PAST_ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
 const RESULT_TTL_MS = 4 * 60 * 1000;
-const MAX_LEADERS = 250;
+const MAX_LEADERS = 50;
 const PREVIEW_DAYS = 14;
 
 const rosterCache = new Map();
@@ -44,8 +44,15 @@ export async function handleLeaderboardRequest(request, response, url, deps) {
 
   try {
     const result = await leaderboardSnapshot(deps, url.searchParams.get("preview") === "1");
+    const { rankings = result.leaders, ...publicResult } = result;
+    if (url.searchParams.get("mine") === "1") {
+      const clientId = await deps.currentClientId(request);
+      const yourRank = clientId ? rankings.find((row) => row.key === publicKey(String(clientId))) || { position: null, classes: 0 } : null;
+      sendLeaderboardJson(response, 200, { signedIn: Boolean(clientId), yourRank }, "private, no-store");
+      return true;
+    }
     const edgeSeconds = result.status === "final" ? 3600 : 240;
-    sendLeaderboardJson(response, 200, result, `public, max-age=0, s-maxage=${edgeSeconds}, stale-while-revalidate=600`);
+    sendLeaderboardJson(response, 200, publicResult, `public, max-age=0, s-maxage=${edgeSeconds}, stale-while-revalidate=600`);
   } catch (error) {
     logLeaderboardError("request failed", error);
     sendLeaderboardJson(response, 502, { error: "The leaderboard could not reach the class schedule. Try again in a minute." }, "no-store");
@@ -204,6 +211,15 @@ async function classRoster(classItem, today, token, deps) {
   }
   const visitClass = data?.Class || data?.Classes?.[0] || {};
   const visits = Array.isArray(visitClass.Visits) ? visitClass.Visits : Array.isArray(data?.Visits) ? data.Visits : [];
+  // Rosters often include the client names directly. Use them before a
+  // separate lookup, and support both Mindbody ID representations.
+  const clients = [...(visitClass.Clients || []), ...visits.map((visit) => visit.Client).filter(Boolean)];
+  for (const client of clients) {
+    if (!client.FirstName) continue;
+    for (const id of [client.Id, client.UniqueId]) {
+      if (id != null) profileCache.set(String(id), { name: leaderboardName(client.FirstName, client.LastName), expiresAt: Date.now() + PROFILE_TTL_MS });
+    }
+  }
   const clientIds = [...new Set(visits.filter(countsAsTaken).map(visitClientId).filter(Boolean))];
 
   const ttl = classItem.start.slice(0, 10) < today ? PAST_ROSTER_TTL_MS : TODAY_ROSTER_TTL_MS;
@@ -239,11 +255,28 @@ async function clientNames(clientIds, token, deps) {
       const id = String(client?.Id || "");
       if (!id) continue;
       const name = leaderboardName(client.FirstName, client.LastName);
-      names.set(id, name);
-      profileCache.set(id, { name, expiresAt: Date.now() + PROFILE_TTL_MS });
+      if (!client.FirstName) continue;
+      for (const alias of [id, client.UniqueId].filter((value) => value != null)) {
+        names.set(String(alias), name);
+        profileCache.set(String(alias), { name, expiresAt: Date.now() + PROFILE_TTL_MS });
+      }
     }
   });
 
+  // Some Mindbody sites do not return matches for the batched ID filter.
+  // Resolve remaining IDs from a bounded, paginated client list instead.
+  if (clientIds.some((id) => !names.has(id))) {
+    const clients = await pagedList(deps, "/client/clients", {}, "Clients", token, 5000);
+    for (const client of clients) {
+      if (!client?.FirstName) continue;
+      const name = leaderboardName(client.FirstName, client.LastName);
+      for (const alias of [client.Id, client.UniqueId].filter((id) => id != null)) {
+        const id = String(alias);
+        profileCache.set(id, { name, expiresAt: Date.now() + PROFILE_TTL_MS });
+        if (clientIds.includes(id)) names.set(id, name);
+      }
+    }
+  }
   return names;
 }
 
@@ -319,6 +352,7 @@ async function buildLeaderboard(now, status, deps) {
     participants: ranked.length,
     totalClasses: ranked.reduce((sum, row) => sum + row.classes, 0),
     classesHeld: uniqueClasses.length,
+    rankings: ranked,
     leaders: ranked.slice(0, MAX_LEADERS)
   };
 }

@@ -382,6 +382,7 @@ export function ChallengePage() {
   const [preview] = useState(readPreviewFlag);
   const phase = preview && phaseAt(now) === "upcoming" ? "preview" : phaseAt(now);
   const [board, setBoard] = useState(null);
+  const [yourRank, setYourRank] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(phase !== "upcoming");
 
@@ -394,6 +395,11 @@ export function ChallengePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || "Could not load the leaderboard.");
       setBoard(data);
+      const personal = await fetch(`/api/leaderboard?${query}&mine=1`, { cache: "no-store" });
+      if (personal.ok) {
+        const result = await personal.json();
+        setYourRank(result.signedIn ? result.yourRank : null);
+      }
       setError("");
     } catch (err) {
       setError(err.message || "Could not load the leaderboard.");
@@ -467,6 +473,12 @@ export function ChallengePage() {
         {showBoard && (
           <>
             <Stats board={board} now={now} phase={phase} />
+            {yourRank && <section className="lb-your-rank" aria-label="Your rank">
+              <span>Your rank</span>
+              <strong>{yourRank.position ? `#${yourRank.position}` : "Not ranked yet"}</strong>
+              <span>{yourRank.classes} {yourRank.classes === 1 ? "class" : "classes"}</span>
+            </section>}
+            <p className="lb-note">Top 50 clients</p>
             <Podium leaders={leaders} bumps={bumps} />
             <RankList leaders={leaders} topCount={leaders[0]?.classes || 1} bumps={bumps} />
           </>

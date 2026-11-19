@@ -366,7 +366,10 @@ export async function handleApiRequest(request, response) {
       enforceGiftCardRateLimit(request);
     }
 
-    if (path === "/api/leaderboard" && await handleLeaderboardRequest(request, response, url, frontDeskDependencies())) {
+    if (path === "/api/leaderboard" && await handleLeaderboardRequest(request, response, url, { ...frontDeskDependencies(), currentClientId: async (req) => {
+      const session = readSession(req);
+      return session ? resolveSessionClientId(session) : null;
+    } })) {
       return true;
     }
 

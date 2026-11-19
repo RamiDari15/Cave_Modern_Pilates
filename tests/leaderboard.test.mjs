@@ -153,3 +153,29 @@ test("a roster Mindbody won't return is retried, then skipped instead of failing
     { name: "Lina S.", classes: 1 }
   ]);
 });
+
+test("resolves missing names from paginated clients and limits the public board to 50", async () => {
+  resetLeaderboardCaches();
+  const deps = fakeDeps("2026-12-07T12:00:00", []);
+  const original = deps.bookingRequest;
+  deps.bookingRequest = async (path, options) => {
+    if (path === "/class/classvisits") return { Visits: Array.from({length:60}, (_,i) => ({ClientId:String(i+1)})) };
+    if (path === "/client/clients") return { Clients: options.params["request.clientIds"] ? [] : Array.from({length:60}, (_,i) => ({Id:String(i+1), FirstName:`Member${i+1}`, LastName:"Cave"})) };
+    return original(path, options);
+  };
+  const publicResponse = fakeResponse();
+  await handleLeaderboardRequest({method:"GET"}, publicResponse, new URL("http://x/api/leaderboard"), deps);
+  assert.equal(publicResponse.body.leaders.length,50);
+  assert.equal(publicResponse.body.participants,60);
+  assert.ok(publicResponse.body.leaders.every(row => row.name.startsWith("Member")));
+  assert.equal(publicResponse.body.rankings,undefined);
+  deps.currentClientId = async () => "9";
+  const personal = fakeResponse();
+  await handleLeaderboardRequest({method:"GET"}, personal, new URL("http://x/api/leaderboard?mine=1"), deps);
+  assert.ok(personal.body.yourRank.position > 50);
+  assert.equal(personal.headers["cache-control"],"private, no-store");
+  deps.currentClientId = async () => null;
+  const anonymous = fakeResponse();
+  await handleLeaderboardRequest({method:"GET"}, anonymous, new URL("http://x/api/leaderboard?mine=1"), deps);
+  assert.equal(anonymous.body.yourRank,null);
+});
