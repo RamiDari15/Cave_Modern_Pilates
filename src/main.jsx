@@ -88,7 +88,7 @@ const FOOTER_LINKS = [
 
 const PAGE_TITLES = {
   "meet-your-reformer": "The Cave Method — Meet Your Reformer | Cave Modern Pilates",
-  challenge: "The Cave Challenge Leaderboard | Cave Modern Pilates",
+  challenge: "The Cave Countdown Leaderboard | Cave Modern Pilates",
   home: "Women's Reformer Pilates in Orland Park | Cave Modern Pilates",
   pricing: "Pilates Pricing in Orland Park | Cave Modern Pilates",
   newbie: "New Client Pilates Offer in Orland Park | Cave Modern Pilates",
@@ -109,7 +109,7 @@ const PAGE_TITLES = {
 
 const PAGE_DESCRIPTIONS = {
   "meet-your-reformer": "Get to know your Cave reformer before your first class.",
-  challenge: "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point.",
+  challenge: "The Cave Countdown: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point.",
   home: "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort.",
   pricing: "Compare Cave Modern Pilates memberships, class packs, drop-ins, and new-client offers at our women's Pilates studio in Orland Park, Illinois.",
   newbie: "Start Pilates in Orland Park with a Cave Modern Pilates new-client offer. Welcoming women from Tinley Park, Palos Hills, Mokena, Homer Glen, and Frankfort.",
