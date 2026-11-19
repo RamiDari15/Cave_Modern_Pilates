@@ -132,23 +132,6 @@ svg {
   }
 }
 
-@media (max-width: 1280px) {
-  .site-header {
-    gap: 16px;
-    padding-left: 24px;
-    padding-right: 24px;
-  }
-
-  .desktop-nav {
-    gap: 15px;
-    font-size: 0.86rem;
-  }
-
-  .nav-actions {
-    gap: 10px;
-  }
-}
-
 .nav-actions {
   display: inline-flex;
   justify-self: end;
@@ -5852,7 +5835,7 @@ body.interior:has(.page-challenge),
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1320px) {
   .site-header {
     grid-template-columns: 1fr auto;
   }
