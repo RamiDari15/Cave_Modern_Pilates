@@ -123,3 +123,33 @@ test("before launch, ?preview=1 scores the last two weeks of real classes", asyn
   // Dec 5 class counts in the preview window; Dec 6+ classes are in the future.
   assert.deepEqual(response.body.leaders.map((row) => row.name), ["Amira H.", "Dana R."]);
 });
+
+test("a roster Mindbody won't return is retried, then skipped instead of failing the board", async () => {
+  resetLeaderboardCaches();
+  const deps = fakeDeps("2026-12-07T12:00:00", []);
+  const realRequest = deps.bookingRequest;
+  let classThreeTries = 0;
+  deps.bookingRequest = async (path, options) => {
+    if (path === "/class/classvisits" && options.params["request.classID"] === 3) {
+      classThreeTries += 1;
+      const error = new Error("Too many requests");
+      error.status = 429;
+      throw error;
+    }
+    return realRequest(path, options);
+  };
+  const realError = console.error;
+  console.error = () => {};
+  const response = fakeResponse();
+  try {
+    await handleLeaderboardRequest({ method: "GET" }, response, new URL("http://x/api/leaderboard"), deps);
+  } finally {
+    console.error = realError;
+  }
+  assert.equal(classThreeTries, 3);
+  assert.equal(response.statusCode ?? 200, 200);
+  assert.deepEqual(response.body.leaders.map(({ name, classes }) => ({ name, classes })), [
+    { name: "Amira H.", classes: 1 },
+    { name: "Lina S.", classes: 1 }
+  ]);
+});

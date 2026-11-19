@@ -70,7 +70,7 @@ const ROUTES = {
 const NAV_ITEMS = [
   { label: "Home", href: ROUTES.home, page: "home" },
   { label: "The Cave Method", href: ROUTES.meetYourReformer, page: "meet-your-reformer" },
-  { label: "Challenge", href: ROUTES.challenge, page: "challenge" },
+  { label: "Countdown", href: ROUTES.challenge, page: "challenge" },
   { label: "Pricing", href: ROUTES.pricing, page: "pricing" },
   { label: "Schedule", href: ROUTES.schedule, page: "schedule" },
   { label: "About Us", href: ROUTES.about, page: "about" },

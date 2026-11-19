@@ -14,7 +14,7 @@ import { studioLocalNow } from "./frontDesk.mjs";
 // days' rosters are cached for hours, today's for a few minutes, and the
 // response is cached at Vercel's edge so many viewers share one result.
 
-const MINDBODY_CONCURRENCY = 6;
+const MINDBODY_CONCURRENCY = 4;
 const TODAY_ROSTER_TTL_MS = 4 * 60 * 1000;
 const PAST_ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +47,7 @@ export async function handleLeaderboardRequest(request, response, url, deps) {
     const edgeSeconds = result.status === "final" ? 3600 : 240;
     sendLeaderboardJson(response, 200, result, `public, max-age=0, s-maxage=${edgeSeconds}, stale-while-revalidate=600`);
   } catch (error) {
+    logLeaderboardError("request failed", error);
     sendLeaderboardJson(response, 502, { error: "The leaderboard could not reach the class schedule. Try again in a minute." }, "no-store");
   }
 
@@ -134,15 +135,38 @@ async function mapLimit(items, limit, worker) {
   return results;
 }
 
+// Mindbody throttles bursts, so retry a failed call a couple of times before
+// giving up on it.
+async function withRetry(task, attempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || error?.statusCode || 0);
+      if (status && status < 500 && status !== 429 && status !== 408) break;
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
+function logLeaderboardError(label, error) {
+  console.error(`[leaderboard] ${label}:`, error?.status || error?.statusCode || "", error?.message || error);
+}
+
 async function pagedList(deps, path, params, key, token, maxItems = 2000) {
   const items = [];
   const limit = 200;
   let offset = 0;
   while (offset < maxItems) {
-    const data = await deps.bookingRequest(path, {
-      token,
-      params: { ...params, "request.limit": String(limit), "request.offset": String(offset) }
-    });
+    const data = await withRetry(() =>
+      deps.bookingRequest(path, {
+        token,
+        params: { ...params, "request.limit": String(limit), "request.offset": String(offset) }
+      })
+    );
     const page = deps.firstListByKey(data, key);
     if (!page.length) break;
     items.push(...page);
@@ -169,7 +193,15 @@ async function classRoster(classItem, today, token, deps) {
   const cached = rosterCache.get(classItem.classId);
   if (cached && cached.expiresAt > Date.now()) return cached.clientIds;
 
-  const data = await deps.bookingRequest("/class/classvisits", { token, params: { "request.classID": classItem.classId } });
+  let data;
+  try {
+    data = await withRetry(() => deps.bookingRequest("/class/classvisits", { token, params: { "request.classID": classItem.classId } }));
+  } catch (error) {
+    // One unreachable roster shouldn't take the whole board down. Skip it
+    // without caching so the next refresh tries again.
+    logLeaderboardError(`roster for class ${classItem.classId}`, error);
+    return [];
+  }
   const visitClass = data?.Class || data?.Classes?.[0] || {};
   const visits = Array.isArray(visitClass.Visits) ? visitClass.Visits : Array.isArray(data?.Visits) ? data.Visits : [];
   const clientIds = [...new Set(visits.filter(countsAsTaken).map(visitClientId).filter(Boolean))];
@@ -191,10 +223,18 @@ async function clientNames(clientIds, token, deps) {
   const chunks = [];
   for (let i = 0; i < missing.length; i += 50) chunks.push(missing.slice(i, i + 50));
   await mapLimit(chunks, 2, async (chunk) => {
-    const data = await deps.bookingRequest("/client/clients", {
-      token,
-      params: { "request.clientIds": chunk, "request.limit": "200" }
-    });
+    let data;
+    try {
+      data = await withRetry(() =>
+        deps.bookingRequest("/client/clients", {
+          token,
+          params: { "request.clientIds": chunk, "request.limit": "200" }
+        })
+      );
+    } catch (error) {
+      logLeaderboardError("client names", error);
+      return;
+    }
     for (const client of deps.firstListByKey(data, "Clients")) {
       const id = String(client?.Id || "");
       if (!id) continue;
