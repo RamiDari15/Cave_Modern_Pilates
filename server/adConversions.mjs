@@ -64,7 +64,8 @@ export function cleanSourceUrl(value) {
 }
 
 export function buildMetaEvent({ eventName, eventId, value, contentName, email, phone, externalId, request, now = Date.now() }) {
-  // Native app traffic must not be shared with advertising providers.
+  // Cave's app does not opt customers into advertising measurement. Include
+  // bearer sessions so older native app versions also receive this protection.
   if (request?.headers?.["x-cave-client"] === "app" || /^Bearer\s/i.test(String(request?.headers?.authorization || ""))) return null;
   const context = requestContext(request);
   const userData = {

@@ -1,7 +1,17 @@
+import { isClassVisible } from "./scheduleVisibility.js";
+import newbieSquare from "../assets/category-newbie-square.png";
+import membershipSquare from "../assets/category-memberships-square.png";
+import packsSquare from "../assets/category-class-packs-square.png";
+import dropInSquare from "../assets/category-drop-in-square.png";
+import caveAppHome from "../assets/cave-app-home-current.jpg";
+import CaveMethod from "./CaveMethod.jsx";
+import { isTwoWeekUnlimitedIntro, selectNewClientIntro } from "./newClientOffer.js";
+import { waitlistAvailability } from "./waitlist.js";
 import { createBookingGuard } from "./bookingGuard";
 import React, { useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Bot, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Clock, UserRound, Bot, CalendarDays, ChevronLeft, ChevronRight, Gift, Instagram, Menu, MessageCircle, Minus, Plus, Search, Send, X } from "lucide-react";
 import { FALLBACK_CACHE } from "./studioCache";
 import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
@@ -33,15 +43,13 @@ import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
 import stretchLabPartnerLogo from "../assets/local-partner-stretchlab.png";
 import qahwaPartnerLogo from "../assets/local-partner-the-qahwa.png";
 import houseOfLalaPartnerLogo from "../assets/local-partner-house-of-lala.png";
-import reformerCarriageImage from "../assets/reformer-carriage.jpg";
-import reformerBalancePoleImage from "../assets/reformer-balance-pole.jpg";
-import reformerCaveStrapsImage from "../assets/reformer-cave-straps.jpg";
-import reformerGreyStrapsImage from "../assets/reformer-grey-straps.jpg";
 import "./styles.css";
 import { ChallengePage } from "./leaderboard.jsx";
 
 const ROUTES = {
   home: "/",
+  meetYourReformer: "/meet-your-reformer",
+  challenge: "/challenge",
   pricing: "/pricing",
   newbie: "/newbie",
   memberships: "/memberships",
@@ -51,8 +59,6 @@ const ROUTES = {
   about: "/about",
   contact: "/contact",
   faq: "/faq",
-  meetYourReformer: "/meet-your-reformer",
-  challenge: "/challenge",
   login: "/login",
   signup: "/signup",
   sms: "/sms",
@@ -63,16 +69,10 @@ const ROUTES = {
 
 const NAV_ITEMS = [
   { label: "Home", href: ROUTES.home, page: "home" },
-  {
-    label: "The Cave Method",
-    page: "cave-method",
-    children: [
-      { label: "Meet your reformer", href: ROUTES.meetYourReformer, page: "meet-your-reformer" }
-    ]
-  },
+  { label: "The Cave Method", href: ROUTES.meetYourReformer, page: "meet-your-reformer" },
+  { label: "Challenge", href: ROUTES.challenge, page: "challenge" },
   { label: "Pricing", href: ROUTES.pricing, page: "pricing" },
   { label: "Schedule", href: ROUTES.schedule, page: "schedule" },
-  { label: "Challenge", href: ROUTES.challenge, page: "challenge" },
   { label: "About Us", href: ROUTES.about, page: "about" },
   { label: "Contact Us", href: ROUTES.contact, page: "contact" },
   { label: "FAQ", href: ROUTES.faq, page: "faq" }
@@ -87,6 +87,8 @@ const FOOTER_LINKS = [
 ];
 
 const PAGE_TITLES = {
+  "meet-your-reformer": "The Cave Method — Meet Your Reformer | Cave Modern Pilates",
+  challenge: "The Cave Challenge Leaderboard | Cave Modern Pilates",
   home: "Women's Reformer Pilates in Orland Park | Cave Modern Pilates",
   pricing: "Pilates Pricing in Orland Park | Cave Modern Pilates",
   newbie: "New Client Pilates Offer in Orland Park | Cave Modern Pilates",
@@ -97,8 +99,6 @@ const PAGE_TITLES = {
   about: "Women's Pilates Studio in Orland Park | Cave Modern Pilates",
   contact: "Contact Our Orland Park Pilates Studio | Cave Modern Pilates",
   faq: "Pilates Membership & Booking FAQ | Cave Modern Pilates",
-  "meet-your-reformer": "Meet Your Reformer | The Cave Method | Cave Modern Pilates",
-  challenge: "The Cave Challenge Leaderboard | Cave Modern Pilates",
   login: "Login | Cave Modern Pilates",
   signup: "Sign Up | Cave Modern Pilates",
   sms: "Cave Text Updates | Cave Modern Pilates",
@@ -108,6 +108,8 @@ const PAGE_TITLES = {
 };
 
 const PAGE_DESCRIPTIONS = {
+  "meet-your-reformer": "Get to know your Cave reformer before your first class.",
+  challenge: "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point.",
   home: "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort.",
   pricing: "Compare Cave Modern Pilates memberships, class packs, drop-ins, and new-client offers at our women's Pilates studio in Orland Park, Illinois.",
   newbie: "Start Pilates in Orland Park with a Cave Modern Pilates new-client offer. Welcoming women from Tinley Park, Palos Hills, Mokena, Homer Glen, and Frankfort.",
@@ -118,8 +120,6 @@ const PAGE_DESCRIPTIONS = {
   about: "Meet Cave Modern Pilates, a women-focused Pilates studio in Orland Park created to build strength, confidence, and community through movement.",
   contact: "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions.",
   faq: "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies.",
-  "meet-your-reformer": "Get to know the Cave reformer before your first class: the carriage, platforms, handle bars, balance pole, straps, and the pit, explained part by part.",
-  challenge: "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point.",
   login: "Sign in to your Cave Modern Pilates account.",
   signup: "Create your Cave Modern Pilates client account and complete the first-class liability waiver.",
   sms: "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers.",
@@ -152,15 +152,14 @@ const CAVE_UPDATES_NUDGE_PAGES = new Set([
   "schedule",
   "about",
   "contact",
-  "faq",
-  "meet-your-reformer"
+  "faq"
 ]);
 const PRICING_CATEGORIES = [
   {
     key: "newbie",
     page: "newbie",
     href: ROUTES.newbie,
-    title: "Newbie Promo",
+    title: "New Client Offers",
     eyebrow: "First visit"
   },
   {
@@ -505,7 +504,7 @@ function getPageFromPath() {
     return "challenge";
   }
 
-  return ["pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "challenge", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
+  return ["meet-your-reformer", "challenge", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -703,6 +702,7 @@ function normalizeLiveClassForDisplay(item) {
     status: item.status || "",
     canBook: Boolean(item.canBook),
     canWaitlist: Boolean(item.canWaitlist),
+    ...waitlistAvailability(item.waitlistSize, item.maxWaitlistSize),
     duration: item.duration,
     location: item.location || "",
     isFree: Boolean(item.isFree)
@@ -827,6 +827,9 @@ function App() {
   const [clientSession, setClientSession, isSessionLoading] = useClientSession();
   const { cache, cacheLoading } = useStudioCache(page);
   const isInterior = page !== "home";
+  const promoCatalog = usePricingCatalog(cache.store || {}, cache.memberships || []);
+  const introOffer = !promoCatalog.loading ? promoCatalog.newbie.find(item => isTwoWeekUnlimitedIntro(item) && item.sellOnline !== false && item.id && item.price) : null;
+  const showIntroPromo = Boolean(introOffer) && !["login", "signup", "sms", "terms", "policies"].includes(page);
 
   useEffect(() => {
     const onPopState = () => {
@@ -872,10 +875,11 @@ function App() {
   }, []);
 
   const bookingUrl = cleanInternalUrl(cache.booking?.scheduleUrl, ROUTES.schedule);
-  const shellClass = `app-shell${isInterior ? " interior" : ""}`;
+  const shellClass = `app-shell${isInterior ? " interior" : ""}${showIntroPromo ? " has-intro-promo" : ""}`;
 
   return (
     <div className={shellClass}>
+      {showIntroPromo ? <a className="intro-announcement" href={`${ROUTES.newbie}?offer=intro`}><span>New here? <strong>14 days unlimited · {compactPrice(introOffer.price)}</strong></span><span className="intro-announcement-link">Get the intro <span aria-hidden="true">↗</span></span></a> : null}
       <Header
         activePage={page}
         bookingUrl={bookingUrl}
@@ -894,8 +898,10 @@ function App() {
           setClientSession={setClientSession}
           isSessionLoading={isSessionLoading}
           cacheLoading={cacheLoading}
+          introOffer={introOffer}
         />
       </main>
+      {showIntroPromo && !["home", "newbie"].includes(page) ? <IntroPromoFeature offer={introOffer} compact /> : null}
       <Footer location={cache.location} />
       <AiAssistant page={page} bookingUrl={bookingUrl} clientSession={clientSession} />
       <CaveUpdatesInitialPopup page={page} clientSession={clientSession} />
@@ -1077,13 +1083,9 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
         <nav className="desktop-nav" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => (
-            item.children ? (
-              <DesktopNavGroup key={item.page} item={item} activePage={activePage} />
-            ) : (
-              <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
-                {item.label}
-              </a>
-            )
+            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><a href={item.href} aria-current={activePage === item.page ? "page" : undefined}>Our Reformers</a></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
+              {item.label}
+            </a>
           ))}
         </nav>
 
@@ -1110,13 +1112,9 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
       <div className={`mobile-menu${menuOpen ? " is-open" : ""}`} id="mobile-menu" aria-hidden={!menuOpen} hidden={!menuOpen}>
         <nav aria-label="Mobile navigation">
           {NAV_ITEMS.map((item) => (
-            item.children ? (
-              <MobileNavGroup key={item.page} item={item} activePage={activePage} onCloseMenu={onCloseMenu} />
-            ) : (
-              <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
-                {item.label}
-              </a>
-            )
+            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><a href={item.href} onClick={onCloseMenu} aria-current={activePage === item.page ? "page" : undefined}>Our Reformers</a></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
+              {item.label}
+            </a>
           ))}
         </nav>
         <a className="mobile-book" href={accountHref} onClick={onCloseMenu}>
@@ -1127,96 +1125,12 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
   );
 }
 
-function isNavGroupActive(item, activePage) {
-  return item.children.some((child) => child.page === activePage);
-}
-
-function DesktopNavGroup({ item, activePage }) {
-  const [open, setOpen] = useState(false);
-  const groupRef = useRef(null);
-  const menuId = useId();
-  const isActive = isNavGroupActive(item, activePage);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const handlePointer = (event) => {
-      if (groupRef.current && !groupRef.current.contains(event.target)) setOpen(false);
-    };
-    const handleKey = (event) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        groupRef.current?.querySelector("button")?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", handlePointer);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointer);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [open]);
-
-  return (
-    <div
-      ref={groupRef}
-      className={`nav-group${open ? " is-open" : ""}${isActive ? " is-active" : ""}`}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
-      }}
-    >
-      <button
-        type="button"
-        className="nav-group-toggle"
-        aria-expanded={open}
-        aria-controls={menuId}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {item.label}
-        <ChevronDown aria-hidden="true" size={15} strokeWidth={2} />
-      </button>
-      <div className="nav-group-menu" id={menuId} hidden={!open}>
-        {item.children.map((child) => (
-          <a key={child.page} href={child.href} aria-current={activePage === child.page ? "page" : undefined}>
-            {child.label}
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MobileNavGroup({ item, activePage, onCloseMenu }) {
-  const isActive = isNavGroupActive(item, activePage);
-  const [open, setOpen] = useState(isActive);
-  const menuId = useId();
-
-  return (
-    <div className={`mobile-nav-group${open ? " is-open" : ""}`}>
-      <button
-        type="button"
-        className="mobile-nav-group-toggle"
-        aria-expanded={open}
-        aria-controls={menuId}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>{item.label}</span>
-        <ChevronDown aria-hidden="true" size={22} strokeWidth={1.7} />
-      </button>
-      <div className="mobile-nav-group-links" id={menuId} hidden={!open}>
-        {item.children.map((child) => (
-          <a key={child.page} href={child.href} aria-current={activePage === child.page ? "page" : undefined} onClick={onCloseMenu}>
-            {child.label}
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading }) {
+function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading, introOffer }) {
   const cart = useCart();
+
+  if (page === "pricing" && new URLSearchParams(window.location.search).get("category") === "private-sessions") {
+    return <PricingCategoryPage category={{ key: "privateSessions", title: "Private Sessions", href: "/pricing?category=private-sessions" }} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
+  }
 
   if (page === "pricing") {
     return <PricingLandingPage store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} />;
@@ -1231,6 +1145,10 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   if (page === "schedule") {
     return <SchedulePage schedule={cache.schedule || []} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={cacheLoading} />;  }
 
+  if (page === "meet-your-reformer") return <CaveMethod />;
+
+  if (page === "challenge") return <ChallengePage />;
+
   if (page === "about") {
     return <AboutPage />;
   }
@@ -1241,14 +1159,6 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
 
   if (page === "faq") {
     return <FaqPage />;
-  }
-
-  if (page === "meet-your-reformer") {
-    return <MeetYourReformerPage />;
-  }
-
-  if (page === "challenge") {
-    return <ChallengePage />;
   }
 
   if (page === "login") {
@@ -1275,7 +1185,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
     return <PoliciesPage />;
   }
 
-  return <HomePage memberships={cache.memberships || []} store={cache.store || {}} bookingUrl={bookingUrl} />;
+  return <HomePage memberships={cache.memberships || []} store={cache.store || {}} bookingUrl={bookingUrl} introOffer={introOffer} />;
 }
 
 function SmsSignupPage({ clientSession }) {
@@ -1369,7 +1279,20 @@ function SmsSignupPage({ clientSession }) {
   );
 }
 
-function HomePage({ memberships, store, bookingUrl }) {
+function IntroPromoFeature({ offer, compact = false }) {
+  return <div className="intro-promo-section"><section className={`intro-promo-feature${compact ? " is-compact" : ""}`} aria-label="14-day new client offer">
+    <div className="intro-promo-copy">
+      <p className="intro-promo-kicker">THE CAVE INTRO · NEW CLIENTS</p>
+      <h2>Find your rhythm.<br /><span>14 days unlimited.</span></h2>
+      <p>Make time for yourself. Explore our reformer classes and find the times that fit your day.</p>
+      <a className="intro-promo-cta" href={`${ROUTES.newbie}?offer=intro`}>Get 14 days unlimited <span aria-hidden="true">↗</span></a>
+      <small>New clients only.</small>
+    </div>
+    <div className="intro-promo-price"><span>YOUR FIRST 14 DAYS</span><strong>{compactPrice(offer.price)}</strong><p>Unlimited reformer classes</p></div>
+  </section></div>;
+}
+
+function HomePage({ memberships, store, bookingUrl, introOffer }) {
   const pricingPreview = getHomePricingPreview(store, memberships);
 
   return (
@@ -1379,9 +1302,7 @@ function HomePage({ memberships, store, bookingUrl }) {
         <video className="hero-video" autoPlay muted loop playsInline poster={homeHeroPoster} aria-hidden="true">
           <source src={homeHeroVideo} type="video/mp4" />
         </video>
-        <a className="hero-book" href={bookingUrl}>
-          Book Now
-        </a>
+        <a className="hero-book" href={bookingUrl}>Book Now</a>
 
         <svg className="hero-wave" viewBox="0 0 1440 185" preserveAspectRatio="none" aria-hidden="true">
           <path className="wave-line" d="M0 54C170 18 309 42 468 70C634 100 781 133 982 111C1144 93 1272 42 1440 46" />
@@ -1389,8 +1310,11 @@ function HomePage({ memberships, store, bookingUrl }) {
         </svg>
       </section>
 
+      <div className="home-member-perks"><MembershipPerks /></div>
+      <ComingUp />
+      {introOffer ? <IntroPromoFeature offer={introOffer} /> : null}
+
       <section className="home-pricing-preview section">
-        <MembershipPerks />
         <div className="section-heading center">
           <h2>Pricing</h2>
           <p>Newbie offers, memberships, and class packs.</p>
@@ -1399,19 +1323,13 @@ function HomePage({ memberships, store, bookingUrl }) {
         <div className="home-pricing-grid">
           {pricingPreview.map((category) => (
             <article className="home-pricing-card" key={category.title}>
+              <a className="home-category-art" href={category.href} aria-label={`View ${category.title}`}><img src={category.image} alt="" loading="lazy" /></a>
               <div>
                 <p className="home-pricing-label">{category.label}</p>
                 <h3>{category.title}</h3>
               </div>
               <p className="home-pricing-from">{category.priceLabel}</p>
-              <div className="home-pricing-options">
-                {category.items.map((item) => (
-                  <div className="home-pricing-option" key={`${category.title}-${item.name}-${item.price}`}>
-                    <span>{item.name}</span>
-                    <strong>{item.price}</strong>
-                  </div>
-                ))}
-              </div>
+              <p className="home-pricing-description">{category.description}</p>
               <a className="home-pricing-link" href={category.href}>
                 View {category.title}
               </a>
@@ -1426,24 +1344,75 @@ function HomePage({ memberships, store, bookingUrl }) {
         </div>
       </section>
 
-      <section className="booking-app app-coming-soon section">
+      <section className="booking-app app-download section">
         <div className="app-copy">
-          <h2>App coming soon.</h2>
-          <p>Book online for now. The Cave app is next.</p>
+          <h2>Get the Cave app.</h2>
+          <p>Book your next class, manage reservations, and keep your studio account close at hand.</p>
           <div className="app-buttons">
-            <a className="pill-button black" href={bookingUrl}>
-              View Schedule
-            </a>
+            <a className="pill-button black" href="https://apps.apple.com/us/app/cave-modern-pilates/id6824309298" target="_blank" rel="noopener noreferrer">Download on the App Store</a>
+            <a className="pill-button black" href="https://play.google.com/store/apps/details?id=com.cavemodernpilates.app" target="_blank" rel="noopener noreferrer">Get it on Google Play</a>
           </div>
         </div>
-        <div className="phone-art" aria-hidden="true">
+        <div className="phone-art">
           <div className="phone-screen">
-            <small>Coming Soon</small>
+            <img className="cave-app-preview" src={caveAppHome} alt="Cave app home screen with the studio, Book Now button, and navigation for classes and your profile" loading="lazy" />
           </div>
         </div>
       </section>
     </>
   );
+}
+
+function useScheduleClock() {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const update = () => { if (document.visibilityState !== "hidden") setNow(Date.now()); };
+    const timer = window.setInterval(update, 15_000);
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("focus", update);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("focus", update);
+    };
+  }, []);
+  return now;
+}
+
+function ComingUp() {
+  const now = useScheduleClock();
+  const [classes, setClasses] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/mindbody/classes", { cache: "no-store", signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(result => {
+        if (!controller.signal.aborted) setClasses(result?.ok && Array.isArray(result.data?.classes)
+          ? result.data.classes.filter(item => !item.isCanceled).sort((a,b) => a.startTime.localeCompare(b.startTime)) : []);
+      }).catch(() => { if (!controller.signal.aborted) setClasses([]); });
+    return () => controller.abort();
+  }, []);
+  const visibleClasses = classes?.filter(item => isClassVisible(item, now)).slice(0, 3);
+  return <section className="home-coming-up section" aria-labelledby="coming-up-title">
+    <div className="section-heading center"><h2 id="coming-up-title">Coming up</h2><p>Your next class at Cave.</p></div>
+    <div className="coming-up-panel">
+      <div className="coming-up-list">{visibleClasses?.map(item => {
+        const waitlistFull = waitlistAvailability(item.waitlistSize, item.maxWaitlistSize).waitlistFull;
+        const status = item.canBook ? "" : item.canWaitlist ? (waitlistFull ? "Waitlist full" : "Waitlist") : "Full";
+        return <a className="coming-up-row" key={item.id} href={`${ROUTES.schedule}?focusClass=${encodeURIComponent(item.id)}`} aria-label={`${item.name}, ${item.date}, ${item.time}${status ? `, ${status}` : ""}. View schedule`}>
+          <span className="coming-up-avatar" aria-hidden="true"><UserRound /></span>
+          <span className="coming-up-details">
+            <span className="coming-up-name">{item.name}</span>
+            <span className="coming-up-time"><Clock aria-hidden="true" />{item.time}{item.duration ? ` | ${item.duration} min` : ""}</span>
+            <span className="coming-up-instructor">{item.instructor}</span>
+            {status ? <span className="coming-up-status">{status}</span> : null}
+          </span>
+        </a>;
+      })}</div>
+      {visibleClasses?.length === 0 ? <p className="coming-up-empty">See the full schedule for current class availability.</p> : null}
+      <div className="coming-up-footer"><a href={ROUTES.schedule}><CalendarDays aria-hidden="true" />View full schedule</a></div>
+    </div>
+  </section>;
 }
 
 function getHomePricingPreview(store, memberships) {
@@ -1456,7 +1425,9 @@ function getHomePricingPreview(store, memberships) {
 
   return [
     {
-      title: "Newbie Promo",
+      title: "New Client",
+      image: newbieSquare,
+      description: "Start with an introductory offer for new clients.",
       label: "First visit",
       href: ROUTES.newbie,
       priceLabel: priceRangeLabel(newbieOffers),
@@ -1464,6 +1435,8 @@ function getHomePricingPreview(store, memberships) {
     },
     {
       title: "Memberships",
+      image: membershipSquare,
+      description: "Make Cave part of your routine with a monthly membership.",
       label: "Monthly",
       href: ROUTES.memberships,
       priceLabel: priceRangeLabel(membershipOptions, "/mo"),
@@ -1471,6 +1444,8 @@ function getHomePricingPreview(store, memberships) {
     },
     {
       title: "Class Packs",
+      image: packsSquare,
+      description: "A pack of classes to book around your schedule.",
       label: "Flexible",
       href: ROUTES.classPacks,
       priceLabel: priceRangeLabel(visibleClassPacks),
@@ -1656,7 +1631,7 @@ function usePricingCatalog(store, memberships) {
   useEffect(() => {
     let mounted = true;
 
-    apiRequest("/api/pricing/catalog")
+    const refresh = () => apiRequest("/api/pricing/catalog")
       .then((data) => {
         if (mounted && data?.ok) {
           setCatalog(data.catalog || {});
@@ -1669,7 +1644,12 @@ function usePricingCatalog(store, memberships) {
         }
       });
 
+    refresh();
+    const timer = window.setInterval(refresh, 60000);
+    window.addEventListener("focus", refresh);
     return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
       mounted = false;
     };
   }, []);
@@ -1677,24 +1657,25 @@ function usePricingCatalog(store, memberships) {
   const groups = pricingStoreGroups(store, memberships);
 
   const membershipItems = sortMembershipItems(
-    (catalog
+    catalog
       ? filterPublicPricingItems(catalog.memberships || [])
-      : groups.memberships || [])
-      .filter((item) => membershipCommitmentMonths(item) !== 6)
+      : []
   );
 
   return {
     newbie: catalog
       ? filterPublicPricingItems(catalog.newbie || [])
-      : groups.newbie || [],
+      : [],
 
     classPacks: catalog
       ? sortBySessionsAsc(filterPublicPricingItems(catalog.classPacks || []))
-      : groups.classPacks || [],
+      : [],
 
     dropIn: catalog
       ? filterPublicPricingItems(catalog.dropIn || [])
-      : groups.dropIn || [],
+      : [],
+
+    privateSessions: sortBySessionsAsc(catalog?.privateSessions || []).map((item) => ({ ...item, description: /^\d+ classes?$/.test(item.description || "") ? `${item.sessions} private session${item.sessions === 1 ? "" : "s"}` : item.description })),
 
     memberships: membershipItems,
 
@@ -1763,6 +1744,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
             <div className="pricing-choice-image" role="img" aria-label={category.title} />
             <div className="pricing-choice-copy">
               <strong>{category.title}</strong>
+
             </div>
           </a>
         ))}
@@ -1771,8 +1753,8 @@ function PricingLandingPage({ store, memberships, clientSession }) {
             className={`pricing-choice-card private-option ${option.key}`}
             key={option.key}
             type="button"
-            aria-haspopup="dialog"
-            onClick={() => setSelectedPrivateOption(option)}
+            aria-haspopup={option.key === "privateSessions" ? undefined : "dialog"}
+            onClick={() => option.key === "privateSessions" ? window.location.assign("/pricing?category=private-sessions") : setSelectedPrivateOption(option)}
           >
             <div className="pricing-choice-image" role="img" aria-label={option.title} />
             <div className="pricing-choice-copy">
@@ -1911,11 +1893,7 @@ function GiftCardPurchaseSection({ clientSession }) {
 
   return (
     <section className="gift-card-purchase" id="gift-cards" aria-labelledby="gift-card-title">
-      <div className="gift-card-visual" aria-hidden="true">
-        <span className="gift-card-mark"><Gift size={30} strokeWidth={1.7} /></span>
-        <span className="gift-card-brand">CAVE</span>
-        <span className="gift-card-label">Gift Card</span>
-      </div>
+      <div className="gift-card-visual category-gift-art" role="img" aria-label="Gift Cards" />
       <div className="gift-card-copy">
         <p className="gift-card-eyebrow">Give the gift of movement</p>
         <h2 id="gift-card-title">Cave Gift Cards</h2>
@@ -2085,6 +2063,19 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
   const [status, setStatus] = useState({ type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [profileCheck, setProfileCheck] = useState({ state: "checking", message: "" });
+  const checkProfile = async () => {
+    setProfileCheck({ state: "checking", message: "" });
+    try {
+      await apiRequest("/api/account/payment-card");
+      setProfileCheck({ state: "ready", message: "" });
+    } catch (error) {
+      if (error.loginUrl) { window.location.href = error.loginUrl; return; }
+      setProfileCheck({ state: "error", message: error.message || "We couldn’t check your studio profile. Please try again." });
+    }
+  };
+  useEffect(() => { checkProfile(); }, []);
+
   const formatCardNumber = (raw) => {
     const digits = raw.replace(/\D/g, "").slice(0, 16);
     return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
@@ -2165,6 +2156,17 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
       setIsSubmitting(false);
     }
   };
+
+  if (profileCheck.state !== "ready") {
+    return <div className="add-card-form" role="status">
+      <p>{profileCheck.state === "checking" ? "Checking your studio profile…" : profileCheck.message}</p>
+      {profileCheck.state === "error" ? <>
+        <a className="pill-button black" href="/account">Complete Studio Profile</a>
+        <button type="button" className="text-button" onClick={checkProfile}>Try Again</button>
+      </> : null}
+      {onCancel ? <button type="button" className="text-button" onClick={onCancel}>Cancel</button> : null}
+    </div>;
+  }
 
   return (
     <form className="add-card-form" onSubmit={handleSubmit} autoComplete="on">
@@ -2276,13 +2278,18 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
   const groups = usePricingCatalog(store, memberships);
   const categoryItems = groups[category.key] || [];
+  const introViewRequested = category.key === "newbie" && new URLSearchParams(window.location.search).get("offer") === "intro";
+  const featuredIntro = categoryItems.find(item => isTwoWeekUnlimitedIntro(item) && item.sellOnline !== false);
+  const isIntroOffer = category.key === "newbie" && Boolean(featuredIntro) && (introViewRequested || categoryItems.length === 1);
   const octoberItems = category.key === "classPacks" && isOctoberOfferView() ? categoryItems.filter(isOctoberBuyThreeGetOnePackage) : [];
   const showOctoberOnly = octoberItems.length > 0;
   const standardItems = category.key === "classPacks"
     ? withoutOctoberBuyThreeGetOnePackage(categoryItems)
     : categoryItems;
-  const items = [...(showOctoberOnly ? octoberItems : standardItems)].sort((a, b) => category.key === "newbie" ? Number(/3\s*class/i.test(b.name)) - Number(/3\s*class/i.test(a.name)) : 0);
-  const introPack = items.find((item) => /3\s*class/i.test(item.name) && item.sellOnline !== false);
+  const introPack = category.key === "newbie" ? selectNewClientIntro(standardItems) : null;
+  const items = [...(isIntroOffer ? [featuredIntro] : showOctoberOnly ? octoberItems : standardItems)].sort((a, b) =>
+    category.key === "newbie" ? Number(b.id === introPack?.id) - Number(a.id === introPack?.id) : 0
+  );
   const claimIntro = () => {
     if (!introPack || !cart) return;
     if (cart.items.some((item) => item.id === introPack.id)) cart.open();
@@ -2313,11 +2320,23 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
 
   return (
     <>
+      <div className={isIntroOffer ? "intro-offer-layout" : "pricing-category-layout"}>
       <section className={`pricing-category-heading section page-section ${category.key}`}>
-        <h1>{showOctoberOnly ? "Buy 3, Get 1 Free" : category.key === "newbie" ? newbieHeadline(items) || category.title : category.title}</h1>
+        {isIntroOffer ? <p className="intro-offer-eyebrow">NEW CLIENT PROMO</p> : null}
+        <h1>{showOctoberOnly ? "Buy 3, Get 1 Free" : isIntroOffer ? "14 days. Unlimited Cave." : category.title}</h1>
         {showOctoberOnly ? <a className="october-offer-all-link" href={ROUTES.classPacks}>See all class packs</a> : null}
         {category.key === "memberships" ? <MembershipPerks /> : null}
-        {category.key === "newbie" ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(introPack && cart)} /> : null}
+        {category.key === "privateSessions" ? <p className="private-sessions-intro">One-on-one instruction, with time and attention focused on you.</p> : null}
+        {isIntroOffer ? (
+          <div className="intro-offer-copy">
+            <p>Unlimited reformer classes for {compactPrice(featuredIntro.price)}. New clients only.</p>
+            <p>No reformer experience needed. We’ll help you get set up and guide you through every move.</p>
+            <div className="intro-offer-actions">
+              <button className="pill-button black" type="button" onClick={claimIntro} disabled={!cart}>Get my 14 days · {compactPrice(featuredIntro.price)}</button>
+              <a href={ROUTES.newbie}>See all new-client offers <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+        ) : category.key === "newbie" && items.length === 1 && introPack ? <NewbieIntroLead onClaim={claimIntro} available={Boolean(cart)} /> : null}
       </section>
 
       <section className="pricing-store pricing-store-page section" id="purchase-options" aria-label={`${category.title} purchase options`}>
@@ -2329,7 +2348,7 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
               <PricingCard
                 key={`${item.kind}-${item.id}`}
                 item={item}
-                category={category}
+                category={isIntroOffer ? { ...category, introOffer: true, href: `${ROUTES.newbie}?offer=intro` } : category}
                 isCurrentMembership={category.key === "memberships" && activeMemberships.some((membership) => membershipsMatch(item, membership))}
                 savedCards={savedCards}
                 cardsLoaded={cardsLoaded}
@@ -2345,9 +2364,11 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
         )}
       </section>
 
+      </div>
+
       {category.key === "newbie" ? <>
         <NewbieWhatToExpect />
-        {introPack && cart && !cart.isOpen ? <button className="pill-button black newbie-sticky-cta" onClick={claimIntro}>Claim my intro · {compactPrice(introPack.price)}</button> : null}
+        {!isIntroOffer && items.length === 1 && introPack && cart && !cart.isOpen ? <button className="pill-button black newbie-sticky-cta" onClick={claimIntro}>Claim my intro · {compactPrice(introPack.price)}</button> : null}
       </> : null}
 
       {cart && totalQty > 0 ? (
@@ -2365,8 +2386,11 @@ function PricingCategoryPage({ category, store, memberships, clientSession, cart
 }
 
 function newbieHeadline(items) {
-  const pack = items.find((item) => /\b3\s*class/i.test(String(item.name || "")) && item.price);
-  return pack ? `3 reformer classes for ${compactPrice(pack.price)}` : "";
+  const pack = selectNewClientIntro(items);
+  if (!pack) return "";
+  return isTwoWeekUnlimitedIntro(pack)
+    ? `2 weeks unlimited for ${compactPrice(pack.price)}`
+    : `3 reformer classes for ${compactPrice(pack.price)}`;
 }
 
 function NewbieIntroLead({ onClaim, available }) {
@@ -2410,11 +2434,11 @@ function MembershipPerks() {
   return (
     <>
       <button className="membership-perks-trigger" type="button" onClick={() => setIsOpen(true)}>
-        <span>Unlimited Membership Perks</span>
+        <span>Unlimited Member Perks</span>
         <span className="membership-perks-trigger-icon" aria-hidden="true"><Plus size={18} /></span>
       </button>
 
-      {isOpen ? (
+      {isOpen ? createPortal(
         <div className="membership-perks-overlay" role="dialog" aria-modal="true" aria-labelledby="membership-perks-title">
           <button className="membership-perks-backdrop" type="button" aria-label="Close membership perks" onClick={() => setIsOpen(false)} />
           <article className="membership-perks-modal">
@@ -2458,7 +2482,7 @@ function MembershipPerks() {
             </div>
           </article>
         </div>
-      ) : null}
+      , document.body) : null}
     </>
   );
 }
@@ -2723,9 +2747,9 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const promoEligible = !isContract && isAnyClassPack(item);
   const itemAmount = moneyValue(item.price);
   const discountedAmount = appliedPromo && promoEligible ? itemAmount * 0.85 : itemAmount;
-  const titleLines = pricingTitleLines(item, category);
+  const titleLines = category.key === "privateSessions" ? [item.sessions === 1 ? "Single Session" : `${item.sessions} Session Pack`] : category.introOffer ? ["14 days unlimited"] : pricingTitleLines(item, category);
   const details = category.key === "memberships" ? membershipDetails(item) : null;
-  const cardDescription = category.key === "classPacks" && /^expires?\s+in\s+1\s+months?$/i.test(String(item.description || "").trim())
+  const cardDescription = category.key === "privateSessions" ? (item.sessions === 1 ? "One private Pilates session" : `${item.sessions} private Pilates sessions`) : category.key === "classPacks" && /^expires?\s+in\s+1\s+months?$/i.test(String(item.description || "").trim())
     ? ""
     : item.description;
 const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
@@ -2842,7 +2866,7 @@ const payload = isContract
             {category.key === "memberships" && item.price ? <small className="pricing-price-period">per month</small> : null}
           </p>
           <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
-          {cardDescription ? <p className="pricing-card-desc">{cardDescription}</p> : null}
+          {category.introOffer ? <p className="pricing-card-desc">Unlimited reformer classes. New clients only.</p> : cardDescription ? <p className="pricing-card-desc">{cardDescription}</p> : null}
           {details?.waiverAllowance ? <p className="pricing-card-perks"><strong>Monthly waivers</strong>{details.waiverAllowance}</p> : null}
           {category.key === "classPacks" ? (
   <p className="pricing-card-expiry">Expires 1 month after purchase</p>
@@ -3047,9 +3071,9 @@ const payload = isContract
   </div>
 ) : null}
 
-                {buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
+                {!showCardForm && buyState.message && buyState.type !== "success" ? <p className={`form-status ${buyState.type}`}>{buyState.message}</p> : null}
 
-                <button className="book-class" type="button" disabled={isLoading || !item.id || item.sellOnline === false} onClick={buyItem}>
+                <button className="book-class" type="button" disabled={showCardForm || isLoading || !item.id || item.sellOnline === false} onClick={buyItem}>
                   {isLoading
                     ? (isContract ? "Processing..." : "Starting...")
                     : buyState.type === "error"
@@ -3256,7 +3280,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
             </button>
           </>
         ) : (
-          <a className="pill-button black cart-checkout-btn" href={`/api/auth/start?returnTo=${encodeURIComponent("/pricing")}`}>
+          <a className="pill-button black cart-checkout-btn" href={`/api/auth/start?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}>
             Sign In to Purchase
           </a>
         )}
@@ -3356,146 +3380,6 @@ function AboutPage() {
             </p>
           </div>
           <p className="about-welcome">No matter what season you're in, there's a place for you at Cave.</p>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-const REFORMER_STATIONS = [
-  {
-    key: "front",
-    eyebrow: "01 · Front of the reformer",
-    title: "Where you start.",
-    image: reformerCarriageImage,
-    alt: "Cave reformer from the front, labeled: the carriage, the handle bars, and the front platform.",
-    parts: [
-      {
-        name: "The Carriage",
-        text: "The moving part of the reformer that glides back and forth, with numbered lines to guide your body positioning and straps on each side for support."
-      },
-      {
-        name: "Handle Bars",
-        text: "The two padded bars at the front. Hold them for stability as you step on and off, and during standing and kneeling work."
-      },
-      {
-        name: "Front Platform",
-        text: "The padded platform that stays still at the front of the machine. You will stand, kneel, and lunge from here while the carriage moves beneath you."
-      }
-    ]
-  },
-  {
-    key: "support",
-    eyebrow: "02 · Support and resistance",
-    title: "What keeps you steady.",
-    image: reformerBalancePoleImage,
-    alt: "Cave reformer with the balance pole beside it, labeled: balance pole, bungee strap, and water bottle holder.",
-    parts: [
-      {
-        name: "Balance Pole",
-        text: "The tall pole beside your reformer. Rest a hand on it for balance during standing and single-leg exercises."
-      },
-      {
-        name: "Bungee Strap",
-        text: "The cord clipped to the handle bar. It adds extra resistance for arm and leg work when your instructor calls for it."
-      },
-      {
-        name: "Water Bottle Holder",
-        text: "Mounted at the front of the machine so your water stays within reach for the whole class."
-      }
-    ]
-  },
-  {
-    key: "carriage",
-    eyebrow: "03 · On the carriage",
-    title: "Your tools for the work.",
-    image: reformerCaveStrapsImage,
-    alt: "Close-up of the carriage, labeled: the Cave straps and the pit, a tray of dumbbells and a small ball.",
-    parts: [
-      {
-        name: "The Cave Straps",
-        text: "The padded black straps along the sides of the carriage. Slip your hands or feet in to stay secure while you press and pull."
-      },
-      {
-        name: "The Pit",
-        text: "Where your props live: dumbbells and a small ball, ready to grab when the workout calls for them."
-      }
-    ]
-  },
-  {
-    key: "back",
-    eyebrow: "04 · Back of the reformer",
-    title: "Where you finish.",
-    image: reformerGreyStrapsImage,
-    alt: "Back corner of the reformer, labeled: the back platform and the grey Cave straps hanging from the back post.",
-    parts: [
-      {
-        name: "Back Platform",
-        text: "The padded platform that stays still at the back of the machine, used for standing, kneeling, and seated work."
-      },
-      {
-        name: "The Grey Straps",
-        text: "The grey Cave straps that hang from the back posts. They connect to the resistance cables for pulling work with your arms or legs."
-      }
-    ]
-  }
-];
-
-function MeetYourReformerPage() {
-  return (
-    <div className="reformer-page">
-      <section className="reformer-hero" aria-labelledby="reformer-title">
-        <div className="reformer-hero-copy">
-          <p className="reformer-kicker">The Cave Method</p>
-          <h1 id="reformer-title">
-            <span>Get to know your</span>
-            Reformer
-          </h1>
-          <p>
-            Every Cave class is built on one machine. Here is every part of it, so you can walk in
-            on day one knowing exactly where to step, what to hold, and what each strap is for.
-          </p>
-        </div>
-      </section>
-
-      <nav className="reformer-index" aria-label="Parts of the reformer">
-        {REFORMER_STATIONS.flatMap((station) => station.parts).map((part) => (
-          <a key={part.name} href={`#reformer-${part.name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
-            {part.name}
-          </a>
-        ))}
-      </nav>
-
-      {REFORMER_STATIONS.map((station, index) => (
-        <section
-          key={station.key}
-          className={`reformer-station${index % 2 ? " is-reversed" : ""}`}
-          aria-labelledby={`reformer-station-${station.key}`}
-        >
-          <figure className="reformer-station-image">
-            <img src={station.image} alt={station.alt} width="1080" height="1350" loading={index ? "lazy" : "eager"} />
-          </figure>
-          <div className="reformer-station-copy">
-            <p className="reformer-kicker">{station.eyebrow}</p>
-            <h2 id={`reformer-station-${station.key}`}>{station.title}</h2>
-            <dl className="reformer-parts">
-              {station.parts.map((part) => (
-                <div key={part.name} id={`reformer-${part.name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
-                  <dt>{part.name}</dt>
-                  <dd>{part.text}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </section>
-      ))}
-
-      <section className="reformer-cta">
-        <h2>Ready to meet it in person?</h2>
-        <p>Arrive 10 minutes early for your first class and your instructor will help you get comfortable on the reformer.</p>
-        <div className="reformer-cta-actions">
-          <a className="reformer-cta-primary" href={ROUTES.newbie}>See the new client offer</a>
-          <a className="reformer-cta-secondary" href={ROUTES.schedule}>View the schedule</a>
         </div>
       </section>
     </div>
@@ -4063,9 +3947,7 @@ function StandaloneWaiverForm() {
 }
 
 function useMonthlyGuestPassRefresh(clientSession, benefit, refresh) {
-  const benefitRef = useRef(benefit);
   const refreshRef = useRef(refresh);
-  benefitRef.current = benefit;
   refreshRef.current = refresh;
 
   useEffect(() => {
@@ -4073,7 +3955,6 @@ function useMonthlyGuestPassRefresh(clientSession, benefit, refresh) {
     return watchGuestPassRenewal({
       window,
       document,
-      getBenefitMonth: () => ["unavailable", "reserved"].includes(benefitRef.current?.status) ? "" : benefitRef.current?.benefitMonth,
       refresh: (isActive) => refreshRef.current(isActive)
     });
   }, [clientSession?.signedIn, clientSession?.clientId]);
@@ -4091,12 +3972,19 @@ function AccountPage({ clientSession, setClientSession, bookingUrl, isSessionLoa
     try {
       const result = await apiRequest("/api/client/eligibility");
       if (!result?.ok || !result.data?.monthlyGuestPass) throw new Error("Guest pass unavailable");
-      if (isActive()) setDashboard((current) => ({ ...current, monthlyGuestPass: result.data.monthlyGuestPass }));
-    } catch {
+      if (isActive()) setDashboard((current) => ({
+        ...current,
+        monthlyGuestPass: result.data.monthlyGuestPass,
+        eligibility: result.data,
+        services: (result.data.activeServices || []).map((item) => ({ ...item, Id: item.id, Name: item.name, Remaining: item.remaining, ExpirationDate: item.expirationDate })),
+        contracts: (result.data.activeMemberships || []).map((item) => ({ ...item, Id: item.id, Name: item.name, Remaining: item.remaining, ExpirationDate: item.expirationDate }))
+      }));
+    } catch (error) {
       if (isActive()) setDashboard((current) => ({
         ...current,
         monthlyGuestPass: { ...current?.monthlyGuestPass, available: false, status: "unavailable" }
       }));
+      throw error;
     }
   });
 
@@ -5153,6 +5041,7 @@ function MembershipGrid({ memberships }) {
 }
 
 function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
+  const now = useScheduleClock();
   const cachedRows = schedule.length ? schedule : FALLBACK_CACHE.schedule;
   const [liveClasses, setLiveClasses] = useState(null);
   const [liveLoading, setLiveLoading] = useState(true);
@@ -5163,11 +5052,12 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       const result = await apiRequest("/api/client/eligibility");
       if (!result?.ok || !result.data?.monthlyGuestPass) throw new Error("Guest pass unavailable");
       if (isActive()) setEligibility(result.data);
-    } catch {
+    } catch (error) {
       if (isActive()) setEligibility((current) => current ? {
         ...current,
         monthlyGuestPass: { ...current.monthlyGuestPass, available: false, status: "unavailable" }
       } : current);
+      throw error;
     }
   });
   const [dataLoading, setDataLoading] = useState(false);
@@ -5179,6 +5069,8 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
   const autoBookTriggered = React.useRef(false);
   const visibleDayCount = useScheduleDayCount();
   const requestedClassId = new URLSearchParams(window.location.search).get("classId");
+  const focusedClassId = new URLSearchParams(window.location.search).get("focusClass");
+  const focusedClassScrolled = useRef(false);
 
   // Load live classes on mount
   useEffect(() => {
@@ -5235,7 +5127,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
     return () => { cancelled = true; };
   }, [clientSession?.signedIn]);
 
-  const rows = liveClasses ?? cachedRows;
+  const rows = (liveClasses ?? cachedRows).filter(item => isClassVisible(item, now));
   const groupedDays = rows.reduce((days, classItem) => {
     const key = getScheduleDateKey(classItem);
     if (!key) return days;
@@ -5250,7 +5142,7 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       classes: day.classes.slice().sort((a, b) => new Date(a.startDateTime || 0) - new Date(b.startDateTime || 0))
     }))
     .sort((a, b) => new Date(a.key) - new Date(b.key));
-  const requestedDayIndex = sortedDays.findIndex((day) => day.classes.some((classItem) => String(classItem.id) === requestedClassId));
+  const requestedDayIndex = sortedDays.findIndex((day) => day.classes.some((classItem) => String(classItem.id) === (focusedClassId || requestedClassId)));
   const [activeDayIndex, setActiveDayIndex] = useState(Math.max(requestedDayIndex, 0));
   const [isCalendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonthKey, setCalendarMonthKey] = useState(() => {
@@ -5277,6 +5169,20 @@ function ScheduleList({ schedule, bookingUrl, clientSession, spotsLoading }) {
       currentMonthKey < firstMonthKey || currentMonthKey > lastMonthKey ? activeMonthKey : currentMonthKey
     );
   }, [activeDay?.key, firstMonthKey, lastMonthKey]);
+
+  useEffect(() => {
+    if (!focusedClassId || requestedDayIndex < 0 || focusedClassScrolled.current || liveLoading) return;
+    if (activeDayIndex !== requestedDayIndex) {
+      setActiveDayIndex(requestedDayIndex);
+      return;
+    }
+    const target = document.getElementById(`schedule-class-${focusedClassId}`);
+    if (target) {
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.focus({ preventScroll: true });
+      focusedClassScrolled.current = true;
+    }
+  }, [focusedClassId, requestedDayIndex, activeDayIndex, liveLoading]);
 
   useEffect(() => {
     if (!requestedClassId || !clientSession?.signedIn || autoBookTriggered.current) return;
@@ -5766,6 +5672,9 @@ const shouldWaitlist =
     liveStatus === "Unavailable"
   );
 
+const isWaitlistFull = !isDataLoading && shouldWaitlist &&
+  (classItem.waitlistFull || liveStatus === "Waitlist Full");
+
 let spotsClass = "spots-badge spots-open";
 let spotsText = "Available";
 
@@ -5787,6 +5696,9 @@ if (isDataLoading) {
 } else if (liveStatus === "Canceled") {
   spotsClass = "spots-badge spots-full";
   spotsText = "Canceled";
+} else if (isWaitlistFull) {
+  spotsClass = "spots-badge spots-full";
+  spotsText = "Waitlist Full";
 } else if (shouldWaitlist) {
   spotsClass = "spots-badge spots-low";
   spotsText = "Waitlist";
@@ -5839,6 +5751,12 @@ if (isDataLoading) {
       Waitlisted
     </button>
   );
+} else if (isWaitlistFull) {
+  actionButton = (
+    <button className="book-class book-full" type="button" disabled>
+      Waitlist Full
+    </button>
+  );
 } else if (!clientSession?.signedIn) {
   actionButton = (
     <a
@@ -5855,7 +5773,7 @@ if (isDataLoading) {
 } else if (hasNoCredits && !classItem.isFree) {
   actionButton = (
     <a className="book-class book-credits" href={ROUTES.pricing}>
-      Reserve
+      Get Class Credits
     </a>
   );
 } else if (shouldWaitlist) {
@@ -5892,7 +5810,7 @@ if (isDataLoading) {
         
 
           return (
-            <article className="schedule-row" key={`${classItem.id || classItem.classScheduleId || index}-${classItem.startDateTime || classItem.time}`}>
+            <article id={`schedule-class-${classItem.id}`} tabIndex={-1} className={`schedule-row${String(classItem.id) === focusedClassId ? " schedule-row-selected" : ""}`} key={`${classItem.id || classItem.classScheduleId || index}-${classItem.startDateTime || classItem.time}`}>
               <div>
                 <span>Date</span>
                 <strong>{classItem.date}</strong>

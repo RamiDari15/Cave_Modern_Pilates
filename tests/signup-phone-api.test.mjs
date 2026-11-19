@@ -109,7 +109,7 @@ async function completeSignupOAuth(overrides = {}) {
   assert.equal(callback.status, 303);
   const cookie = sessionCookie(callback);
   const session = await request("/api/auth/session", { method: "GET", cookie });
-  return { cookie, session: session.body.session };
+  return { cookie, session: session.body.session, status: session.status };
 }
 
 function sessionCookie(result) {
@@ -254,12 +254,9 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
       hydratedAt: "2000-01-01T00:00:00.000Z"
     });
     const result = await request("/api/account/signup-phone", { cookie, body: { phone: "7085550123", clientId: "999" } });
-    assert.equal(result.status, 200);
-    assert.equal(result.body.session.clientId, "42");
+    assert.equal(result.status, 503);
     const calls = upstreamCalls.slice(before);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url.pathname, "/public/v6/client/updateclient");
-    assert.equal(calls[0].body.Client.Id, "42");
+    assert.ok(!calls.some(call => call.url.pathname.endsWith("/client/updateclient")));
     profileResult = { Id: "42", FirstName: "Signup", LastName: "Test", Email: "signup-test@example.invalid" };
   });
 
@@ -320,7 +317,7 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     const result = await request("/api/account/profile", { cookie: createdClientCookie("42"), body: { phone: "7085550123", clientId: "999", email: " SIGNUP-TEST@EXAMPLE.INVALID " } });
     assert.equal(result.status, 200);
     assert.equal(result.body.clientId, "42");
-    const calls = upstreamCalls.slice(before);
+    const calls = upstreamCalls.slice(before).filter(call => !call.url.pathname.endsWith("/client/clientcompleteinfo"));
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url.pathname, "/public/v6/client/updateclient");
     assert.equal(calls[0].body.Client.Id, "42");
@@ -375,7 +372,7 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     duplicateUpdate = false;
     assert.equal(result.status, 409);
     assert.equal(sessionCookie(result), "");
-    const calls = upstreamCalls.slice(before);
+    const calls = upstreamCalls.slice(before).filter(call => !call.url.pathname.endsWith("/client/clientcompleteinfo"));
     assert.equal(calls.length, 1);
     assert.equal(calls[0].body.Client.Id, "42");
   });
@@ -411,17 +408,11 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     profileResult = {};
     searchResults = [{ Id: "999", Email: "stranger@example.invalid", FirstName: "Stranger" }];
     const before = upstreamCalls.length;
-    const { cookie, session } = await completeSignupOAuth();
-    assert.equal(session.clientId, "42");
-    assert.equal(session.user.email, "signup-test@example.invalid");
-    assert.equal(session.user.firstName, "Signup");
-    const staffLookups = upstreamCalls.slice(before).filter((call) => call.url.pathname.endsWith("/client/clients"));
-    assert.equal(staffLookups.length, 1);
-    assert.equal(staffLookups[0].url.searchParams.get("request.clientIds"), "42");
-    assert.equal(staffLookups[0].url.searchParams.get("SearchText"), null);
+    const { cookie, status } = await completeSignupOAuth();
+    assert.equal(status, 503); // Unknown provider profile cannot authorize the stale ID.
     const saved = await request("/api/account/signup-phone", { cookie, body: { phone: "7085550123" } });
-    assert.equal(saved.status, 200);
-    assert.equal(upstreamCalls.at(-1).body.Client.Id, "42");
+    assert.equal(saved.status, 503);
+    assert.ok(!upstreamCalls.slice(before).some(call => call.url.pathname.endsWith("/client/updateclient")));
   });
 
   await t.test("a matching studio client can enrich the profile without changing login email", async () => {
@@ -457,7 +448,7 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
   });
 
   await t.test("an unlinked OAuth session accepts one exact authenticated-email match", async () => {
-    profileResult = {};
+    profileResult = { Id: "73", Email: "signup-test@example.invalid" };
     searchResults = [{ Id: "999", Email: "stranger@example.invalid" }, { Id: "73", Email: "signup-test@example.invalid" }];
     const { cookie, session } = await completeSignupOAuth();
     assert.equal(session.clientId, "73");
@@ -476,15 +467,12 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
       platformProfiles = [{ businessId, clientId: "999", id: "unrelated-profile" }];
       const { cookie } = await completeSignupOAuth();
       profileResult = { Id: "999", Email: "stranger@example.invalid", MobilePhone: "3125550199" };
+      const before = upstreamCalls.length;
       const account = await request("/api/account/me", { method: "GET", cookie });
-      assert.equal(account.status, 200);
-      assert.equal(account.body.data.clientId, "42");
-      assert.equal(account.body.data.email, "signup-test@example.invalid");
-      assert.equal(account.body.data.phone, undefined);
-      assert.notEqual(account.body.data.profileId, "unrelated-profile");
-      const saved = await request("/api/account/signup-phone", { cookie: sessionCookie(account) || cookie, body: { phone: "7085550123" } });
-      assert.equal(saved.status, 200);
-      assert.equal(upstreamCalls.at(-1).body.Client.Id, "42");
+      assert.equal(account.status, 503);
+      const saved = await request("/api/account/signup-phone", { cookie, body: { phone: "7085550123" } });
+      assert.equal(saved.status, 503);
+      assert.ok(!upstreamCalls.slice(before).some(call => call.url.pathname.endsWith("/client/updateclient")));
     }
   });
 
@@ -508,8 +496,23 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     assert.ok(!upstreamCalls.slice(before).some((call) => call.url.pathname.endsWith("/client/updateclient")));
   });
 
-  await t.test("an unlinked account accepts a unique Cave business profile", async () => {
+  await t.test("sign-in and session refresh never write a studio profile link", async () => {
+    const { mindbody_client_id, ...unlinkedClaims } = defaultOAuthClaims;
+    oauthClaims = unlinkedClaims;
+    platformMe = { userAccount: { id: "platform-test-user" } };
+    platformProfiles = [];
+    platformLinkedProfile = {};
     profileResult = {};
+    searchResults = [];
+    const before = upstreamCalls.length;
+    const { cookie } = await completeSignupOAuth();
+    await request("/api/auth/session", { method: "GET", cookie });
+    assert.ok(!upstreamCalls.slice(before).some(call => call.url.pathname === "/platform/contacts/v1/profiles"),
+      "Authentication must not create or relink a studio profile");
+  });
+
+  await t.test("an unlinked account accepts a unique Cave business profile", async () => {
+    profileResult = { Id: "73", Email: "signup-test@example.invalid", MobilePhone: "7085550123" };
     searchResults = [];
     platformLinkedProfile = {};
     platformProfiles = [{ businessId: "unrelated-other-studio", clientId: "999" }, { businessId: process.env.BOOKING_SITE_ID, clientId: "73" }];
@@ -520,7 +523,7 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     assert.equal(account.body.data.clientId, "73");
     assert.equal(account.body.data.hasBusinessProfile, true);
     assert.equal(account.body.data.phone, "7085550123");
-    const saved = await request("/api/account/signup-phone", { cookie: sessionCookie(account), body: { phone: "7085550123" } });
+    const saved = await request("/api/account/signup-phone", { cookie: sessionCookie(account) || cookie, body: { phone: "7085550123" } });
     assert.equal(saved.status, 200);
     assert.equal(upstreamCalls.at(-1).body.Client.Id, "73");
   });
@@ -555,4 +558,17 @@ test("signup phone survives OAuth and saves only after confirmation", async (t) 
     }
     searchPagination = null;
   });
+  await t.test("removed studio profiles reject saved sessions and profile writes; a new profile can sign in", async () => {
+    const cookie = createdClientCookie("42");
+    for (const removed of [null, {Id:"42",Active:false}, {Id:"42",Email:""}]) {
+      profileResult = removed;
+      const before = upstreamCalls.length;
+      assert.equal((await request("/api/auth/session", {method:"GET",cookie})).status,401);
+      assert.equal((await request("/api/account/profile", {cookie,body:{phone:"7085550123"}})).status,401);
+      assert.ok(!upstreamCalls.slice(before).some(call => call.url.pathname.endsWith("/client/updateclient")));
+    }
+    profileResult = {Id:"84",Active:true,Email:"signup-test@example.invalid"};
+    assert.equal((await request("/api/auth/session", {method:"GET",cookie:createdClientCookie("84")})).status,200);
+  });
+
 });

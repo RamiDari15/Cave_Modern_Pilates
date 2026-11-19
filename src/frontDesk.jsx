@@ -1,3 +1,4 @@
+import { DeletionQueue } from "./DeletionQueue";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ordinal } from "./milestones";
@@ -363,6 +364,7 @@ function Dashboard({ onSignedOut }) {
 
   return (
     <div className="fd-app">
+      <DeletionQueue api={api} />
       <header className="fd-bar">
         <div className="fd-bar-brand">
           <a className="fd-wordmark" href="/">Cave Modern Pilates</a>

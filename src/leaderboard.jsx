@@ -135,17 +135,61 @@ function Countdown({ target }) {
     ["Seconds", Math.floor(left / 1000) % 60]
   ];
 
+  const secondsProgress = (left % 60_000) / 60_000;
+
   return (
     <div className="lb-countdown" role="timer" aria-label="Time until the challenge starts">
-      {units.map(([label, value]) => (
-        <div className="lb-countdown-cell" key={label}>
-          <span className="lb-countdown-value" key={value}>
-            {String(value).padStart(2, "0")}
-          </span>
-          <span className="lb-countdown-label">{label}</span>
-        </div>
+      {units.map(([label, value], index) => (
+        <React.Fragment key={label}>
+          {index > 0 && (
+            <span className="lb-countdown-sep" aria-hidden="true">
+              :
+            </span>
+          )}
+          <div className={`lb-countdown-cell${label === "Seconds" ? " is-seconds" : ""}`} style={{ "--i": index }}>
+            <span className="lb-countdown-value">
+              {String(value)
+                .padStart(2, "0")
+                .split("")
+                .map((digit, place) => (
+                  <span className="lb-digit" key={`${place}-${digit}`}>
+                    {digit}
+                  </span>
+                ))}
+            </span>
+            <span className="lb-countdown-label">{label}</span>
+            {label === "Seconds" && <span className="lb-countdown-sweep" style={{ transform: `scaleX(${secondsProgress})` }} aria-hidden="true" />}
+          </div>
+        </React.Fragment>
       ))}
     </div>
+  );
+}
+
+// Fades a block in the first time it scrolls into view.
+function Reveal({ as: Tag = "div", className = "", delay = 0, children, ...rest }) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(() => prefersReducedMotion() || typeof IntersectionObserver === "undefined");
+
+  useEffect(() => {
+    if (visible || !ref.current) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  return (
+    <Tag ref={ref} className={`lb-reveal${visible ? " is-visible" : ""} ${className}`} style={{ "--delay": `${delay}ms` }} {...rest}>
+      {children}
+    </Tag>
   );
 }
 
@@ -163,7 +207,7 @@ function PodiumSpot({ row, place, bump }) {
         <div className="lb-avatar">
           <span>?</span>
         </div>
-        <p className="lb-podium-name">Open spot</p>
+        <p className="lb-podium-name">Could be you</p>
         <p className="lb-podium-count">&nbsp;</p>
         <div className="lb-pedestal">
           <span className="lb-pedestal-place">{place}</span>
@@ -310,32 +354,23 @@ function phaseAt(time) {
   return "live";
 }
 
-function StatusPill({ status }) {
-  if (status === "live")
-    return (
-      <span className="lb-pill is-live">
-        <i /> Live
-      </span>
-    );
-  if (status === "preview") return <span className="lb-pill is-preview">Preview</span>;
-  if (status === "final") return <span className="lb-pill is-final">Final standings</span>;
-  return <span className="lb-pill">Starts {new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>;
-}
-
 function Rules() {
   const startLabel = new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const steps = [
+    ["Take class", `Every Cave class you finish from ${formatRange()} earns 1 point.`],
+    ["Start fresh", `Everyone begins at zero at midnight on ${startLabel}. Nothing before it counts.`],
+    ["Climb the board", "The top three take gold, silver and bronze. Standings update through the day."]
+  ];
   return (
-    <ul className="lb-rules">
-      <li>
-        <strong>1 class = 1 point.</strong> Every Cave class you take from {formatRange()} counts.
-      </li>
-      <li>
-        <strong>Fresh start.</strong> Everyone begins at zero at midnight on {startLabel}.
-      </li>
-      <li>
-        <strong>Top three take the podium.</strong> Gold, silver and bronze.
-      </li>
-    </ul>
+    <ol className="lb-steps">
+      {steps.map(([title, text], index) => (
+        <Reveal as="li" className="lb-step" delay={index * 120} key={title}>
+          <span className="lb-step-number">{String(index + 1).padStart(2, "0")}</span>
+          <h3>{title}</h3>
+          <p>{text}</p>
+        </Reveal>
+      ))}
+    </ol>
   );
 }
 
@@ -385,49 +420,46 @@ export function ChallengePage() {
   const leaders = phase !== "upcoming" && board?.status === phase ? board.leaders || [] : [];
   const bumps = useBumps(leaders);
   const showBoard = phase !== "upcoming" && leaders.length > 0;
-  const startLong = new Date(START_MS).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   return (
     <div className={`lb-page is-${phase}`}>
       {showBoard && phase === "final" && <Confetti />}
 
       <section className="lb-hero">
-        <p className="lb-kicker">
-          {formatRange()} · One class, one point
-        </p>
-        <h1>
-          {phase === "final" ? "And the winners are" : "The Cave Challenge"}
-          <span>Leaderboard</span>
-        </h1>
-        <StatusPill status={phase} />
+        <h1>{phase === "final" ? "Final standings" : "The Cave Challenge"}</h1>
       </section>
 
       <div className="lb-panel">
-        {phase === "preview" && (
-          <div className="lb-banner">
-            <p>
-              <strong>Preview.</strong> This is the board as it will look from {startLong}, scored on the last two weeks of
-              real classes. Everyone else sees the countdown until then, and the board starts from zero at midnight.
-            </p>
-          </div>
-        )}
-
         {phase === "upcoming" && (
-          <section className="lb-upcoming">
-            <p className="lb-upcoming-lead">The challenge starts in</p>
-            <Countdown target={START_MS} />
-            <Rules />
-          </section>
+          <>
+            <section className="lb-upcoming">
+              <p className="lb-section-kicker">The challenge starts in</p>
+              <Countdown target={START_MS} />
+            </section>
+            <Reveal as="section" className="lb-section">
+              <h2 className="lb-section-title">One class. One point.</h2>
+              <Rules />
+            </Reveal>
+            <Reveal as="section" className="lb-section lb-teaser">
+              <h2 className="lb-section-title">Who takes gold?</h2>
+              <Podium leaders={[]} bumps={{}} />
+            </Reveal>
+          </>
         )}
 
         {phase !== "upcoming" && loading && !showBoard && <p className="lb-empty">Loading the standings…</p>}
 
         {phase !== "upcoming" && !loading && !showBoard && !error && (
-          <section className="lb-upcoming">
-            <p className="lb-upcoming-lead">The challenge is on</p>
-            <p className="lb-empty">Classes are counted as soon as they finish. The first names appear here after the first class of the day.</p>
-            <Rules />
-          </section>
+          <>
+            <section className="lb-upcoming">
+              <p className="lb-section-kicker">The challenge is on</p>
+              <p className="lb-empty">Classes are counted as soon as they finish. The first names appear here after the first class of the day.</p>
+            </section>
+            <Reveal as="section" className="lb-section">
+              <h2 className="lb-section-title">One class. One point.</h2>
+              <Rules />
+            </Reveal>
+          </>
         )}
 
         {error && <p className="lb-error">{error}</p>}

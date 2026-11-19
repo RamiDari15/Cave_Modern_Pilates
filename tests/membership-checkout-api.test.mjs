@@ -39,6 +39,7 @@ let providerUnavailable = false;
 let calls = [];
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input);
+  if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({Client:{Id:"42", Active:true, Email:"checkout-test@example.invalid"}});
   const call = { path: url.pathname, method: options.method || "GET", query: Object.fromEntries(url.searchParams), body: options.body ? JSON.parse(options.body) : null };
   calls.push(call);
   if (url.pathname.endsWith("/sale/services")) return Response.json({ Services: [] });

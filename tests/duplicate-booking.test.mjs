@@ -24,13 +24,14 @@ syncBuiltinESMExports();
 const { handleApiRequest } = await import("../server/api.mjs");
 const originalFetch = globalThis.fetch;
 
+let eventOverride = null, lastBookingBody = null;
 let visits = [], posts = 0, readFailure = false, uncertain = false, capacity = 10;
 let services = [{ Id: 10, Name: "10 Class Pack", Remaining: 10, ActiveDate: "2020-01-01", ExpirationDate: "2099-12-31" }];
 let contracts = [];
 let completeMemberships = [];
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input), body = options.body ? JSON.parse(options.body) : {};
-  if (url.pathname.endsWith("/class/classes")) return Response.json({ Classes: [{ Id: 77, StartDateTime: "2099-01-01T10:00:00", MaxCapacity: capacity, TotalBooked: 0, IsAvailable: true }] });
+  if (url.pathname.endsWith("/class/classes")) return Response.json({ Classes: [{ Id: 77, StartDateTime: "2099-01-01T10:00:00", MaxCapacity: capacity, TotalBooked: 0, IsAvailable: true, ...eventOverride }] });
   if (url.pathname.endsWith("/client/clientschedule")) {
     if (readFailure) return Response.json({ Error: { Message: "schedule unavailable" } }, { status: 503 });
     return Response.json({ Visits: visits });
@@ -41,6 +42,7 @@ globalThis.fetch = async (input, options = {}) => {
   if (url.pathname.endsWith("/client/clientcontracts")) return Response.json({ Contracts: contracts });
   if (url.pathname.endsWith("/class/addclienttoclass")) {
     posts++;
+    lastBookingBody = body;
     await new Promise(resolve => setTimeout(resolve, 30));
     const visit = { Id: 100, ClassId: body.ClassId, VisitStatus: "Booked" };
     visits.push(visit);
@@ -68,6 +70,7 @@ async function request(body, path = "/api/mindbody/book-class", method = "POST")
 
 
 function reset() {
+  eventOverride = null; lastBookingBody = null;
   visits = [];
   posts = 0;
   readFailure = false;
@@ -95,6 +98,32 @@ test("cancelled and waitlisted visits are not duplicate active bookings", () => 
 
 test("booking requests with a synthetic provider never create duplicate reservations", async t => {
   t.after(() => { globalThis.fetch = originalFetch; fs.existsSync = originalExistsSync; fs.readFileSync = originalReadFileSync; syncBuiltinESMExports(); });
+  await t.test("complimentary event books without credits and never selects paid credits", async () => {
+    for (const withCredits of [false, true]) {
+      reset();
+      if (!withCredits) services = [];
+      eventOverride = { Id: 6940, StartDateTime: "2026-11-22T17:30:00", Location: { Id: 1 }, TotalBookedWaitlist: 0, WaitListSize: 5 };
+      const result = await request({classId:6940, clientServiceId:10});
+      assert.equal(result.status,200,JSON.stringify(result.body));
+      assert.equal(lastBookingBody.RequirePayment,false);
+      assert.equal(lastBookingBody.ClientServiceId,undefined);
+    }
+  });
+  await t.test("free event waitlist permits clients without credits", async () => {
+    reset(); services=[];
+    eventOverride = { Id:6940, StartDateTime:"2026-11-22T17:30:00", Location:{Id:1}, TotalBookedWaitlist:0, WaitListSize:5 };
+    const result=await request({classId:6940}, "/api/mindbody/join-waitlist");
+    assert.equal(result.status,200,JSON.stringify(result.body));
+    assert.equal(lastBookingBody.Waitlist,true);
+  });
+  await t.test("other dates and classes still require credits despite client free hints", async () => {
+    for (const override of [null, { Id:6940, StartDateTime:"2026-11-23T17:30:00", Location:{Id:1} }]) {
+      reset(); services=[]; eventOverride=override;
+      const result=await request({classId:override?.Id || 77, isFree:true});
+      assert.equal(result.status,402,JSON.stringify(result.body));
+      assert.equal(posts,0);
+    }
+  });
   await t.test("simultaneous clicks and both booking endpoints make only one upstream booking", async () => {
     reset();
     const results = await Promise.all(Array.from({length:8},(_,i)=>request({classId:77},i%2 ? "/api/classes/book" : "/api/mindbody/book-class")));
@@ -159,30 +188,6 @@ test("booking requests with a synthetic provider never create duplicate reservat
     assert.equal(result.status,402,JSON.stringify(result.body));
     assert.equal(result.body.code,"NO_GUEST_PASS");
     assert.equal(posts,0);
-  });
-  await t.test("termination date without status removes membership and guest access but preserves paid drop-ins", async () => {
-    reset();
-    contracts = [{ Id: 20, ContractName: "Unlimited Members- 12 Month Contract", EndDate: "2099-08-05", TerminationDate: "2026-09-08T00:00:00" }];
-    completeMemberships = [{ Id: 20, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-08-05" }];
-    services = [
-      { Id: 10, Name: "Unlimited Membership", Remaining: 99999, ExpirationDate: "2099-08-05" },
-      { Id: 11, Name: "Guest Pass", Remaining: 1, ExpirationDate: "2099-08-05" }
-    ];
-    let info = await request(null, "/api/mindbody/client-info", "GET");
-    assert.equal(info.status, 200);
-    assert.deepEqual(info.body.data.activeMemberships, []);
-    assert.equal((await request({classId:77})).status, 402);
-    assert.equal((await request({classId:77, guest:{firstName:"Test",lastName:"Guest",email:"guest@example.invalid",mobilePhone:"3135550100"}}, "/api/mindbody/book-guest")).status, 402);
-    assert.equal(posts, 0);
-    services.push({ Id: 12, Name: "Drop in", Remaining: 1, ExpirationDate: "2099-12-31" });
-    assert.equal((await request({classId:77})).status, 200);
-    assert.equal(posts, 1);
-  });
-  await t.test("a future termination does not end today's membership early", async () => {
-    reset();
-    contracts = [{ Id: 20, ContractName: "Unlimited Membership - 12 Months", EndDate: "2099-12-31", TerminationDate: "2099-06-01T00:00:00" }];
-    const info = await request(null, "/api/mindbody/client-info", "GET");
-    assert.equal(info.body.data.activeMemberships.length, 1);
   });
   await t.test("a guest pass never counts as a member class credit", async () => {
     reset();

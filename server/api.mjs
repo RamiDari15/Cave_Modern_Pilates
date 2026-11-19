@@ -1,4 +1,7 @@
-import { deletionHandoff, deactivateStudioAccount } from "./accountDeletion.mjs";
+import { waitlistAvailability } from "../src/waitlist.js";
+import { studioProfileAccess } from "./studioProfileAccess.mjs";
+import { deletionServices, deletionIdentity, requestReceipt, submitDeletionRequest, sessionPredatesErasure } from "./deletionRequests.mjs";
+import { deletionHandoff } from "./accountDeletion.mjs";
 import { createBookingSingleFlight } from "./bookingGuard.mjs";
 import { isActiveClassBooking, isCancelledVisit } from "../src/bookingGuard.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
@@ -68,7 +71,7 @@ const liveClassesCache = {
 const pricingCatalogCache = {
   data: null,
   expiresAt: 0,
-  TTL_MS: 15 * 60 * 1000
+  TTL_MS: 60 * 1000
 };
 
 const CLASS_PACK_PROMOTIONS = Object.freeze({
@@ -85,18 +88,6 @@ const PROMO_ELIGIBLE_CLASS_PACKS = new Set([
   "5 class pack",
   "10 class pack"
 ]);
-
-const ADVERTISED_MEMBERSHIPS = Object.freeze({
-  "101": { name: "4 Class Membership-3 Months Contract", price: "$119.00" },
-  "103": { name: "4 Class Membership-12 Months Contract", price: "$109.00" },
-  "104": { name: "8 Class Membership-3 Months Contract", price: "$199.00" },
-  "106": { name: "8 Class Membership-12 Months Contract", price: "$189.00" },
-  "113": { name: "Unlimited Membership-3 Months Contract", price: "$279.00" },
-  "115": { name: "Unlimited Membership-12 Months Contract", price: "$259.00" }
-});
-
-const HIDDEN_MEMBERSHIP_CONTRACT_IDS = new Set(["102", "105", "114"]);
-
 
 function normalizePromoCode(value) {
   return String(value || "").trim().toUpperCase();
@@ -348,6 +339,21 @@ export async function handleApiRequest(request, response) {
   }
 
   try {
+    // Enforce erasure against old signed sessions, including mobile bearer tokens.
+    // Keep the receipt endpoint available so customers can see completion.
+    if (process.env.CAVE_DELETION_ENABLED === "true" && !path.startsWith("/api/front-desk/") && !["/api/account/deletion-request", "/api/auth/logout"].includes(path)) {
+      const session = readSession(request);
+      if (session?.user?.email) {
+        const services = deletionServices();
+        const identity = deletionIdentity(session, services.secret);
+        const row = await services.store.latestErasure(identity.subject_key);
+        if (sessionPredatesErasure(session, row)) {
+          clearSessionCookie(response);
+          throw httpError(401, "Your Cave account was deleted. Please sign in again to create a new session.");
+        }
+      }
+    }
+
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method || "") && path !== "/api/auth/callback") {
       enforceSameOrigin(request);
     }
@@ -498,7 +504,7 @@ export async function handleApiRequest(request, response) {
       // 1. Platform API — retrieves the business profile link (read-only)
       if (!clientId) {
         const accessToken = session.consumerIdentityToken || session.accessToken;
-        const platformResult = await linkPlatformProfile(accessToken).catch(() => null);
+        const platformResult = await lookupPlatformProfile(accessToken).catch(() => null);
         if (platformResult?.clientId) {
           clientId = platformResult.clientId;
           console.log("[mindbody-auth] /api/auth/link: Platform API resolved clientId:", clientId);
@@ -1610,7 +1616,7 @@ return true;
       return true;
     }
 
-    if ((path === "/api/account/payment-card" || path === "/api/client/add-card") && request.method === "POST") {
+    if ((path === "/api/account/payment-card" || path === "/api/client/add-card") && ["GET", "POST"].includes(request.method)) {
       const session = await readHydratedSession(request, response);
 
       if (!session) {
@@ -1622,10 +1628,27 @@ return true;
         return true;
       }
 
-      const clientId = await resolveSessionClientId(session).catch(() => "");
+      // A previous failed hydration must not delay a newly linked profile.
+      const refreshed = !session.clientId && session.authMode === "oauth"
+        ? await hydrateOAuthSession({ ...session, hydratedAt: "" })
+        : session;
+      const clientId = refreshed.clientId || "";
 
       if (!clientId) {
-        sendJson(response, 400, { ok: false, message: "Your studio account could not be found. Please contact Cave to link your account." });
+        sendJson(response, 409, {
+          ok: false,
+          code: "STUDIO_PROFILE_REQUIRED",
+          message: "Complete your Cave studio profile before adding a card, then return here to finish your purchase.",
+          profileUrl: "/account"
+        });
+        return true;
+      }
+
+      // Re-check newly resolved identities before reading or updating payment data.
+      await verifyStudioSession(refreshed, response);
+      if (refreshed !== session) setSessionCookie(response, refreshed);
+      if (request.method === "GET") {
+        sendJson(response, 200, { ok: true, ready: true });
         return true;
       }
 
@@ -2169,17 +2192,13 @@ return true;
             emergencyContactPhone: client.EmergencyContactInfoPhone || undefined,
             emergencyContactRelationship: client.EmergencyContactInfoRelationship || undefined
           });
-         fullProfile.hasWaiver = Boolean(
-  client.Liability?.IsReleased ||
-  activeSession?.hasWaiver ||
-  activeSession?.waiver?.signedDate
-);
-
-fullProfile.waiverDate =
-  client.Liability?.AgreementDate ||
-  activeSession?.waiverDate ||
-  activeSession?.waiver?.signedDate ||
-  null;
+          // An explicit provider false must override an old signed session.
+          fullProfile.hasWaiver = typeof client.Liability?.IsReleased === "boolean"
+            ? client.Liability.IsReleased
+            : client.LiabilityRelease === true;
+          fullProfile.waiverDate = fullProfile.hasWaiver
+            ? client.Liability?.AgreementDate || null
+            : null;
           console.log(`[account/me] clientcompleteinfo: hasWaiver=${fullProfile.hasWaiver} hasPhone=${Boolean(fullProfile.phone)}`);
         }
       }
@@ -2206,21 +2225,41 @@ fullProfile.waiverDate =
       return true;
     }
 
+    if (path === "/api/account/deletion-request") {
+      response.setHeader("Cache-Control", "no-store");
+      const session = readSession(request);
+      if (!session) throw httpError(401, "Please sign in first.");
+      if (!["GET", "POST"].includes(request.method)) throw httpError(405, "Method not allowed.");
+      const services = deletionServices();
+      if (request.method === "GET") {
+        const identity = deletionIdentity(session, services.secret);
+        const row = await services.store.latest(identity.subject_key);
+        sendJson(response, 200, { ok: true, data: row ? requestReceipt(row) : null });
+      } else {
+        enforceRateLimit(request);
+        const identity = deletionIdentity(session, services.secret);
+        const erased = await services.store.latestErasure(identity.subject_key);
+        if (sessionPredatesErasure(session, erased)) throw httpError(401, "This Cave account has already been deleted. Please sign in again.");
+        if (!String(request.headers["content-type"] || "").includes("application/json")) throw httpError(415, "JSON is required.");
+        const data = await submitDeletionRequest({ session, body: await readJsonBody(request), ...services });
+        sendJson(response, 202, { ok: true, data });
+      }
+      return true;
+    }
+
     if (path === "/api/account/delete") {
       if (request.method === "POST") {
         enforceRateLimit(request);
         const session = readSession(request);
-        const body = await readJsonBody(request);
-        const result = await deactivateStudioAccount({
-          session,
-          confirmed: body.confirmDeactivation,
-          updateClient: async (payload) => {
-            const token = await getMindbodyActionToken("Cave account deactivation");
-            return bookingRequest("/client/updateclient", { method: "POST", token, body: payload });
-          }
+        // Older builds used this route to deactivate a profile. Never treat
+        // that operation as deletion or silently sign the customer out.
+        sendJson(response, session ? 409 : 401, {
+          ok: false,
+          code: session ? "DELETION_APP_UPDATE_REQUIRED" : "AUTH_REQUIRED",
+          message: session
+            ? "Please update the Cave app to access account deletion. No deletion request has been submitted."
+            : "Please sign in first."
         });
-        if (result.status === 200) clearSessionCookie(response);
-        sendJson(response, result.status, result.body);
         return true;
       }
       if (request.method !== "GET") {
@@ -2267,6 +2306,7 @@ fullProfile.waiverDate =
         return true;
       }
 
+      await verifyStudioSession(session, response);
       const token = await getMindbodyActionToken("Signup phone update");
       try {
         await bookingRequest("/client/updateclient", {
@@ -2368,6 +2408,7 @@ if (path === "/api/account/profile") {
     return true;
   }
 
+  if (cleanClientId(session.clientId)) await verifyStudioSession(session, response);
   let clientId = cleanClientId(session.clientId);
   let createdNewClient = false;
 
@@ -2786,7 +2827,7 @@ try {
   const contractData = await bookingRequest("/sale/contracts", {
     token: staffToken,
     params: {
-      "request.sellOnline": "true",
+      "request.soldOnline": "true",
       "request.limit": "100",
       "request.offset": "0",
       ...(locationId ? { "request.locationId": String(locationId) } : {})
@@ -2823,10 +2864,11 @@ const isSoldOnlineValue = (item) => {
 
       const contractItems = liveContracts
         .filter((item) => isSoldOnlineValue(item))
+        // Studio retired all six-month memberships, including contracts still returned online.
+        .filter((item) => !/\b6[\s-]*months?\b|\bsix[\s-]*months?\b/i.test(String(item.Name || "")))
         .map(normalizeMindbodyContract)
-        .filter((item) => !HIDDEN_MEMBERSHIP_CONTRACT_IDS.has(item.id))
         .map((item) => {
-          const advertised = ADVERTISED_MEMBERSHIPS[item.id] || advertisedMembershipsById.get(item.id);
+          const advertised = advertisedMembershipsById.get(item.id);
           if (!advertised?.price) return item;
 
           const advertisedAmount = moneyAmount(advertised.price);
@@ -2852,7 +2894,7 @@ const isSoldOnlineValue = (item) => {
 
       let catalog;
 
-      if (liveServices && liveServices.length > 0) {
+      if (liveServices !== null) {
         const services = liveServices.map((item) => {
           const id = String(item.Id || item.ProductId || "");
           const name = item.Name || "";
@@ -2870,7 +2912,7 @@ const isSoldOnlineValue = (item) => {
             sessions,
             description: item.Description || (isUnlimited ? "Unlimited classes" : (sessions && sessions > 0 ? `${sessions} class${sessions !== 1 ? "es" : ""}` : "")),
             isNewbiePromo: isNewbie,
-            sellOnline: item.SellOnline !== false,
+            sellOnline: isSoldOnlineValue(item),
             requiresWaiver: true,
             requiresTerms: false
           };
@@ -2892,6 +2934,7 @@ const unlimitedServices = publicServices.filter((s) =>
 );
 
 catalog = {
+  privateSessions: services.filter((s) => isPrivateStoreItem(s) && isPricingItemCurrentlyVisible(s)),
   newbie: publicServices.filter((s) => s.isNewbiePromo),
 
   classPacks: [
@@ -2906,11 +2949,12 @@ catalog = {
   memberships: contractItems
 };
       } else {
-        // Fall back to store cache
+        // Never resurrect removed products from the bundled store snapshot.
         catalog = {
-          newbie: publicStoreItems(storeGroups.newbie || []),
-          classPacks: publicStoreItems(storeGroups.classPacks || []),
-          dropIn: publicStoreItems(storeGroups.dropIn || []),
+          privateSessions: [],
+          newbie: [],
+          classPacks: [],
+          dropIn: [],
           memberships: contractItems
         };
       }
@@ -3558,6 +3602,16 @@ return true;
       return true;
     }
 
+const staffToken = await getMindbodyActionToken("Waitlist booking");
+// Recheck fresh provider data so a stale browser cannot join a full waitlist.
+const classData = await bookingRequest("/class/classes", {
+  token: staffToken,
+  params: { "request.classIds": String(classId), "request.schedulingWindow": "true" }
+});
+const liveClass = firstListByKey(classData, "Classes").find(item => Number(item.Id) === classId);
+if (!liveClass) throw httpError(404, "This class could not be found. Please refresh the schedule.");
+if (liveClass.IsCanceled) throw httpError(409, "This class has been canceled.");
+if (!isClassFree(liveClass)) {
    const clientInfo = await fetchClientCompleteInfo(clientId, session);
 
 if (!clientInfo?.hasUsablePricingOption) {
@@ -3570,7 +3624,15 @@ if (!clientInfo?.hasUsablePricingOption) {
   throw err;
 }
 
-const staffToken = await getMindbodyActionToken("Waitlist booking");
+
+}
+if (liveClass.TotalBookedWaitlist == null) {
+  throw httpError(503, "We could not verify waitlist availability. Please refresh the schedule.");
+}
+if (waitlistAvailability(liveClass.TotalBookedWaitlist, liveClass.WaitListSize).waitlistFull) {
+  throw httpError(409, "Waitlist Full. Please choose another class.");
+}
+
 
     const result = await bookingRequest("/class/addclienttoclass", {
       method: "POST",
@@ -4465,6 +4527,27 @@ function normalizeOAuthSession(data, options = {}) {
   };
 }
 
+async function verifyStudioSession(session, response) {
+  if (session.clientId) {
+    let profile;
+    try {
+      const token = await getMindbodyActionToken("Verify studio profile access");
+      profile = await bookingRequest("/client/clientcompleteinfo", {
+        token,
+        params: { "request.clientId": session.clientId, "request.crossRegionalLookup": "false" }
+      });
+    } catch (_) {
+      throw httpError(503, "We could not verify your studio profile. Please try again.");
+    }
+    const access = studioProfileAccess(profile, session.clientId, session.user?.email || session.user?.username);
+    if (access === "revoked") {
+      clearSessionCookie(response);
+      throw httpError(401, "This Cave profile is no longer available. Create a new studio profile to use Cave again.");
+    }
+    if (access !== "active") throw httpError(503, "We could not verify your studio profile. Please try again.");
+  }
+}
+
 async function readHydratedSession(request, response) {
   let session = readSession(request);
 
@@ -4496,6 +4579,8 @@ async function readHydratedSession(request, response) {
 
   const hydrated = await hydrateOAuthSession(session);
 
+  await verifyStudioSession(hydrated, response);
+
   if (hydrated !== session) {
     setSessionCookie(response, hydrated);
   }
@@ -4503,7 +4588,7 @@ async function readHydratedSession(request, response) {
   return hydrated;
 }
 
-async function linkPlatformProfile(accessToken) {
+async function lookupPlatformProfile(accessToken) {
   const { apiKey, siteId } = getBookingConfig();
   if (!apiKey || !accessToken) return null;
 
@@ -4518,7 +4603,7 @@ async function linkPlatformProfile(accessToken) {
     });
     if (!meResp.ok) {
       const body = await meResp.text().catch(() => "");
-      console.error(`[mindbody-auth] linkPlatformProfile: /platform/account/v1/me → ${meResp.status}`, body.slice(0, 300));
+      console.error(`[mindbody-auth] lookupPlatformProfile: /platform/account/v1/me → ${meResp.status}`, body.slice(0, 300));
       return null;
     }
 
@@ -4526,26 +4611,11 @@ async function linkPlatformProfile(accessToken) {
     const userId = me?.userAccount?.id || me?.UserAccount?.id || me?.userId || me?.UserId;
     if (!userId) return null;
 
-    const linkResp = await fetch(`${PLATFORM_API_BASE_URL}/contacts/v1/profiles`, {
-      method: "POST",
-      headers: {
-        "Api-Key": apiKey,
-        "Authorization": `Bearer ${accessToken}`,
-        "SiteId": String(siteId),
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      body: JSON.stringify({ userId })
-    });
-
-    if (!linkResp.ok) return { platformUserId: userId, clientId: "" };
-
-    const linkData = await linkResp.json();
-    const profileObj = linkData?.profile || linkData?.Profile || linkData;
-    const rawClientId = profileObj?.clientId || profileObj?.ClientId || profileObj?.client_id || profileObj?.studioClientId;
-    const profileSiteId = profileObj?.businessId || profileObj?.BusinessId || profileObj?.siteId || profileObj?.SiteId;
-    const belongsToStudio = !profileSiteId || String(profileSiteId) === String(siteId);
-    const clientId = (belongsToStudio && rawClientId && !isUUID(String(rawClientId)) && !/^[a-f0-9]{20,}$/i.test(String(rawClientId))) ? String(rawClientId) : "";
+    // Authentication is read-only. Never POST a profile link while signing in
+    // or refreshing: a removed studio association must not be recreated here.
+    const profiles = await fetchPlatformBusinessProfiles(userId, accessToken);
+    const profileObj = findStudioBusinessProfile(profiles, siteId);
+    const clientId = String(profileObj?.clientId || profileObj?.ClientId || "");
 
     return { platformUserId: userId, clientId };
   } catch (_) {
@@ -4687,7 +4757,7 @@ async function hydrateOAuthSession(session) {
   let platformUserId = session.platformUserId || "";
   if (!session.clientId) {
     const accessToken = session.consumerIdentityToken || session.accessToken;
-    const linked = await linkPlatformProfile(accessToken).catch(() => null);
+    const linked = await lookupPlatformProfile(accessToken).catch(() => null);
     if (linked) {
       if (linked.platformUserId) platformUserId = linked.platformUserId;
       if (linked.clientId) {
@@ -5775,68 +5845,6 @@ function luhnCheck(digits) {
   return sum > 0 && sum % 10 === 0;
 }
 
-async function deactivateMindbodyClientAccount(session) {
-  const clientId = await resolveSessionClientId(session).catch(() => "");
-
-  if (!clientId) {
-    throw httpError(400, "Studio client account is not linked yet. Please complete your profile first.");
-  }
-
-  const staffToken = await getMindbodyActionToken("Delete account");
-  const current = await bookingRequest("/client/clientcompleteinfo", {
-    token: staffToken,
-    params: {
-      "request.clientId": clientId,
-      "request.crossRegionalLookup": "true"
-    }
-  }).catch(() => null);
-  const client = current?.ClientCompleteInfo?.Client || current?.Client || {};
-  const firstName = client.FirstName || session.user?.firstName || "Cave";
-  const lastName = client.LastName || session.user?.lastName || "Client";
-  const existingNotes = String(client.Notes || "").trim();
-  const deleteNote = `Account deletion requested from Cave app on ${new Date().toISOString()}.`;
-  const baseClient = compactObject({
-    Id: clientId,
-    FirstName: firstName,
-    LastName: lastName,
-    Active: false,
-    SendAccountEmails: false,
-    SendPromotionalEmails: false,
-    SendScheduleEmails: false
-  });
-  const clientPayload = {
-    ...baseClient,
-    Status: "Terminated",
-    Notes: existingNotes ? `${existingNotes}\n${deleteNote}` : deleteNote
-  };
-
-  try {
-    return await bookingRequest("/client/updateclient", {
-      method: "POST",
-      token: staffToken,
-      body: {
-        Client: clientPayload,
-        CrossRegionalUpdate: false
-      }
-    });
-  } catch (error) {
-    const message = String(error?.data?.Error?.Message || error?.data?.Message || error?.message || "");
-
-    if (!/status|notes|required field|validation/i.test(message)) {
-      throw error;
-    }
-
-    return bookingRequest("/client/updateclient", {
-      method: "POST",
-      token: staffToken,
-      body: {
-        Client: baseClient,
-        CrossRegionalUpdate: false
-      }
-    });
-  }
-}
-
 async function resolveSessionClientId(session) {
   if (session.clientId) {
     return session.clientId;
@@ -5883,9 +5891,8 @@ function moneyAmount(value) {
 
 function membershipContractMatchesAdvertisedPrice(contract) {
   const contractId = String(contract?.Id ?? contract?.ContractId ?? "");
-  const advertised = ADVERTISED_MEMBERSHIPS[contractId] ||
-    publicStoreGroups(readStoreCache().store || {}).memberships
-      .find((item) => String(item.id || "") === contractId);
+  const advertised = publicStoreGroups(readStoreCache().store || {}).memberships
+    .find((item) => String(item.id || "") === contractId);
   if (!advertised?.price) return true;
 
   const providerAmount = normalizeMindbodyContract(contract).recurringPaymentAmountTotal;
@@ -5987,9 +5994,11 @@ function isStudioConnectionApiMessage(value) {
   return /source credential|staff identity|server-side user token|source credentials user token|usertoken\/issue|user token site id|requested site|studio client account|mindbody rejected|could not match/i.test(String(value || ""));
 }
 
-// All classes are free during the launch week (through end of day July 6, 2026).
-function isClassFree() {
-  return false;
+// Studio-authorized complimentary event. Match the live occurrence, never client hints.
+function isClassFree(item) {
+  return Number(item?.Id) === 6940 &&
+    String(item?.StartDateTime || "").slice(0, 19) === "2026-11-22T17:30:00" &&
+    Number(item?.Location?.Id) === 1;
 }
 function normalizeClassFull(item) {
   const startsAt = parseScheduleDate(item.StartDateTime);
@@ -5999,8 +6008,8 @@ function normalizeClassFull(item) {
 
   const maxCapacity = Number(firstDefined(item.MaxCapacity, item.WebCapacity) || 0);
   const totalBooked = Number(firstDefined(item.TotalBooked, item.WebBooked) || 0);
-const maxWaitlist = Number(item.MaxWaitListSize || 0);
-const waitlistCount = Number(item.TotalWaitlistedClients || 0);
+const { maxWaitlistSize: maxWaitlist, waitlistSize: waitlistCount, waitlistFull } =
+  waitlistAvailability(item.TotalBookedWaitlist, item.WaitListSize);
 
 const spotsRemaining =
   maxCapacity > 0
@@ -6010,8 +6019,7 @@ const spotsRemaining =
 const isCanceled = Boolean(item.IsCanceled);
 const isAvailable = item.IsAvailable !== false;
 
-// Waitlist is unlimited, so every full/unavailable class
-// should allow joining the waitlist.
+// Full classes can accept waitlist entries only while there is space.
 const shouldWaitlist =
   !isCanceled &&
   (
@@ -6028,9 +6036,9 @@ if (isCanceled) {
   canBook = false;
   canWaitlist = false;
 } else if (shouldWaitlist) {
-  status = "Waitlist";
+  status = waitlistFull ? "Waitlist Full" : "Waitlist";
   canBook = false;
-  canWaitlist = true;
+  canWaitlist = !waitlistFull;
 }
 
   const classDesc = item.ClassDescription || {};
@@ -6046,7 +6054,7 @@ if (isCanceled) {
     classDescriptionId: classDesc.Id || item.ClassDescriptionId,
     classScheduleId: item.ClassScheduleId,
     name: className,
-    isFree: isClassFree(className),
+    isFree: isClassFree(item),
     description: classDesc.Description || "",
     instructor,
     staffId: staff?.Id,
@@ -6059,6 +6067,7 @@ if (isCanceled) {
     totalBooked,
     waitlistSize: waitlistCount,
     maxWaitlistSize: maxWaitlist,
+    waitlistFull,
     spotsRemaining: spotsRemaining ?? "",
     isAvailable,
     isCanceled,
@@ -6072,7 +6081,7 @@ if (isCanceled) {
 
 async function fetchLiveClasses(locationId) {
   const { siteId } = getBookingConfig();
-  const cacheKey = `${siteId}:live-classes`;
+  const cacheKey = `${siteId}:${locationId || "all"}:live-classes`;
   const now = Date.now();
 
   if (liveClassesCache.key === cacheKey && liveClassesCache.expiresAt > now) {
@@ -6085,6 +6094,7 @@ async function fetchLiveClasses(locationId) {
   // Active members may reserve into the following month.
   future.setDate(future.getDate() + 62);
 
+  const staffToken = await getMindbodyActionToken("Schedule availability");
   const classes = [];
   const limit = 200;
   let offset = 0;
@@ -6103,7 +6113,7 @@ async function fetchLiveClasses(locationId) {
       params["request.locationIds"] = locationId;
     }
 
-    const data = await bookingRequest("/class/classes", { params });
+    const data = await bookingRequest("/class/classes", { params, token: staffToken });
     const page = firstListByKey(data, "Classes");
 
     if (!page.length) break;
@@ -6185,14 +6195,18 @@ async function fetchClientCompleteInfo(clientId, session) {
     console.warn("[client contracts] Could not load clientcontracts:", err.message);
   }
 
-  const rawServices = [
+  const summaryServices = [
     ...firstListByKey(data, "ClientServices"),
     ...firstListByKey(data, "Services"),
-    ...firstListByKey(serviceData, "ClientServices"),
-    ...firstListByKey(serviceData, "Services"),
+
     ...(Array.isArray(client.ClientServices) ? client.ClientServices : []),
     ...(Array.isArray(client.Services) ? client.Services : [])
   ].filter(Boolean);
+
+  // An empty current service response must not revive stale summary credits.
+  const rawServices = serviceData !== null
+    ? [...firstListByKey(serviceData, "ClientServices"), ...firstListByKey(serviceData, "Services")].filter(Boolean)
+    : summaryServices;
 
   const summaryMemberships = [
     ...firstListByKey(data, "ClientMemberships"),
@@ -6260,12 +6274,14 @@ async function fetchClientCompleteInfo(clientId, session) {
 
   const today = currentDetroitDate();
   const hasInactiveStatus = (item) => {
-    const termination = String(item.TerminationDate || "").slice(0, 10);
-    // Mindbody ClientContract has TerminationDate even when Status is absent
-    // and EndDate still contains the original end of the commitment.
-    const terminated = /^\d{4}-\d{2}-\d{2}$/.test(termination) && termination <= today;
-    return terminated || /expired|cancelled|canceled|terminated|inactive|suspended/.test(getStatus(item));
+    const terminationDate = String(item.TerminationDate || "").slice(0, 10);
+    return /expired|cancelled|canceled|terminated|inactive|suspended/.test(getStatus(item)) ||
+      item.IsActive === false || item.Active === false ||
+      Boolean(/^\d{4}-\d{2}-\d{2}$/.test(terminationDate) && terminationDate > "1900-01-01" && terminationDate <= today);
   };
+  // Client.Status is Mindbody's membership status. Active:true only means the
+  // client record is enabled; it does not override a terminated membership.
+  const membershipStatusInactive = hasInactiveStatus(client);
   const hasExpiredDate = (item) => {
     const expiration = getExpiration(item);
     return Boolean(expiration && /^\d{4}-\d{2}-\d{2}$/.test(expiration) && expiration < today);
@@ -6365,6 +6381,7 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
   }
 
   return (
+    !membershipStatusInactive &&
     !hasInactiveStatus(membership) &&
     !hasExpiredDate(membership) &&
     (
@@ -6396,6 +6413,13 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
     if (!name || hasInactiveStatus(service) || hasExpiredDate(service)) {
       return false;
     }
+
+    // Recurring-plan credits require a matching current contract. Independent
+    // drop-ins, class packs and the 14-day intro remain usable on their own.
+    const recurringPlan = /membership|members|contract|agreement|founding/i.test(name);
+    if (recurringPlan && (membershipStatusInactive || !activeMemberships.some(
+      (membership) => membershipPlanKey(membership) === membershipPlanKey(service)
+    ))) return false;
 
     if (/unlimited/i.test(name)) {
       // Mindbody can leave an unlimited client service active-looking after
@@ -6600,17 +6624,15 @@ if (!classItem) {
   if (maxCapacity > 0 && maxCapacity - totalBooked <= 0) {
     const err = httpError(409, "This class is full.");
     err.bookingCode = "CLASS_FULL";
-    err.canWaitlist = true;
+    err.canWaitlist = !waitlistAvailability(classItem.TotalBookedWaitlist, classItem.WaitListSize).waitlistFull;
     throw err;
   }
 
-  const classIsFree = isClassFree(
-    classItem.ClassDescription?.Name || classItem.Name || ""
-  );
+  const classIsFree = isClassFree(classItem);
 
-  let resolvedServiceId = clientServiceId || null;
+  let resolvedServiceId = classIsFree ? null : clientServiceId || null;
 
-  try {
+  if (!classIsFree) try {
     const clientInfo = await fetchClientCompleteInfo(clientId, session);
 
     if (!classIsFree && !clientInfo.hasUsablePricingOption) {
@@ -6661,7 +6683,7 @@ if (!classItem) {
   const bookingBody = {
     ClientId: clientId,
     ClassId: classId,
-    RequirePayment: true,
+    RequirePayment: !classIsFree,
     SendEmail: true,
     Waitlist: false,
     Test: process.env.BOOKING_TEST_MODE === "true"
@@ -6895,7 +6917,7 @@ function clientPayload(body, waiver) {
   });
 
   if (isSignedWaiver(waiver)) {
-    payload.Liability = { LiabilityRelease: true };
+    payload.LiabilityRelease = true;
   }
 
   const customFields = waiverCustomClientFields(waiver);
@@ -6993,13 +7015,25 @@ async function attachClientWaiver(session, waiver) {
     body: {
       Client: {
         Id: clientId,
-        Liability: {
-          LiabilityRelease: true
-        }
+        LiabilityRelease: true,
+        ...(waiverCustomClientFields(waiver).length ? { CustomClientFields: waiverCustomClientFields(waiver) } : {})
       },
       CrossRegionalUpdate: false
     }
   });
+
+  let savedClient = result?.Client;
+  if (savedClient?.Liability?.IsReleased !== true && savedClient?.LiabilityRelease !== true) {
+    const verified = await bookingRequest("/client/clientcompleteinfo", {
+      token: staffToken,
+      params: { "request.clientId": clientId, "request.crossRegionalLookup": "false" }
+    });
+    savedClient = verified?.ClientCompleteInfo?.Client || verified?.Client;
+  }
+  if (String(savedClient?.Id ?? "") !== String(clientId) ||
+      !(savedClient?.Liability?.IsReleased === true || savedClient?.LiabilityRelease === true)) {
+    throw httpError(502, "Mindbody has not confirmed the waiver was saved. Please refresh your profile and try again.");
+  }
 
   return {
     accepted: true,
@@ -7034,8 +7068,7 @@ function currentDetroitDate() {
 
 export function hasEligibleUnlimitedMembership(clientInfo) {
   const candidates = [
-    ...(Array.isArray(clientInfo?.activeMemberships) ? clientInfo.activeMemberships : []),
-    ...(Array.isArray(clientInfo?.activeServices) ? clientInfo.activeServices : [])
+    ...(Array.isArray(clientInfo?.activeMemberships) ? clientInfo.activeMemberships : [])
   ];
   const today = currentDetroitDate();
 
@@ -7622,6 +7655,7 @@ function setSessionCookie(response, session) {
 function createSessionToken(session) {
   return seal({
     ...session,
+    iat: session.iat || Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
   });
 }

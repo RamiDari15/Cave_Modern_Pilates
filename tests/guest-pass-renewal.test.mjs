@@ -90,6 +90,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
 
   let membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" };
   let services = [];
+  let clientStatus = "Active";
   let completeMemberships = [];
   let records = [];
   let trackingFailure = "";
@@ -100,7 +101,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
     const url = new URL(input);
     const body = options.body ? JSON.parse(options.body) : null;
     requests.push({ url, method: options.method || "GET", body });
-    if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "guest-test-member" }, ClientMemberships: completeMemberships });
+    if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({ Client: { Id: "guest-test-member", Active: true, Status: clientStatus }, ClientMemberships: completeMemberships });
     if (url.pathname.endsWith("/client/clientservices")) {
       if (membershipFailure === "services") return Response.json({ Message: "Mindbody unavailable" }, { status: 503 });
       return Response.json({ ClientServices: services });
@@ -135,7 +136,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
     const encrypted = Buffer.concat([cipher.update(JSON.stringify(payload)), cipher.final()]);
     return `cave_session=${[iv, cipher.getAuthTag(), encrypted].map((part) => part.toString("base64url")).join(".")}`;
   };
-  const readBenefit = async (path) => {
+  const readBenefit = async (path, full = false) => {
     const req = Readable.from([]);
     Object.assign(req, { method: "GET", url: path, headers: { host: "localhost", cookie: cookie() }, socket: { remoteAddress: "guest-pass-test" } });
     const headers = new Map();
@@ -149,6 +150,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
     await handleApiRequest(req, response);
     assert.equal(response.statusCode, 200);
     const result = JSON.parse(output);
+    if (full) return path.endsWith("/eligibility") ? result.data : result;
     return path.endsWith("/eligibility") ? result.data.monthlyGuestPass : result.monthlyGuestPass;
   };
   const routes = ["/api/client/eligibility", "/api/client/dashboard"];
@@ -252,7 +254,7 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
   });
 
   await t.test("a terminated membership cannot regain a guest benefit from leftover services", async () => {
-    membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", TerminationDate: "2026-09-08T00:00:00", Remaining: 0, EndDate: "2099-08-05" };
+    membership = { Id: 8, Name: "Unlimited Members- 12 Month Contract", Status: "Terminated", Remaining: 0, ExpirationDate: "2099-08-05" };
     completeMemberships = [{ Id: 8, Name: "Unlimited Membership", Status: "Active", ExpirationDate: "2099-08-05" }];
     services = [
       { Id: 18, Name: "Unlimited Membership", Status: "Active", Remaining: 0, ExpirationDate: "2099-08-05" },
@@ -266,4 +268,41 @@ test("monthly guest renewal through eligibility and dashboard routes", async (t)
     services = [];
     completeMemberships = [];
   });
+  await t.test("terminated profile overrides a statusless future contract, but preserves paid drop-ins", async () => {
+    clientStatus = "Terminated";
+    membership = { Id: 117, Name: "Unlimited Members- 12 Month Contract", EndDate: "2099-08-05" };
+    services = [{ Id: 18, Name: membership.Name, Remaining: 9999, ExpirationDate: "2099-08-05" }];
+    for (const route of routes) assert.equal((await readBenefit(route)).eligible, false);
+    let result = await readBenefit(routes[0], true);
+    assert.deepEqual(result.activeMemberships, []);
+    assert.deepEqual(result.activeServices, []);
+    assert.equal(result.hasUsablePricingOption, false);
+    services.push({ Id: 20, Name: "Drop in", Remaining: 1, ExpirationDate: "2099-01-01" });
+    result = await readBenefit(routes[0], true);
+    assert.equal(result.hasUsablePricingOption, true);
+    assert.deepEqual(result.activeServices.map(s => s.id), [20]);
+    assert.equal(result.monthlyGuestPass.eligible, false);
+    clientStatus = "Active";
+  });
+  await t.test("termination dates override future contract end dates", async () => {
+    services = [];
+    membership = { Id: 117, Name: "Unlimited Members- 12 Month Contract", EndDate: "2099-08-05", TerminationDate: "2026-09-08T00:00:00" };
+    let result = await readBenefit(routes[0], true);
+    assert.equal(result.hasUsablePricingOption, false);
+    assert.equal(result.monthlyGuestPass.eligible, false);
+    membership.TerminationDate = "2099-01-01";
+    assert.equal((await readBenefit(routes[0], true)).hasUsablePricingOption, true);
+  });
+  await t.test("deleted contracts cannot grant benefits through leftover recurring services", async () => {
+    membership = null;
+    services = [{ Id: 18, Name: "Unlimited Members- 12 Month Contract", Remaining: 9999, ExpirationDate: "2099-08-05" }];
+    let result = await readBenefit(routes[0], true);
+    assert.equal(result.hasUsablePricingOption, false);
+    assert.equal(result.monthlyGuestPass.eligible, false);
+    services = [{ Id: 30, Name: "THE CAVE INTRO | 14 DAYS UNLIMITED", Remaining: 9999, ExpirationDate: "2099-08-05" }];
+    result = await readBenefit(routes[0], true);
+    assert.equal(result.hasUsablePricingOption, true);
+    assert.equal(result.monthlyGuestPass.eligible, false);
+  });
+
 });
