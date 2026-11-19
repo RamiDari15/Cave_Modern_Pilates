@@ -6,23 +6,23 @@ import { handleLeaderboardRequest, leaderboardStatus, rankLeaders, resetLeaderbo
 
 // Mocked Mindbody responses only.
 const classes = [
-  { Id: 1, StartDateTime: "2026-12-05T09:00:00", EndDateTime: "2026-12-05T09:50:00" }, // before the start: ignored
-  { Id: 2, StartDateTime: "2026-12-06T09:00:00", EndDateTime: "2026-12-06T09:50:00" },
-  { Id: 3, StartDateTime: "2026-12-07T09:00:00", EndDateTime: "2026-12-07T09:50:00" },
-  { Id: 4, StartDateTime: "2026-12-07T18:00:00", EndDateTime: "2026-12-07T18:50:00" }, // not finished yet
-  { Id: 5, StartDateTime: "2026-12-07T08:00:00", EndDateTime: "2026-12-07T08:50:00", IsCanceled: true }
+  { Id: 1, ClassDescription: {Name:"Cave Signature"}, StartDateTime: "2026-12-05T09:00:00", EndDateTime: "2026-12-05T09:50:00" }, // before the start: ignored
+  { Id: 2, ClassDescription: {Name:"Cave Signature"}, StartDateTime: "2026-12-06T09:00:00", EndDateTime: "2026-12-06T09:50:00" },
+  { Id: 3, ClassDescription: {Name:"Cave Signature"}, StartDateTime: "2026-12-07T09:00:00", EndDateTime: "2026-12-07T09:50:00" },
+  { Id: 4, ClassDescription: {Name:"Cave Signature"}, StartDateTime: "2026-12-07T18:00:00", EndDateTime: "2026-12-07T18:50:00" }, // not finished yet
+  { Id: 5, ClassDescription: {Name:"Cave Signature"}, StartDateTime: "2026-12-07T08:00:00", EndDateTime: "2026-12-07T08:50:00", IsCanceled: true }
 ];
 const rosters = {
-  1: [{ ClientId: "101" }, { ClientId: "102" }],
-  2: [{ ClientId: "101" }, { ClientId: "102", LateCancelled: true }, { ClientId: "103" }],
-  3: [{ ClientId: "101" }, { ClientId: "103" }, { ClientId: "104", Missed: true }],
-  4: [{ ClientId: "102" }]
+  1: [{ SignedIn:true, ClientId: "101" }, { SignedIn:true, ClientId: "102" }],
+  2: [{ SignedIn:true, ClientId: "101" }, { SignedIn:true, ClientId: "102", LateCancelled: true }, { SignedIn:true, ClientId: "103" }],
+  3: [{ SignedIn:true, ClientId: "101" }, { SignedIn:true, ClientId: "103" }, { SignedIn:true, ClientId: "104", Missed: true }],
+  4: [{ SignedIn:true, ClientId: "102" }]
 };
 const people = {
-  101: { Id: "101", FirstName: "amira", LastName: "Haddad" },
-  102: { Id: "102", FirstName: "Dana", LastName: "Ray" },
-  103: { Id: "103", FirstName: "Lina Marie", LastName: "saleh" },
-  104: { Id: "104", FirstName: "Noor", LastName: "Ali" }
+  101: { Id: "101", MembershipStatus: "Active", FirstName: "amira", LastName: "Haddad" },
+  102: { Id: "102", MembershipStatus: "Active", FirstName: "Dana", LastName: "Ray" },
+  103: { Id: "103", MembershipStatus: "Active", FirstName: "Lina Marie", LastName: "saleh" },
+  104: { Id: "104", MembershipStatus: "Active", FirstName: "Noor", LastName: "Ali" }
 };
 
 function fakeDeps(now, calls) {
@@ -83,7 +83,7 @@ test("before the start the board is empty and Mindbody is not called", async () 
   assert.deepEqual(calls, []);
 });
 
-test("counts finished classes from Dec 6 only, skipping cancels and no-shows", async () => {
+test("scores completed classes from Dec 6 and deducts no-shows, skipping cancels", async () => {
   resetLeaderboardCaches();
   const response = await request("2026-12-07T12:00:00");
   const body = response.body;
@@ -91,10 +91,11 @@ test("counts finished classes from Dec 6 only, skipping cancels and no-shows", a
   assert.match(response.headers["cache-control"], /s-maxage=/);
   assert.deepEqual(body.leaders.map(({ name, classes, position }) => ({ name, classes, position })), [
     { name: "Amira H.", classes: 2, position: 1 },
-    { name: "Lina S.", classes: 2, position: 2 }
+    { name: "Lina S.", classes: 2, position: 2 },
+    { name: "Noor A.", classes: -1, position: 3 }
   ]);
   assert.equal(body.totalClasses, 4);
-  assert.equal(body.participants, 2);
+  assert.equal(body.participants, 3);
   assert.equal(body.classesHeld, 2);
   const text = JSON.stringify(body);
   assert.doesNotMatch(text, /Haddad|saleh|"101"|clientId/);
@@ -159,8 +160,8 @@ test("resolves missing names from paginated clients and limits the public board 
   const deps = fakeDeps("2026-12-07T12:00:00", []);
   const original = deps.bookingRequest;
   deps.bookingRequest = async (path, options) => {
-    if (path === "/class/classvisits") return { Visits: Array.from({length:60}, (_,i) => ({ClientId:String(i+1)})) };
-    if (path === "/client/clients") return { Clients: options.params["request.clientIds"] ? [] : Array.from({length:60}, (_,i) => ({Id:String(i+1), FirstName:`Member${i+1}`, LastName:"Cave"})) };
+    if (path === "/class/classvisits") return { Visits: Array.from({length:60}, (_,i) => ({SignedIn:true, ClientId:String(i+1)})) };
+    if (path === "/client/clients") return { Clients: options.params["request.clientIds"] ? [] : Array.from({length:60}, (_,i) => ({Id:String(i+1), MembershipStatus: "Active", FirstName:`Member${i+1}`, LastName:"Cave"})) };
     return original(path, options);
   };
   const publicResponse = fakeResponse();
@@ -178,4 +179,20 @@ test("resolves missing names from paginated clients and limits the public board 
   const anonymous = fakeResponse();
   await handleLeaderboardRequest({method:"GET"}, anonymous, new URL("http://x/api/leaderboard?mine=1"), deps);
   assert.equal(anonymous.body.yourRank,null);
+});
+
+ test("nonmembers receive Countdown progress but no member rank", async () => {
+  resetLeaderboardCaches();
+  const old = people[101].MembershipStatus;
+  people[101].MembershipStatus = "Terminated";
+  try {
+    const deps = fakeDeps("2026-12-07T12:00:00", []);
+    deps.currentClientId = async () => "101";
+    const response = fakeResponse();
+    await handleLeaderboardRequest({method:"GET"}, response, new URL("http://x/api/leaderboard?mine=1"), deps);
+    assert.equal(response.body.yourRank.position, null);
+    const publicResponse = await request("2026-12-07T12:00:00");
+    assert.equal(publicResponse.body.leaders.some(row => row.name === "Amira H."), false);
+    assert.equal(response.body.countdown.completed, 2);
+  } finally { people[101].MembershipStatus = old; resetLeaderboardCaches(); }
 });

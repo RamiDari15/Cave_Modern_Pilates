@@ -1,23 +1,18 @@
+import { classKind, scoreVisits } from "../src/challengeScoring.js";
 import { createHash } from "node:crypto";
 import { isCancelledVisit } from "../src/bookingGuard.js";
 import { LEADERBOARD, leaderboardName } from "../src/leaderboardConfig.js";
 import { studioLocalNow } from "./frontDesk.mjs";
 
-// Public class leaderboard (/leaderboard). One point per class a client takes
-// during the challenge. Before the start date there is nothing to count (the
-// page shows a countdown); at midnight on the start date everyone begins at zero. Counts come from Mindbody class rosters
-// (/class/classvisits) for classes that have finished, using the same rule as
-// the front desk page: a visit counts unless it was cancelled, late-cancelled,
-// or marked missed. Only first name + last initial ever leave the server.
-//
-// Mindbody load stays low: nothing is called before the start date, finished
-// days' rosters are cached for hours, today's for a few minutes, and the
-// response is cached at Vercel's edge so many viewers share one result.
+// Completed Mindbody attendance powers two separate challenges: an open
+// reformer-class Countdown and the members-only daily-capped points board.
+// Only first name and last initial leave the server. Shared bounded caches
+// and single-flight refreshes prevent duplicate provider request bursts.
 
 const MINDBODY_CONCURRENCY = 4;
 const TODAY_ROSTER_TTL_MS = 4 * 60 * 1000;
 const PAST_ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
-const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
+const PROFILE_TTL_MS = 3 * 60 * 1000;
 const RESULT_TTL_MS = 4 * 60 * 1000;
 const MAX_LEADERS = 50;
 const PREVIEW_DAYS = 14;
@@ -44,11 +39,11 @@ export async function handleLeaderboardRequest(request, response, url, deps) {
 
   try {
     const result = await leaderboardSnapshot(deps, url.searchParams.get("preview") === "1");
-    const { rankings = result.leaders, ...publicResult } = result;
+    const { rankings = result.leaders, countdown = [], ...publicResult } = result;
     if (url.searchParams.get("mine") === "1") {
       const clientId = await deps.currentClientId(request);
       const yourRank = clientId ? rankings.find((row) => row.key === publicKey(String(clientId))) || { position: null, classes: 0 } : null;
-      sendLeaderboardJson(response, 200, { signedIn: Boolean(clientId), yourRank }, "private, no-store");
+      sendLeaderboardJson(response, 200, { signedIn: Boolean(clientId), yourRank, countdown: clientId ? countdown.find(row=>row.key===publicKey(String(clientId))) || {completed:0,qualified:false} : null }, "private, no-store");
       return true;
     }
     const edgeSeconds = result.status === "final" ? 3600 : 240;
@@ -198,7 +193,7 @@ function visitClientId(visit) {
 
 async function classRoster(classItem, today, token, deps) {
   const cached = rosterCache.get(classItem.classId);
-  if (cached && cached.expiresAt > Date.now()) return cached.clientIds;
+  if (cached && cached.expiresAt > Date.now()) return cached.visits;
 
   let data;
   try {
@@ -215,16 +210,16 @@ async function classRoster(classItem, today, token, deps) {
   // separate lookup, and support both Mindbody ID representations.
   const clients = [...(visitClass.Clients || []), ...visits.map((visit) => visit.Client).filter(Boolean)];
   for (const client of clients) {
-    if (!client.FirstName) continue;
+    if (!client.FirstName || client.MembershipStatus == null) continue;
     for (const id of [client.Id, client.UniqueId]) {
-      if (id != null) profileCache.set(String(id), { name: leaderboardName(client.FirstName, client.LastName), expiresAt: Date.now() + PROFILE_TTL_MS });
+      if (id != null) profileCache.set(String(id), { name: leaderboardName(client.FirstName, client.LastName), member: String(client.MembershipStatus || "").toLowerCase() === "active", expiresAt: Date.now() + PROFILE_TTL_MS });
     }
   }
-  const clientIds = [...new Set(visits.filter(countsAsTaken).map(visitClientId).filter(Boolean))];
-
+  const rows = visits.map(visit => ({clientId: visitClientId(visit), cancelled: isCancelledVisit(visit), missed: visit.Missed === true || /no.?show|missed/i.test(String(visit.Status || visit.VisitStatus || "")), completed: visit.SignedIn === true || /completed|attended/i.test(String(visit.Status || visit.VisitStatus || ""))})).filter(visit => visit.clientId);
+  const unique = [...new Map(rows.map(row => [row.clientId,row])).values()];
   const ttl = classItem.start.slice(0, 10) < today ? PAST_ROSTER_TTL_MS : TODAY_ROSTER_TTL_MS;
-  rosterCache.set(classItem.classId, { clientIds, expiresAt: Date.now() + ttl });
-  return clientIds;
+  rosterCache.set(classItem.classId, { visits: unique, expiresAt: Date.now() + ttl });
+  return unique;
 }
 
 async function clientNames(clientIds, token, deps) {
@@ -258,7 +253,7 @@ async function clientNames(clientIds, token, deps) {
       if (!client.FirstName) continue;
       for (const alias of [id, client.UniqueId].filter((value) => value != null)) {
         names.set(String(alias), name);
-        profileCache.set(String(alias), { name, expiresAt: Date.now() + PROFILE_TTL_MS });
+        profileCache.set(String(alias), { name, member: String(client.MembershipStatus || "").toLowerCase() === "active", expiresAt: Date.now() + PROFILE_TTL_MS });
       }
     }
   });
@@ -272,7 +267,7 @@ async function clientNames(clientIds, token, deps) {
       const name = leaderboardName(client.FirstName, client.LastName);
       for (const alias of [client.Id, client.UniqueId].filter((id) => id != null)) {
         const id = String(alias);
-        profileCache.set(id, { name, expiresAt: Date.now() + PROFILE_TTL_MS });
+        profileCache.set(id, { name, member: String(client.MembershipStatus || "").toLowerCase() === "active", expiresAt: Date.now() + PROFILE_TTL_MS });
         if (clientIds.includes(id)) names.set(id, name);
       }
     }
@@ -329,30 +324,34 @@ async function buildLeaderboard(now, status, deps) {
     .map((item) => ({
       classId: Number(item.Id),
       start: localTimestamp(item.StartDateTime),
-      end: localTimestamp(item.EndDateTime || item.StartDateTime)
+      end: localTimestamp(item.EndDateTime || item.StartDateTime),
+      kind: classKind(item.ClassDescription?.Name || item.Name)
     }))
     .filter((item) => item.start >= `${window.from}T00:00:00` && item.start <= `${window.to}T23:59:59` && item.end && item.end <= now);
 
   const uniqueClasses = [...new Map(finished.map((item) => [item.classId, item])).values()];
   const rosters = await mapLimit(uniqueClasses, MINDBODY_CONCURRENCY, (item) => classRoster(item, today, token, deps));
 
-  const classesTaken = new Map();
-  uniqueClasses.forEach((item, index) => {
-    for (const clientId of rosters[index]) {
-      if (!classesTaken.has(clientId)) classesTaken.set(clientId, []);
-      classesTaken.get(clientId).push(item.start);
+  const events = new Map();
+  uniqueClasses.forEach((item,index) => {
+    for(const visit of rosters[index]) {
+      if (visit.cancelled || (!visit.completed && !visit.missed) || !item.kind) continue;
+      if(!events.has(visit.clientId)) events.set(visit.clientId,[]);
+      events.get(visit.clientId).push({...visit,kind:item.kind,start:item.end});
     }
   });
-
-  const names = await clientNames([...classesTaken.keys()], token, deps);
-  const ranked = rankLeaders(classesTaken, names);
-
+  const names = await clientNames([...events.keys()],token,deps);
+  const progress = [...events].map(([id,visits]) => ({id,...scoreVisits(visits)}));
+  const ranked = progress.filter(row => profileCache.get(row.id)?.member)
+    .sort((a,b)=>b.points-a.points || a.reachedAt.localeCompare(b.reachedAt) || a.id.localeCompare(b.id))
+    .map((row,index)=>({position:index+1,key:publicKey(row.id),name:names.get(row.id)||"Cave client",classes:row.points}));
   return {
-    ...baseResult(now, status),
+    ...baseResult(now,status),
     participants: ranked.length,
-    totalClasses: ranked.reduce((sum, row) => sum + row.classes, 0),
+    totalClasses: progress.reduce((sum,row)=>sum+row.reformerClasses,0),
     classesHeld: uniqueClasses.length,
+    countdown: progress.map(row=>({key:publicKey(row.id),completed:row.reformerClasses,qualified:row.qualified})),
     rankings: ranked,
-    leaders: ranked.slice(0, MAX_LEADERS)
+    leaders: ranked.slice(0,MAX_LEADERS)
   };
 }

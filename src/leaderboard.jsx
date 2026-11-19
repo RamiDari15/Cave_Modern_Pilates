@@ -228,7 +228,7 @@ function PodiumSpot({ row, place, bump }) {
         <strong>
           <CountUp value={row.classes} />
         </strong>{" "}
-        {row.classes === 1 ? "class" : "classes"}
+        {row.classes === 1 ? "point" : "points"}
       </p>
       <div className="lb-pedestal">
         <span className="lb-pedestal-place">{place}</span>
@@ -279,7 +279,7 @@ function RankList({ leaders, topCount, bumps }) {
             <span className="lb-row-count">
               {bumps[row.key] && <span className="lb-row-plus">+{bumps[row.key].gained}</span>}
               <strong>{row.classes}</strong>
-              <small>{row.classes === 1 ? "class" : "classes"}</small>
+              <small>{row.classes === 1 ? "point" : "points"}</small>
             </span>
           </li>
         ))}
@@ -291,7 +291,7 @@ function RankList({ leaders, topCount, bumps }) {
 function Stats({ board, now, phase }) {
   const daysLeft = Math.max(0, Math.ceil((END_MS - Math.max(now, START_MS)) / 86_400_000));
   const items = [
-    ["Classes taken", board.totalClasses],
+    ["Reformer classes", board.totalClasses],
     ["On the board", board.participants],
     phase === "live" ? ["Days left", daysLeft] : ["Classes held", board.classesHeld]
   ];
@@ -357,9 +357,9 @@ function phaseAt(time) {
 function Rules() {
   const startLabel = new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const steps = [
-    ["Take class", `Every Cave class you finish from ${formatRange()} earns 1 point.`],
-    ["Start fresh", `Everyone begins at zero at midnight on ${startLabel}. Nothing before it counts.`],
-    ["Climb the board", "The top three take gold, silver and bronze. Standings update through the day."]
+    ["Members only", "Earn 1 point for each completed reformer class. One reformer class per day counts toward your score."],
+    ["Up to 2 points a day", "Complete a stretch class as well as your reformer class to earn a second point. Stretch alone does not earn a point."],
+    ["Every visit matters", "A no-show deducts 1 point. A late cancellation leaves your score unchanged. Most points win; ties go to the member who reached the final total first."]
   ];
   return (
     <ol className="lb-steps">
@@ -383,6 +383,7 @@ export function ChallengePage() {
   const phase = preview && phaseAt(now) === "upcoming" ? "preview" : phaseAt(now);
   const [board, setBoard] = useState(null);
   const [yourRank, setYourRank] = useState(null);
+  const [countdownProgress, setCountdownProgress] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(phase !== "upcoming");
 
@@ -399,6 +400,7 @@ export function ChallengePage() {
       if (personal.ok) {
         const result = await personal.json();
         setYourRank(result.signedIn ? result.yourRank : null);
+        setCountdownProgress(result.countdown || null);
       }
       setError("");
     } catch (err) {
@@ -436,16 +438,24 @@ export function ChallengePage() {
       </section>
 
       <div className="lb-panel">
+        <section className="lb-challenge-intro">
+          <p className="lb-section-kicker">December 6–20</p>
+          <h2>The Cave Countdown</h2>
+          <p>Complete 10 reformer classes between December 6 and 20 to earn the Cave Countdown prize. Members and non-members can participate. Stretch classes do not count toward your 10 classes.</p>
+          {countdownProgress && <p><strong>Your progress: {countdownProgress.completed} / 10 reformer classes</strong>{countdownProgress.qualified ? " · Prize earned" : ""}</p>}
+          <hr/>
+          <h2>Cave Member Leaderboard</h2>
+          <p>A separate, members-only challenge. December 6–20.</p>
+          <Rules />
+          <ol className="lb-prizes"><li><strong>1st place</strong>Dyson Airwrap</li><li><strong>2nd place</strong>Oura Ring</li><li><strong>3rd place</strong>$100 Sephora gift card</li></ol>
+        </section>
         {phase === "upcoming" && (
           <>
             <section className="lb-upcoming">
               <p className="lb-section-kicker">The challenge starts in</p>
               <Countdown target={START_MS} />
             </section>
-            <Reveal as="section" className="lb-section">
-              <h2 className="lb-section-title">One class. One point.</h2>
-              <Rules />
-            </Reveal>
+
             <Reveal as="section" className="lb-section lb-teaser">
               <h2 className="lb-section-title">Who takes gold?</h2>
               <Podium leaders={[]} bumps={{}} />
@@ -459,12 +469,9 @@ export function ChallengePage() {
           <>
             <section className="lb-upcoming">
               <p className="lb-section-kicker">The challenge is on</p>
-              <p className="lb-empty">Classes are counted as soon as they finish. The first names appear here after the first class of the day.</p>
+              <p className="lb-empty">Points appear after completed attendance is recorded in Mindbody.</p>
             </section>
-            <Reveal as="section" className="lb-section">
-              <h2 className="lb-section-title">One class. One point.</h2>
-              <Rules />
-            </Reveal>
+
           </>
         )}
 
@@ -476,16 +483,16 @@ export function ChallengePage() {
             {yourRank && <section className="lb-your-rank" aria-label="Your rank">
               <span>Your rank</span>
               <strong>{yourRank.position ? `#${yourRank.position}` : "Not ranked yet"}</strong>
-              <span>{yourRank.classes} {yourRank.classes === 1 ? "class" : "classes"}</span>
+              <span>{yourRank.classes} {yourRank.classes === 1 ? "point" : "points"}</span>
             </section>}
-            <p className="lb-note">Top 50 clients</p>
+            <p className="lb-note">Top 50 members</p>
             <Podium leaders={leaders} bumps={bumps} />
             <RankList leaders={leaders} topCount={leaders[0]?.classes || 1} bumps={bumps} />
           </>
         )}
 
         <div className="lb-note">
-          <p>Late cancels and no-shows don't count. Ties go to whoever reached the total first.</p>
+          <p>No-shows deduct 1 point. Late cancellations leave your score unchanged. Ties go to the member who reached the final point total first.</p>
           {showBoard && board?.updatedAt && (
             <p>
               Updated {new Date(board.updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}

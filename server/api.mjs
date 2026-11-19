@@ -1,3 +1,4 @@
+import { isScheduleReleased } from "../src/scheduleRelease.js";
 import { waitlistAvailability } from "../src/waitlist.js";
 import { studioProfileAccess } from "./studioProfileAccess.mjs";
 import { deletionServices, deletionIdentity, requestReceipt, submitDeletionRequest, sessionPredatesErasure } from "./deletionRequests.mjs";
@@ -886,7 +887,19 @@ return true;
       }
 
       try {
-        const classes = await fetchLiveClasses(locationId);
+        const allClasses = await fetchLiveClasses(locationId);
+        const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+        let member = false;
+        if (allClasses.some(item => !isScheduleReleased(item.startTime, false, today) && isScheduleReleased(item.startTime, true, today))) {
+          const session = readSession(request);
+          if (session) {
+            const clientId = await resolveSessionClientId(session);
+            const info = clientId ? await fetchClientCompleteInfo(clientId, session) : null;
+            member = Boolean(info?.activeMemberships?.length);
+          }
+        }
+        const classes = allClasses.filter(item => isScheduleReleased(item.startTime, member, today));
+        response.setHeader("Cache-Control", "private, no-store");
         sendJson(response, 200, { ok: true, data: { classes } });
       } catch (error) {
         const msg = isStudioConnectionApiMessage(error.message)
@@ -3609,10 +3622,11 @@ const staffToken = await getMindbodyActionToken("Waitlist booking");
 // Recheck fresh provider data so a stale browser cannot join a full waitlist.
 const classData = await bookingRequest("/class/classes", {
   token: staffToken,
-  params: { "request.classIds": String(classId), "request.schedulingWindow": "true" }
+  params: { "request.classIds": String(classId), "request.schedulingWindow": "false" }
 });
 const liveClass = firstListByKey(classData, "Classes").find(item => Number(item.Id) === classId);
 if (!liveClass) throw httpError(404, "This class could not be found. Please refresh the schedule.");
+await assertScheduleRelease(liveClass, clientId, session);
 if (liveClass.IsCanceled) throw httpError(409, "This class has been canceled.");
 if (!isClassFree(liveClass)) {
    const clientInfo = await fetchClientCompleteInfo(clientId, session);
@@ -6107,7 +6121,7 @@ async function fetchLiveClasses(locationId) {
       "request.startDateTime": formatApiDate(today),
       "request.endDateTime": formatApiDate(future),
       "request.hideCanceledClasses": "true",
-      "request.schedulingWindow": "true",
+      "request.schedulingWindow": "false",
       "request.limit": String(limit),
       "request.offset": String(offset)
     };
@@ -6515,6 +6529,19 @@ const activeMemberships = dedupeByNameKeepLatest(rawMemberships).filter((members
   };
 }
 
+async function assertScheduleRelease(classItem, clientId, session) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const starts = classItem.StartDateTime;
+  if (isScheduleReleased(starts, false, today)) return;
+  if (isScheduleReleased(starts, true, today)) {
+    const info = await fetchClientCompleteInfo(clientId, session);
+    if (info.activeMemberships?.length) return;
+  }
+  const error = httpError(403, "Next month’s schedule opens on the 18th for members and the 20th for everyone.");
+  error.bookingCode = "SCHEDULE_NOT_RELEASED";
+  throw error;
+}
+
 async function bookClassWithValidation(session, classId, clientServiceId, classHint = {}) {
   const clientId = await resolveSessionClientId(session);
   if (!clientId) throw httpError(400, "We could not match your login to a studio account. Please sign out and try again.");
@@ -6539,10 +6566,12 @@ async function bookClassOnce(session, clientId, classId, clientServiceId, classH
     throw err;
   }
 
+const lookupToken = await getMindbodyActionToken("Class availability");
 let classData = await bookingRequest("/class/classes", {
+  token: lookupToken,
   params: {
     "request.classIds": String(classId),
-    "request.schedulingWindow": "true"
+    "request.schedulingWindow": "false"
   }
 });
 
@@ -6564,7 +6593,7 @@ if (!classItem && classHint?.startDateTime) {
   const fallbackParams = {
     "request.startDateTime": formatApiDate(from),
     "request.endDateTime": formatApiDate(to),
-    "request.schedulingWindow": "true",
+    "request.schedulingWindow": "false",
     "request.limit": "200"
   };
  
@@ -6573,6 +6602,7 @@ if (!classItem && classHint?.startDateTime) {
   }
 
   const fallbackData = await bookingRequest("/class/classes", {
+    token: lookupToken,
     params: fallbackParams
   });
 
@@ -6589,6 +6619,8 @@ if (!classItem) {
   err.bookingCode = "NO_CLASS_ID";
   throw err;
 }
+
+  await assertScheduleRelease(classItem, clientId, session);
 
   // Check the live provider, not a browser/cache flag. A retry after a lost
   // response should return the existing reservation without consuming a credit.

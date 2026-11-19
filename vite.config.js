@@ -4,11 +4,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { handleApiRequest } from "./server/api.mjs";
 
-const htmlPages = ["meet-your-reformer", "index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies", "front-desk", "challenge", "leaderboard"];
+const htmlPages = ["class-types", "prenatal-postnatal","meet-your-reformer", "index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies", "front-desk", "challenge", "leaderboard"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
 const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
 const siteUrl = "https://www.cavemodernpilates.com";
 const seoPages = {
+  "class-types": ["Class Types | Cave Modern Pilates", "Explore Cave Signature, Intro, Intensified, Power Hour, Stretch, Ass & Abs, and Yalla Move x Cave."],
+  "prenatal-postnatal": ["Prenatal & Postnatal | Cave Modern Pilates", "Learn how Cave adapts reformer movement during pregnancy and when returning after birth."],
   index: ["Women's Reformer Pilates in Orland Park | Cave Modern Pilates", "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort."],
   pricing: ["Pilates Pricing in Orland Park | Cave Modern Pilates", "Compare Cave Modern Pilates memberships, class packs, drop-ins, and new-client offers at our women's Pilates studio in Orland Park, Illinois."],
   newbie: ["New Client Pilates Offer in Orland Park | Cave Modern Pilates", "Start Pilates in Orland Park with a Cave Modern Pilates new-client offer. Welcoming women from Tinley Park, Palos Hills, Mokena, Homer Glen, and Frankfort."],
@@ -25,8 +27,8 @@ const seoPages = {
   account: ["Account | Cave Modern Pilates", "View your Cave Modern Pilates account, bookings, credits, and memberships."],
   terms: ["Terms of Service | Cave Modern Pilates", "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions."],
   "front-desk": ["Front Desk | Cave Modern Pilates", "Cave Modern Pilates staff front desk."],
-  challenge: ["The Cave Countdown Leaderboard | Cave Modern Pilates", "The Cave Countdown: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
-  leaderboard: ["The Cave Countdown Leaderboard | Cave Modern Pilates", "The Cave Countdown: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
+  challenge: ["The Cave Countdown Leaderboard | Cave Modern Pilates", "Complete 10 reformer classes December 6–20 for the Cave Countdown. Explore the separate members-only leaderboard and prizes."],
+  leaderboard: ["The Cave Countdown Leaderboard | Cave Modern Pilates", "Complete 10 reformer classes December 6–20 for the Cave Countdown. Explore the separate members-only leaderboard and prizes."],
   policies: ["Studio Policies | Cave Modern Pilates", "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."]
 };
 

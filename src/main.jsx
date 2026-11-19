@@ -4,6 +4,7 @@ import membershipSquare from "../assets/category-memberships-square.png";
 import packsSquare from "../assets/category-class-packs-square.png";
 import dropInSquare from "../assets/category-drop-in-square.png";
 import caveAppHome from "../assets/cave-app-home-current.jpg";
+import { ClassTypes, PrenatalPostnatal } from "./MethodPages.jsx";
 import CaveMethod from "./CaveMethod.jsx";
 import { isTwoWeekUnlimitedIntro, selectNewClientIntro } from "./newClientOffer.js";
 import { waitlistAvailability } from "./waitlist.js";
@@ -70,7 +71,7 @@ const ROUTES = {
 const NAV_ITEMS = [
   { label: "Home", href: ROUTES.home, page: "home" },
   { label: "The Cave Method", href: ROUTES.meetYourReformer, page: "meet-your-reformer" },
-  { label: "Countdown", href: ROUTES.challenge, page: "challenge" },
+  { label: "Cave Countdown", href: ROUTES.challenge, page: "challenge" },
   { label: "Pricing", href: ROUTES.pricing, page: "pricing" },
   { label: "Schedule", href: ROUTES.schedule, page: "schedule" },
   { label: "About Us", href: ROUTES.about, page: "about" },
@@ -87,6 +88,8 @@ const FOOTER_LINKS = [
 ];
 
 const PAGE_TITLES = {
+  "class-types": "Class Types | Cave Modern Pilates",
+  "prenatal-postnatal": "Prenatal & Postnatal | Cave Modern Pilates",
   "meet-your-reformer": "The Cave Method — Meet Your Reformer | Cave Modern Pilates",
   challenge: "The Cave Countdown Leaderboard | Cave Modern Pilates",
   home: "Women's Reformer Pilates in Orland Park | Cave Modern Pilates",
@@ -109,7 +112,7 @@ const PAGE_TITLES = {
 
 const PAGE_DESCRIPTIONS = {
   "meet-your-reformer": "Get to know your Cave reformer before your first class.",
-  challenge: "The Cave Countdown: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point.",
+  challenge: "Complete 10 reformer classes December 6–20 for the Cave Countdown. Explore the separate members-only leaderboard and prizes.",
   home: "Cave Modern Pilates is a women's Pilates and high-intensity, low-impact fitness studio in Orland Park, near Tinley Park, Palos, Mokena, Homer Glen, and Frankfort.",
   pricing: "Compare Cave Modern Pilates memberships, class packs, drop-ins, and new-client offers at our women's Pilates studio in Orland Park, Illinois.",
   newbie: "Start Pilates in Orland Park with a Cave Modern Pilates new-client offer. Welcoming women from Tinley Park, Palos Hills, Mokena, Homer Glen, and Frankfort.",
@@ -504,7 +507,7 @@ function getPageFromPath() {
     return "challenge";
   }
 
-  return ["meet-your-reformer", "challenge", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
+  return ["class-types", "prenatal-postnatal", "meet-your-reformer", "challenge", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -1083,7 +1086,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
         <nav className="desktop-nav" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => (
-            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><a href={item.href} aria-current={activePage === item.page ? "page" : undefined}>Our Reformers</a></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
+            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><div className="method-nav-links"><a href="/class-types">Class Types</a><a href={item.href} aria-current={activePage === item.page ? "page" : undefined}>Our Reformer</a><a href="/prenatal-postnatal">Prenatal &amp; Postnatal</a></div></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
               {item.label}
             </a>
           ))}
@@ -1112,7 +1115,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
       <div className={`mobile-menu${menuOpen ? " is-open" : ""}`} id="mobile-menu" aria-hidden={!menuOpen} hidden={!menuOpen}>
         <nav aria-label="Mobile navigation">
           {NAV_ITEMS.map((item) => (
-            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><a href={item.href} onClick={onCloseMenu} aria-current={activePage === item.page ? "page" : undefined}>Our Reformers</a></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
+            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><div className="method-nav-links"><a href="/class-types">Class Types</a><a href={item.href} onClick={onCloseMenu} aria-current={activePage === item.page ? "page" : undefined}>Our Reformer</a><a href="/prenatal-postnatal">Prenatal &amp; Postnatal</a></div></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
               {item.label}
             </a>
           ))}
@@ -1145,6 +1148,8 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   if (page === "schedule") {
     return <SchedulePage schedule={cache.schedule || []} bookingUrl={bookingUrl} clientSession={clientSession} spotsLoading={cacheLoading} />;  }
 
+  if (page === "class-types") return <ClassTypes />;
+  if (page === "prenatal-postnatal") return <PrenatalPostnatal />;
   if (page === "meet-your-reformer") return <CaveMethod />;
 
   if (page === "challenge") return <ChallengePage />;

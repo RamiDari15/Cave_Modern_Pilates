@@ -31,7 +31,7 @@ let contracts = [];
 let completeMemberships = [];
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input), body = options.body ? JSON.parse(options.body) : {};
-  if (url.pathname.endsWith("/class/classes")) return Response.json({ Classes: [{ Id: 77, StartDateTime: "2099-01-01T10:00:00", MaxCapacity: capacity, TotalBooked: 0, IsAvailable: true, ...eventOverride }] });
+  if (url.pathname.endsWith("/class/classes")) return Response.json({ Classes: [{ Id: 77, StartDateTime: `${new Date().toISOString().slice(0,7)}-28T10:00:00`, MaxCapacity: capacity, TotalBooked: 0, IsAvailable: true, ...eventOverride }] });
   if (url.pathname.endsWith("/client/clientschedule")) {
     if (readFailure) return Response.json({ Error: { Message: "schedule unavailable" } }, { status: 503 });
     return Response.json({ Visits: visits });
