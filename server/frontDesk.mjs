@@ -1,3 +1,5 @@
+import { sendGoogleDeletionMail } from "./deletionMail.mjs";
+import { deletionServices, completeDeletionRequest } from "./deletionRequests.mjs";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isCancelledVisit } from "../src/bookingGuard.js";
 import { isMilestone, nextMilestone } from "../src/milestones.js";
@@ -88,6 +90,43 @@ export async function handleFrontDeskRequest(request, response, url, deps) {
   if (path === "/api/front-desk/logout" && request.method === "POST") {
     deps.appendSetCookie(response, frontDeskCookie("", 0, deps));
     sendJson(response, 200, { authenticated: false });
+    return true;
+  }
+
+  if (path === "/api/front-desk/deletion-email-test") {
+    response.setHeader("Cache-Control", "no-store");
+    if (!hasFrontDeskSession(request, deps)) throw httpError(401, "Please enter the front desk password.");
+    if (request.method !== "POST") throw httpError(405, "Method not allowed.");
+    const origin = request.headers.origin;
+    if (!origin || new URL(origin).host !== request.headers.host || !String(request.headers["content-type"] || "").includes("application/json")) throw httpError(403, "Use the staff page to test email.");
+    await sendGoogleDeletionMail({ id: `configuration-test-${Date.now()}`, to: "support@cavemodernpilates.com",
+      subject: "Cave account deletion — email setup test",
+      text: "This is a configuration test of Cave's account-deletion email sender. No customer account or deletion request has been created, changed, or deleted. Please confirm this email arrived before enabling the new deletion workflow." });
+    sendJson(response, 200, { ok: true, accepted: true, message: "Google accepted the test email. Check the support inbox to confirm delivery." });
+    return true;
+  }
+
+  if (path === "/api/front-desk/deletion-requests") {
+    response.setHeader("Cache-Control", "no-store");
+    if (!hasFrontDeskSession(request, deps)) throw httpError(401, "Please enter the front desk password.");
+    const services = deletionServices();
+    if (request.method === "GET") {
+      sendJson(response, 200, { requests: await services.store.list() });
+    } else if (request.method === "POST") {
+      const origin = request.headers.origin;
+      const host = request.headers.host;
+      if (!origin || new URL(origin).host !== host || !String(request.headers["content-type"] || "").includes("application/json")) throw httpError(403, "Open the staff page to process requests.");
+      const body = await deps.readJsonBody(request);
+      if (body.action === "retry-alert") {
+        const row = await services.store.get(String(body.id || ""));
+        if (!row || row.status === "completed") throw httpError(404, "Open request not found.");
+        await services.notify(row, "staff");
+        await services.store.patch(row.id, { staff_notified_at: new Date().toISOString() });
+        sendJson(response, 200, { ok: true });
+      } else {
+        sendJson(response, 200, { data: await completeDeletionRequest({ id: body.id, body, ...services }) });
+      }
+    } else throw httpError(405, "Method not allowed.");
     return true;
   }
 

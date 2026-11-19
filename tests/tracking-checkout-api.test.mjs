@@ -26,6 +26,7 @@ const originalFetch = globalThis.fetch;
 let decline = false, metaUnavailable = false, contractUnavailable = false, metaEvents = [], charges = 0;
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(input);
+  if (url.pathname.endsWith("/client/clientcompleteinfo")) return Response.json({Client:{Id:"42", Active:true, Email:"checkout-test@example.invalid"}});
   const body = options.body ? JSON.parse(options.body) : {};
   if (url.hostname === "graph.facebook.com") {
     metaEvents.push(...body.data);

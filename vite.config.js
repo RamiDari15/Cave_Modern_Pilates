@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { handleApiRequest } from "./server/api.mjs";
 
-const htmlPages = ["index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "meet-your-reformer", "login", "signup", "sms", "account", "terms", "policies", "front-desk", "challenge", "leaderboard"];
+const htmlPages = ["meet-your-reformer", "index", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies", "front-desk"];
 const cacheFile = resolve(__dirname, "data/studio-cache.json");
 const cleanPagePaths = new Set(htmlPages.filter((page) => page !== "index").map((page) => `/${page}`));
 const siteUrl = "https://www.cavemodernpilates.com";
@@ -19,15 +19,12 @@ const seoPages = {
   about: ["Women's Pilates Studio in Orland Park | Cave Modern Pilates", "Meet Cave Modern Pilates, a women-focused Pilates studio in Orland Park created to build strength, confidence, and community through movement."],
   contact: ["Contact Our Orland Park Pilates Studio | Cave Modern Pilates", "Contact Cave Modern Pilates at 31 Orland Square Drive in Orland Park for classes, memberships, private sessions, and studio questions."],
   faq: ["Pilates Membership & Booking FAQ | Cave Modern Pilates", "Get answers about Cave Modern Pilates classes, memberships, booking, cancellations, guest passes, refunds, and women's studio policies."],
-  "meet-your-reformer": ["Meet Your Reformer | The Cave Method | Cave Modern Pilates", "Get to know the Cave reformer before your first class: the carriage, platforms, handle bars, balance pole, straps, and the pit, explained part by part."],
   login: ["Login | Cave Modern Pilates", "Sign in to your Cave Modern Pilates account."],
   signup: ["Sign Up | Cave Modern Pilates", "Create your Cave Modern Pilates client account and complete the first-class liability waiver."],
   sms: ["Cave Text Updates | Cave Modern Pilates", "Sign up for Cave Modern Pilates text updates, class openings, studio news, and occasional offers."],
   account: ["Account | Cave Modern Pilates", "View your Cave Modern Pilates account, bookings, credits, and memberships."],
   terms: ["Terms of Service | Cave Modern Pilates", "Read the Cave Modern Pilates terms of service, membership agreement, recurring billing terms, cancellation requirements, and purchase conditions."],
   "front-desk": ["Front Desk | Cave Modern Pilates", "Cave Modern Pilates staff front desk."],
-  challenge: ["The Cave Challenge Leaderboard | Cave Modern Pilates", "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
-  leaderboard: ["The Cave Challenge Leaderboard | Cave Modern Pilates", "The Cave Challenge: take as many classes as you can from Dec 6 to 20 and climb the live Cave Modern Pilates leaderboard. One class, one point."],
   policies: ["Studio Policies | Cave Modern Pilates", "Review Cave Modern Pilates studio policies for booking, late cancellations, no-shows, safety, privacy, refunds, and the participant liability waiver."]
 };
 
@@ -51,7 +48,7 @@ function studioServerPlugin() {
       const [title, description] = seoPages[page] || seoPages.index;
       const path = page === "index" ? "/" : `/${page}`;
       const canonical = `${siteUrl}${path}`;
-      const isPrivate = ["login", "signup", "sms", "account", "front-desk", "leaderboard"].includes(page);
+      const isPrivate = ["login", "signup", "sms", "account", "front-desk"].includes(page);
       const graph = [
           {
             "@type": ["HealthClub", "SportsActivityLocation", "LocalBusiness"],
