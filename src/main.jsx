@@ -40,6 +40,7 @@ import {
 import octoberOfferImage from "../assets/cave-october-buy3-get1.png";
 import homeHeroPoster from "../assets/cave-home-hero.jpeg";
 import homeHeroVideo from "../assets/cave-home-hero-video.mp4";
+import cozyCarePartnerLogo from "../assets/local-partner-cozycare.svg";
 import oxygenPartnerLogo from "../assets/local-partner-oxygen.png";
 import stretchLabPartnerLogo from "../assets/local-partner-stretchlab.png";
 import qahwaPartnerLogo from "../assets/local-partner-the-qahwa.png";
@@ -202,6 +203,7 @@ const PRIVATE_PRICING_OPTIONS = [
 ];
 
 const LOCAL_PARTNERS = [
+  { name: "CozyCare", logo: cozyCarePartnerLogo, className: "cozycare" },
   { name: "Oxygen Spa and Boutique", logo: oxygenPartnerLogo, className: "oxygen" },
   { name: "StretchLab Orland Park", logo: stretchLabPartnerLogo, className: "stretchlab" },
   { name: "The Qahwa", logo: qahwaPartnerLogo, className: "qahwa" },
@@ -289,7 +291,7 @@ const FAQ_ITEMS = [
     answer: [
       "All unlimited members receive one complimentary late-cancellation waiver, one complimentary no-show waiver, and one complimentary guest pass each month. Unlimited members on a 12-month commitment receive two complimentary late-cancellation waivers and two complimentary no-show waivers each month.",
       "Unlimited members receive priority access to exclusive CAVE events, specialty classes, workshops, collaborations, and other limited-capacity experiences before they are released to the public.",
-      "Local partner benefits include 15% off at Oxygen Med Spa, 10% off at StretchLab, 10% off at Al Qahwah, and 10% off Cave retail.",
+      "Local partner benefits include 15% off CozyCare services, 15% off at Oxygen Med Spa, 10% off at StretchLab, 10% off at Al Qahwah, and 10% off Cave retail.",
       "Members also enjoy access to curated members-only CAVE events, specialty classes, workshops, and community experiences."
     ]
   },
@@ -2474,6 +2476,7 @@ function MembershipPerks() {
               <section>
                 <h3>Local Partner Discounts</h3>
                 <ul>
+                  <li>15% off CozyCare services</li>
                   <li>15% off at Oxygen Med Spa</li>
                   <li>10% off at StretchLab</li>
                   <li>10% off at Al Qahwah</li>
