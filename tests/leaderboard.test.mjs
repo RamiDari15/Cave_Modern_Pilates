@@ -257,7 +257,7 @@ test("refreshes share work; old corrections refresh after 15 minutes without rer
     assert.equal(responses[0].body.totalClasses,4);
     clock += 2 * 60 * 1000;
     const cached = await run();
-    assert.match(cached.headers['cache-control'], /s-maxage=60/);
+    assert.match(cached.headers['cache-control'], /s-maxage=50/);
     assert.doesNotMatch(cached.headers['cache-control'], /stale-while-revalidate/);
     corrected = true;
     clock += 60 * 1000 + 1;

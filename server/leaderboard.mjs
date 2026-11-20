@@ -10,10 +10,11 @@ import { studioLocalNow } from "./frontDesk.mjs";
 // and single-flight refreshes prevent duplicate provider request bursts.
 
 const MINDBODY_CONCURRENCY = 4;
-const TODAY_ROSTER_TTL_MS = 3 * 60 * 1000;
+// Expire just before the browser poll so network timing cannot reuse a full cycle.
+const TODAY_ROSTER_TTL_MS = 3 * 60 * 1000 - 10 * 1000;
 const PAST_ROSTER_TTL_MS = 15 * 60 * 1000;
 const PROFILE_TTL_MS = 3 * 60 * 1000;
-const RESULT_TTL_MS = 3 * 60 * 1000;
+const RESULT_TTL_MS = TODAY_ROSTER_TTL_MS;
 const MAX_LEADERS = 50;
 const PREVIEW_DAYS = 14;
 
