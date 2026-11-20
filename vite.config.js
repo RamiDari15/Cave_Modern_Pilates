@@ -123,6 +123,8 @@ function studioServerPlugin() {
 
       const structuredData = JSON.stringify({ "@context": "https://schema.org", "@graph": graph });
       const tags = [
+        `<link rel="icon" type="image/png" href="/cave-favicon.png?v=1">`,
+        `<link rel="apple-touch-icon" href="/cave-favicon.png?v=1">`,
         `<link rel="canonical" href="${canonical}">`,
         `<meta name="robots" content="${isPrivate ? "noindex, nofollow" : "index, follow, max-image-preview:large"}">`,
         `<meta property="og:title" content="${title}">`,
