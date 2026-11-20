@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { LEADERBOARD } from "./leaderboardConfig.js";
 import "./leaderboard.css";
 
-const REFRESH_MS = 5 * 60 * 1000;
+const REFRESH_MS = 3 * 60 * 1000;
 const STUDIO_TIME_ZONE = "America/Chicago";
 
 function studioMidnightMs(isoDate) {
@@ -427,7 +427,10 @@ export function ChallengePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(phase !== "upcoming");
 
+  const loadingPhase = useRef(null);
   const load = useCallback(async (currentPhase) => {
+    if (loadingPhase.current === currentPhase) return;
+    loadingPhase.current = currentPhase;
     try {
       // The phase in the URL gives each phase its own cached copy, so the
       // switch at midnight never shows an older phase's response.
@@ -446,6 +449,7 @@ export function ChallengePage() {
     } catch (err) {
       setError(err.message || "Could not load the leaderboard.");
     } finally {
+      if (loadingPhase.current === currentPhase) loadingPhase.current = null;
       setLoading(false);
     }
   }, []);

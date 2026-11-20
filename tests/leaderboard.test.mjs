@@ -216,3 +216,57 @@ test("membership comes from Mindbody's Client.Status, and a finished class count
   assert.deepEqual(response.body.leaders.map(({ name, classes }) => ({ name, classes })), [{ name: "Maya K.", classes: 2 }]);
   assert.equal(response.body.totalClasses, 4);
 });
+
+test("preview cache cannot carry scores into December 6", async () => {
+  resetLeaderboardCaches();
+  const preview = fakeResponse();
+  await handleLeaderboardRequest({method:"GET"}, preview, new URL("http://x/api/leaderboard?preview=1"), fakeDeps("2026-12-05T12:00:00", []));
+  assert.ok(preview.body.totalClasses > 0);
+  const launch = await request("2026-12-06T00:00:00");
+  assert.equal(launch.body.status, "live");
+  assert.equal(launch.body.windowFrom, "2026-12-06");
+  assert.equal(launch.body.totalClasses, 0);
+  assert.deepEqual(launch.body.leaders, []);
+});
+
+test("refreshes share work; old corrections refresh after 15 minutes without rereading every 3 minutes", async () => {
+  resetLeaderboardCaches();
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  const calls = [];
+  const deps = fakeDeps("2026-12-07T12:00:00", calls);
+  const original = deps.bookingRequest;
+  let corrected = false;
+  deps.bookingRequest = async (path, options) => {
+    if (corrected && path === "/class/classvisits" && Number(options.params["request.classID"]) === 2) {
+      calls.push(path);
+      return {Class:{Visits:[]}};
+    }
+    return original(path, options);
+  };
+  const run = async () => {
+    const response = fakeResponse();
+    await handleLeaderboardRequest({method:"GET"}, response, new URL("http://x/api/leaderboard"), deps);
+    return response;
+  };
+  try {
+    const responses = await Promise.all(Array.from({length:10},run));
+    assert.equal(calls.filter(p=>p==="/class/classes").length,1);
+    assert.equal(calls.filter(p=>p==="/class/classvisits").length,2);
+    assert.equal(responses[0].body.totalClasses,4);
+    clock += 2 * 60 * 1000;
+    const cached = await run();
+    assert.match(cached.headers['cache-control'], /s-maxage=60/);
+    assert.doesNotMatch(cached.headers['cache-control'], /stale-while-revalidate/);
+    corrected = true;
+    clock += 60 * 1000 + 1;
+    const freshToday = await run();
+    assert.equal(calls.filter(p=>p==="/class/classvisits").length,3);
+    assert.equal(freshToday.body.totalClasses,4);
+    clock += 12 * 60 * 1000;
+    const correctedPast = await run();
+    assert.equal(correctedPast.body.totalClasses,2);
+    assert.equal(calls.filter(p=>p==="/class/classvisits").length,5);
+  } finally {Date.now=realNow;resetLeaderboardCaches();}
+});

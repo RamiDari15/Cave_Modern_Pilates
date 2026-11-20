@@ -10,10 +10,10 @@ import { studioLocalNow } from "./frontDesk.mjs";
 // and single-flight refreshes prevent duplicate provider request bursts.
 
 const MINDBODY_CONCURRENCY = 4;
-const TODAY_ROSTER_TTL_MS = 4 * 60 * 1000;
-const PAST_ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
+const TODAY_ROSTER_TTL_MS = 3 * 60 * 1000;
+const PAST_ROSTER_TTL_MS = 15 * 60 * 1000;
 const PROFILE_TTL_MS = 3 * 60 * 1000;
-const RESULT_TTL_MS = 4 * 60 * 1000;
+const RESULT_TTL_MS = 3 * 60 * 1000;
 const MAX_LEADERS = 50;
 const PREVIEW_DAYS = 14;
 
@@ -52,8 +52,10 @@ export async function handleLeaderboardRequest(request, response, url, deps) {
       sendLeaderboardJson(response, 200, { signedIn: Boolean(clientId), yourRank, countdown: clientId ? countdown.find(row=>row.key===publicKey(String(clientId))) || {completed:0,qualified:false} : null }, "private, no-store");
       return true;
     }
-    const edgeSeconds = result.status === "final" ? 3600 : 240;
-    sendLeaderboardJson(response, 200, publicResult, `public, max-age=0, s-maxage=${edgeSeconds}, stale-while-revalidate=600`);
+    // Do not add a fresh CDN lifetime to an already-aged server snapshot.
+    const ageSeconds = Math.max(0, (Date.now() - Date.parse(result.updatedAt)) / 1000);
+    const edgeSeconds = Math.max(0, Math.floor(RESULT_TTL_MS / 1000 - ageSeconds));
+    sendLeaderboardJson(response, 200, publicResult, result.status === "upcoming" ? "no-store" : `public, max-age=0, s-maxage=${edgeSeconds}, must-revalidate`);
   } catch (error) {
     logLeaderboardError("request failed", error);
     sendLeaderboardJson(response, 502, { error: "The leaderboard could not reach the class schedule. Try again in a minute." }, "no-store");
@@ -119,7 +121,7 @@ async function leaderboardSnapshot(deps, preview = false) {
   if (!inFlight || inFlight.status !== status) {
     const promise = buildLeaderboard(now, status, deps)
       .then((value) => {
-        resultCache = { status, value, expiresAt: Date.now() + (status === "final" ? PAST_ROSTER_TTL_MS : RESULT_TTL_MS) };
+        resultCache = { status, value, expiresAt: Date.now() + RESULT_TTL_MS };
         return value;
       })
       .finally(() => {
