@@ -1,25 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import "./methodPages.css";
 
-// The three Cave Method pages, in the order they appear in the nav.
-export const METHOD_PAGES = [
-  { label: "Class Types", href: "/class-types", page: "class-types" },
-  { label: "Our Reformer", href: "/meet-your-reformer", page: "meet-your-reformer" },
-  { label: "Prenatal & Postnatal", href: "/prenatal-postnatal", page: "prenatal-postnatal" }
-];
-
-export function MethodNav({ current }) {
-  return (
-    <nav className="method-tabs" aria-label="The Cave Method">
-      {METHOD_PAGES.map((item) => (
-        <a key={item.page} href={item.href} aria-current={item.page === current ? "page" : undefined}>
-          {item.label}
-        </a>
-      ))}
-    </nav>
-  );
-}
-
 // Fades sections in as they scroll into view. Everything stays visible when
 // motion is reduced or IntersectionObserver isn't available.
 export function useMethodReveal() {
@@ -50,10 +31,9 @@ export function useMethodReveal() {
   return ref;
 }
 
-function MethodHero({ current, title, lead, children }) {
+function MethodHero({ title, lead, children }) {
   return (
     <header className="method-hero">
-      <MethodNav current={current} />
       <p className="method-kicker">The Cave Method</p>
       <h1>{title}</h1>
       <p className="method-lead">{lead}</p>
@@ -131,7 +111,7 @@ export function ClassTypes() {
   const ref = useMethodReveal();
   return (
     <div className="method-page" ref={ref}>
-      <MethodHero current="class-types" title="Class types" lead="Find your pace. Make it your practice. Every class runs on the custom Cave reformer, low impact and high intensity.">
+      <MethodHero title="Class types" lead="Find your pace. Make it your practice. Every class runs on the custom Cave reformer, low impact and high intensity.">
         <div className="method-actions">
           <a className="method-button is-dark" href="/schedule">View the schedule</a>
           <a className="method-button" href="/newbie">New client offer</a>
@@ -242,7 +222,7 @@ export function PrenatalPostnatal() {
   const ref = useMethodReveal();
   return (
     <div className="method-page" ref={ref}>
-      <MethodHero current="prenatal-postnatal" title={<>Prenatal &amp; postnatal</>} lead="Movement that meets you where you are. How we adapt Cave classes through each trimester and after birth.">
+      <MethodHero title={<>Prenatal &amp; postnatal</>} lead="Movement that meets you where you are. How we adapt Cave classes through each trimester and after birth.">
         <div className="method-jump" aria-label="Jump to a stage">
           {STAGES.map((stage) => (
             <a key={stage.id} href={`#${stage.id}`}>{stage.label}</a>

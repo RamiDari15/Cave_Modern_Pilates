@@ -349,7 +349,10 @@ svg {
 .page-account,
 .page-terms,
 .page-policies,
-.page-challenge {
+.page-challenge,
+.page-class-types,
+.page-meet-your-reformer,
+.page-prenatal-postnatal {
   background:
     radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.08), transparent 24%),
     radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.06), transparent 26%),
@@ -380,7 +383,13 @@ body.interior:has(.page-policies),
 .app-shell.interior:has(.page-terms),
 .app-shell.interior:has(.page-policies),
 body.interior:has(.page-challenge),
-.app-shell.interior:has(.page-challenge) {
+.app-shell.interior:has(.page-challenge),
+body.interior:has(.page-class-types),
+.app-shell.interior:has(.page-class-types),
+body.interior:has(.page-meet-your-reformer),
+.app-shell.interior:has(.page-meet-your-reformer),
+body.interior:has(.page-prenatal-postnatal),
+.app-shell.interior:has(.page-prenatal-postnatal) {
   background:
     radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.08), transparent 24%),
     radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.06), transparent 26%),
