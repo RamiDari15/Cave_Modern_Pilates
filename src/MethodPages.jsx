@@ -132,7 +132,6 @@ export function ClassTypes() {
         {CLASSES.map((item, index) => (
           <article className="method-class-card" key={item.name} data-reveal style={{ "--i": index % 2 }}>
             <div className="method-class-top">
-              <span className="method-index">{String(index + 1).padStart(2, "0")}</span>
               <span className="method-duration">
                 <b>{item.minutes}</b> min
               </span>
@@ -238,7 +237,6 @@ export function PrenatalPostnatal() {
         <ol className="method-steps">
           {BEFORE.map((text, index) => (
             <li key={text} style={{ "--i": index }}>
-              <span>{index + 1}</span>
               <p>{text}</p>
             </li>
           ))}
@@ -254,7 +252,6 @@ export function PrenatalPostnatal() {
           {STAGES.map((stage, index) => (
             <article className="method-stage" id={stage.id} key={stage.id} data-reveal>
               <div className="method-stage-label">
-                <span className="method-index">{String(index + 1).padStart(2, "0")}</span>
                 <h3>{stage.label}</h3>
                 {stage.note && <p className="method-stage-note">{stage.note}</p>}
               </div>
