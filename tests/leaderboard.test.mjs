@@ -196,3 +196,23 @@ test("resolves missing names from paginated clients and limits the public board 
     assert.equal(response.body.countdown.completed, 2);
   } finally { people[101].MembershipStatus = old; resetLeaderboardCaches(); }
 });
+
+test("membership comes from Mindbody's Client.Status, and a finished class counts without a check-in", async () => {
+  resetLeaderboardCaches();
+  const deps = fakeDeps("2026-12-07T12:00:00", []);
+  const realRequest = deps.bookingRequest;
+  deps.bookingRequest = async (path, options) => {
+    if (path === "/class/classvisits") return { Class: { Visits: [{ ClientId: "201" }, { ClientId: "202" }] } };
+    if (path === "/client/clients") {
+      return { Clients: [
+        { Id: "201", Status: "Active", FirstName: "Maya", LastName: "Kim" },
+        { Id: "202", Status: "Non-Member", FirstName: "Rita", LastName: "Lee" }
+      ] };
+    }
+    return realRequest(path, options);
+  };
+  const response = fakeResponse();
+  await handleLeaderboardRequest({ method: "GET" }, response, new URL("http://x/api/leaderboard"), deps);
+  assert.deepEqual(response.body.leaders.map(({ name, classes }) => ({ name, classes })), [{ name: "Maya K.", classes: 2 }]);
+  assert.equal(response.body.totalClasses, 4);
+});

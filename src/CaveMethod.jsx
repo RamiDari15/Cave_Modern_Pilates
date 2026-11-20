@@ -1,8 +1,10 @@
 import React from "react";
 import sections from "./reformerContent.json";
+import { MethodNav } from "./MethodPages.jsx";
 const images = import.meta.glob("../assets/reformer-*.jpg", { eager: true, query: "?url", import: "default" });
 export default function CaveMethod() {
   return <div className="reformer-page">
+    <MethodNav current="meet-your-reformer" />
     <section className="reformer-hero"><p className="reformer-kicker">The Cave Method</p><h1>Get to know our<br />reformer.</h1><p>Every Cave class is built on one machine. Here is every part of our customized Cave reformer so you can walk in on day one knowing exactly where to step, what to hold, and what each strap is for.</p></section>
     {sections.map(section => <section className="reformer-section" key={section.image}>
       <img src={images[`../assets/${section.image}`]} alt={section.alt} loading="lazy" />

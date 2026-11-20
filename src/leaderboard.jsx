@@ -354,23 +354,63 @@ function phaseAt(time) {
   return "live";
 }
 
-function Rules() {
-  const startLabel = new Date(START_MS).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const steps = [
-    ["Members only", "Earn 1 point for each completed reformer class. One reformer class per day counts toward your score."],
-    ["Up to 2 points a day", "Complete a stretch class as well as your reformer class to earn a second point. Stretch alone does not earn a point."],
-    ["Every visit matters", "A no-show deducts 1 point. A late cancellation leaves your score unchanged. Most points win; ties go to the member who reached the final total first."]
-  ];
+const MEMBER_RULES = [
+  ["Members only", "Earn 1 point for each reformer class you complete."],
+  ["Daily limit", "You may take one reformer class per day. The only way to earn a second point that day is to also complete a stretch class. The daily maximum is 2 points."],
+  ["No-shows and late cancellations", "A no-show deducts 1 point. A late cancellation leaves your score unchanged."],
+  ["Most points win", "If members tie, the member who reached the final point total first takes the higher spot."]
+];
+
+const PRIZES = [
+  ["gold", "1st place", "Dyson Airwrap"],
+  ["silver", "2nd place", "Oura Ring"],
+  ["bronze", "3rd place", "$100 Sephora gift card"]
+];
+
+function ChallengeCards({ progress }) {
+  const done = Math.min(10, Number(progress?.completed) || 0);
   return (
-    <ol className="lb-steps">
-      {steps.map(([title, text], index) => (
-        <Reveal as="li" className="lb-step" delay={index * 120} key={title}>
-          <span className="lb-step-number">{String(index + 1).padStart(2, "0")}</span>
-          <h3>{title}</h3>
-          <p>{text}</p>
-        </Reveal>
-      ))}
-    </ol>
+    <div className="lb-challenges">
+      <Reveal as="article" className="lb-challenge-card is-countdown">
+        <p className="lb-section-kicker">Open to everyone</p>
+        <h2>The Cave Countdown</h2>
+        <p>Complete 10 reformer classes between December 6 and 20 to earn the Cave Countdown prize. Both members and non-members can participate. Stretch classes do not count toward your 10 classes.</p>
+        <div className="lb-ten" aria-label={progress ? `${done} of 10 reformer classes completed` : "10 reformer classes"}>
+          {Array.from({ length: 10 }, (_, index) => (
+            <span key={index} className={index < done ? "is-done" : undefined} style={{ "--i": index }}>{index + 1}</span>
+          ))}
+        </div>
+        {progress && (
+          <p className="lb-ten-status">
+            <strong>Your progress: {done} / 10</strong>
+            {progress.qualified ? " · Prize earned" : ""}
+          </p>
+        )}
+      </Reveal>
+      <Reveal as="article" className="lb-challenge-card is-members" delay={120}>
+        <p className="lb-section-kicker">Members only</p>
+        <h2>Cave Member Leaderboard</h2>
+        <p>A separate, members-only challenge with its own rules and scoring.</p>
+        <ul className="lb-rules">
+          {MEMBER_RULES.map(([title, text]) => (
+            <li key={title}>
+              <strong>{title}.</strong> {text}
+            </li>
+          ))}
+        </ul>
+      </Reveal>
+      <Reveal as="section" className="lb-prize-row" delay={200} aria-label="Member leaderboard prizes">
+        {PRIZES.map(([tone, place, prize]) => (
+          <div className={`lb-prize is-${tone}`} key={place}>
+            <span className="lb-prize-medal" aria-hidden="true">{place.charAt(0)}</span>
+            <div>
+              <small>{place}</small>
+              <strong>{prize}</strong>
+            </div>
+          </div>
+        ))}
+      </Reveal>
+    </div>
   );
 }
 
@@ -438,17 +478,7 @@ export function ChallengePage() {
       </section>
 
       <div className="lb-panel">
-        <section className="lb-challenge-intro">
-          <p className="lb-section-kicker">December 6–20</p>
-          <h2>The Cave Countdown</h2>
-          <p>Complete 10 reformer classes between December 6 and 20 to earn the Cave Countdown prize. Members and non-members can participate. Stretch classes do not count toward your 10 classes.</p>
-          {countdownProgress && <p><strong>Your progress: {countdownProgress.completed} / 10 reformer classes</strong>{countdownProgress.qualified ? " · Prize earned" : ""}</p>}
-          <hr/>
-          <h2>Cave Member Leaderboard</h2>
-          <p>A separate, members-only challenge. December 6–20.</p>
-          <Rules />
-          <ol className="lb-prizes"><li><strong>1st place</strong>Dyson Airwrap</li><li><strong>2nd place</strong>Oura Ring</li><li><strong>3rd place</strong>$100 Sephora gift card</li></ol>
-        </section>
+        
         {phase === "upcoming" && (
           <>
             <section className="lb-upcoming">
@@ -456,6 +486,7 @@ export function ChallengePage() {
               <Countdown target={START_MS} />
             </section>
 
+            <ChallengeCards progress={countdownProgress} />
             <Reveal as="section" className="lb-section lb-teaser">
               <h2 className="lb-section-title">Who takes gold?</h2>
               <Podium leaders={[]} bumps={{}} />
@@ -490,6 +521,8 @@ export function ChallengePage() {
             <RankList leaders={leaders} topCount={leaders[0]?.classes || 1} bumps={bumps} />
           </>
         )}
+
+        {phase !== "upcoming" && <ChallengeCards progress={countdownProgress} />}
 
         <div className="lb-note">
           <p>No-shows deduct 1 point. Late cancellations leave your score unchanged. Ties go to the member who reached the final point total first.</p>
