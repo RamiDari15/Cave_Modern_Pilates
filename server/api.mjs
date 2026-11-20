@@ -893,9 +893,15 @@ return true;
         if (allClasses.some(item => !isScheduleReleased(item.startTime, false, today) && isScheduleReleased(item.startTime, true, today))) {
           const session = readSession(request);
           if (session) {
-            const clientId = await resolveSessionClientId(session);
-            const info = clientId ? await fetchClientCompleteInfo(clientId, session) : null;
-            member = Boolean(info?.activeMemberships?.length);
+            // A failed membership lookup shows the public schedule instead of
+            // breaking the whole schedule for this client.
+            try {
+              const clientId = await resolveSessionClientId(session);
+              const info = clientId ? await fetchClientCompleteInfo(clientId, session) : null;
+              member = Boolean(info?.activeMemberships?.length);
+            } catch (error) {
+              console.error("[schedule] member early access check failed:", error?.status || "", error?.message || error);
+            }
           }
         }
         const classes = allClasses.filter(item => isScheduleReleased(item.startTime, member, today));

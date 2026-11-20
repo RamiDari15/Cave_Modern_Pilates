@@ -22,6 +22,12 @@ const profileCache = new Map();
 let resultCache = null;
 let inFlight = null;
 
+// Mindbody's Client.Status is the membership status ("Active", "Non-Member",
+// "Expired", ...). MembershipStatus is only checked as a fallback.
+function isMemberClient(client) {
+  return [client?.Status, client?.MembershipStatus].some((value) => String(value || "").trim().toLowerCase() === "active");
+}
+
 export function resetLeaderboardCaches() {
   rosterCache.clear();
   profileCache.clear();
@@ -210,12 +216,12 @@ async function classRoster(classItem, today, token, deps) {
   // separate lookup, and support both Mindbody ID representations.
   const clients = [...(visitClass.Clients || []), ...visits.map((visit) => visit.Client).filter(Boolean)];
   for (const client of clients) {
-    if (!client.FirstName || client.MembershipStatus == null) continue;
+    if (!client.FirstName || (client.Status == null && client.MembershipStatus == null)) continue;
     for (const id of [client.Id, client.UniqueId]) {
-      if (id != null) profileCache.set(String(id), { name: leaderboardName(client.FirstName, client.LastName), member: String(client.MembershipStatus || "").toLowerCase() === "active", expiresAt: Date.now() + PROFILE_TTL_MS });
+      if (id != null) profileCache.set(String(id), { name: leaderboardName(client.FirstName, client.LastName), member: isMemberClient(client), expiresAt: Date.now() + PROFILE_TTL_MS });
     }
   }
-  const rows = visits.map(visit => ({clientId: visitClientId(visit), cancelled: isCancelledVisit(visit), missed: visit.Missed === true || /no.?show|missed/i.test(String(visit.Status || visit.VisitStatus || "")), completed: visit.SignedIn === true || /completed|attended/i.test(String(visit.Status || visit.VisitStatus || ""))})).filter(visit => visit.clientId);
+  const rows = visits.map(visit => ({clientId: visitClientId(visit), cancelled: isCancelledVisit(visit), missed: visit.Missed === true || /no.?show|missed/i.test(String(visit.Status || visit.VisitStatus || "")), completed: true})).filter(visit => visit.clientId);
   const unique = [...new Map(rows.map(row => [row.clientId,row])).values()];
   const ttl = classItem.start.slice(0, 10) < today ? PAST_ROSTER_TTL_MS : TODAY_ROSTER_TTL_MS;
   rosterCache.set(classItem.classId, { visits: unique, expiresAt: Date.now() + ttl });
@@ -253,7 +259,7 @@ async function clientNames(clientIds, token, deps) {
       if (!client.FirstName) continue;
       for (const alias of [id, client.UniqueId].filter((value) => value != null)) {
         names.set(String(alias), name);
-        profileCache.set(String(alias), { name, member: String(client.MembershipStatus || "").toLowerCase() === "active", expiresAt: Date.now() + PROFILE_TTL_MS });
+        profileCache.set(String(alias), { name, member: isMemberClient(client), expiresAt: Date.now() + PROFILE_TTL_MS });
       }
     }
   });
@@ -267,7 +273,7 @@ async function clientNames(clientIds, token, deps) {
       const name = leaderboardName(client.FirstName, client.LastName);
       for (const alias of [client.Id, client.UniqueId].filter((id) => id != null)) {
         const id = String(alias);
-        profileCache.set(id, { name, member: String(client.MembershipStatus || "").toLowerCase() === "active", expiresAt: Date.now() + PROFILE_TTL_MS });
+        profileCache.set(id, { name, member: isMemberClient(client), expiresAt: Date.now() + PROFILE_TTL_MS });
         if (clientIds.includes(id)) names.set(id, name);
       }
     }
