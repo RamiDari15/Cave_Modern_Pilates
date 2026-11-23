@@ -64,6 +64,19 @@ export function normalizeMindbodyContract(contract) {
   const amounts = Object.fromEntries(AMOUNT_FIELDS.map((key) => [
     key[0].toLowerCase() + key.slice(1), amount(contract[key])
   ]));
+  // Verified production API shape: first-free contracts expose the gross first
+  // payment and its discount separately, while the full-term total is already net.
+  const recurring = amounts.recurringPaymentAmountTotal;
+  const grossFirstFree = isBlackFridayOffer(contract) && commitmentMonths === 12 &&
+    contract.FirstAutopayFree === true && contract.LastAutopayFree === false &&
+    amounts.depositAmount === 0 && recurring > 0 &&
+    amounts.firstPaymentAmountTotal === recurring && amounts.discountAmount === recurring &&
+    Math.round(amounts.totalContractAmountTotal * 100) === Math.round(recurring * 100) * 11;
+  if (grossFirstFree) {
+    amounts.firstPaymentAmountSubtotal = 0;
+    amounts.firstPaymentAmountTax = 0;
+    amounts.firstPaymentAmountTotal = 0;
+  }
   const displayAmount = autopayEnabled === true
     ? amounts.recurringPaymentAmountTotal
     : autopayEnabled === false ? amounts.firstPaymentAmountTotal : null;
@@ -114,7 +127,10 @@ export function supportedMembershipQuote(contract) {
   const months = item.commitmentMonths;
   const blackFriday = isBlackFridayOffer(item);
   if (!Number.isSafeInteger(months) || months < 1 || months >= 9999 || item.numberOfAutopays !== months ||
-      item.depositAmount !== 0 || item.discountAmount !== 0 ||
+      item.depositAmount !== 0 ||
+      (item.discountAmount !== 0 && !(blackFriday && months === 12 && item.firstAutopayFree === true &&
+        item.discountAmount === item.recurringPaymentAmountTotal &&
+        amount(contract.FirstPaymentAmountTotal) === item.recurringPaymentAmountTotal)) ||
       (!blackFriday && item.firstAutopayFree !== false) || item.lastAutopayFree !== false) return null;
 
   const promoFields = ["PromoPaymentAmountSubtotal", "PromoPaymentAmountTax", "PromoPaymentAmountTotal"];

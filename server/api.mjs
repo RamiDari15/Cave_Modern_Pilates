@@ -2862,11 +2862,6 @@ try {
   });
 
   liveContracts = firstListByKey(contractData, "Contracts");
-  // Temporary catalog verification: product billing only, never credentials or clients.
-  for (const contract of liveContracts.filter((item) => [104, 117, 118, 119, 120, 122].includes(Number(item.Id)))) {
-    const fields = ["Id", "SoldOnline", "SellOnline", "AutopayEnabled", "AutopayTriggerType", "AutopaySchedule", "NumberOfAutopays", "ClientsChargedOn", "ActionUponCompletionOfAutopays", "FirstAutopayFree", "LastAutopayFree", "DepositAmount", "DiscountAmount", "FirstPaymentAmountTotal", "RecurringPaymentAmountTotal", "TotalContractAmountTotal", "NumberOfPromoAutopays", "PromoPaymentAmountSubtotal", "PromoPaymentAmountTax", "PromoPaymentAmountTotal"];
-    console.info("BF_BILLING_CHECK", JSON.stringify({ ...Object.fromEntries(fields.map((key) => [key, contract[key]])), hasTerms: Boolean(contract.AgreementTerms?.trim()), supported: Boolean(supportedMembershipQuote(contract)) }));
-  }
 
 } catch (err) {
   console.warn("[pricing/catalog] Could not load live contracts:", err.message);

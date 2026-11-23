@@ -33,3 +33,13 @@ test('Discounted membership requires exact first payment and full commitment tot
  assert.ok(supportedMembershipQuote(annual));
  assert.equal(supportedMembershipQuote({...annual,TotalContractAmountTotal:1308}),null);
 });
+
+test('Live first-free gross amounts become zero due now only with exact discount and net totals', () => {
+ for (const [Id, monthly] of [[117,109],[118,189],[119,259]]) {
+  const annual = {...base,Id,NumberOfAutopays:12,FirstAutopayFree:true,FirstPaymentAmountTotal:monthly,RecurringPaymentAmountTotal:monthly,DiscountAmount:monthly,TotalContractAmountTotal:monthly*11};
+  const quote = supportedMembershipQuote(annual);
+  assert.equal(quote?.firstPaymentAmountTotal,0);
+  assert.equal(quote?.recurringPaymentAmountTotal,monthly);
+  for (const change of [{DiscountAmount:30},{FirstAutopayFree:false},{DepositAmount:10},{TotalContractAmountTotal:monthly*12},{FirstPaymentAmountTotal:monthly+1}]) assert.equal(supportedMembershipQuote({...annual,...change}),null);
+ }
+});
