@@ -1,3 +1,4 @@
+import blackFridayBubble from "../assets/black-friday-bubble-source.png";
 import blackFridayImage from "../assets/black-friday-sale.png";
 import BlackFridayPage from "./BlackFridayPage.jsx";
 import { isClassVisible } from "./scheduleVisibility.js";
@@ -1743,7 +1744,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
-        <a className="pricing-choice-card black-friday" href="/black-friday"><div className="bf-bubble" aria-hidden="true">BLACK<br/>FRIDAY</div><div className="pricing-choice-copy"><strong>Black Friday</strong></div></a>
+        <a className="pricing-choice-card black-friday" href="/black-friday"><div className="pricing-choice-image bf-bubble" aria-hidden="true"><img src={blackFridayBubble} alt="" /></div><div className="pricing-choice-copy"><strong>Black Friday</strong></div></a>
         {octoberOffer && (
           <a className="pricing-choice-card october-offer" href={OCTOBER_OFFER_HREF}>
             <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />
