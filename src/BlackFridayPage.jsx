@@ -1,4 +1,5 @@
 import React from "react";
+import blackFridayArtwork from "../assets/black-friday-bubble-source.png";
 import "./blackFriday.css";
 
 const groups = [
@@ -19,8 +20,7 @@ export default function BlackFridayPage() {
   return <div className="bf-page">
     <header className="bf-hero">
       <div className="bf-hero-meta"><p className="bf-eyebrow">Cave Modern Pilates</p><span>November 26–December 3</span></div>
-      <h1><em>Black</em> Friday<span className="bf-sale-word">Sale</span></h1>
-      <span className="bf-status">Purchases not open yet</span>
+      <div className="bf-hero-body"><div><p className="bf-sale-label">The Cave sale</p><h1>Black Friday</h1><span className="bf-status">Purchases not open yet</span></div><div className="bf-hero-art bf-bubble" aria-hidden="true"><img src={blackFridayArtwork} alt="" /></div></div>
       <nav className="bf-tabs" aria-label="Black Friday deals">
         {groups.map(group => <a key={group.id} href={`#${group.id}`}>{group.title}<span aria-hidden="true">↓</span></a>)}
       </nav>
