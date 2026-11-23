@@ -2862,6 +2862,19 @@ try {
   });
 
   liveContracts = firstListByKey(contractData, "Contracts");
+  if (isBlackFridaySaleActive()) {
+    try {
+      const promoted = await bookingRequest("/sale/contracts", {
+        token: staffToken,
+        params: { "request.soldOnline": "true", "request.limit": "100", "request.offset": "0",
+          "request.locationId": String(Number(locationId) || 1), "request.promoCode": "SAVE30" }
+      });
+      const promoContracts = firstListByKey(promoted, "Contracts").filter((item) => ["120", "104", "122"].includes(String(item.Id)));
+      console.info("BF_PROMO_VERIFY", JSON.stringify(promoContracts.map(({Id, FirstPaymentAmountTotal, RecurringPaymentAmountTotal, TotalContractAmountTotal, DiscountAmount, NumberOfPromoAutopays, PromoPaymentAmountTotal}) => ({Id, FirstPaymentAmountTotal, RecurringPaymentAmountTotal, TotalContractAmountTotal, DiscountAmount, NumberOfPromoAutopays, PromoPaymentAmountTotal}))));
+      liveContracts = liveContracts.map((item) => promoContracts.find((promo) => String(promo.Id) === String(item.Id)) || item);
+    } catch (error) { console.warn("[pricing/catalog] Promotion quote unavailable"); }
+  }
+
 
 } catch (err) {
   console.warn("[pricing/catalog] Could not load live contracts:", err.message);
@@ -3472,6 +3485,7 @@ return true;
           token: staffToken,
           params: {
             "request.contractIds": String(body.contractId),
+            ...(["120", "104", "122"].includes(String(body.contractId)) ? { "request.promoCode": "SAVE30" } : {}),
             "request.soldOnline": "true",
             "request.limit": "100",
             "request.offset": "0",
@@ -3555,6 +3569,7 @@ return true;
             Test: process.env.BOOKING_TEST_MODE === "true",
             ClientId: clientId,
             ContractId: Number(body.contractId),
+            ...(["120", "104", "122"].includes(String(body.contractId)) ? { PromotionCode: "SAVE30" } : {}),
             LocationId: Number(locationId) || 1,
             StartDate: new Date().toISOString().split("T")[0],
             FirstPaymentOccurs: "Instant",
