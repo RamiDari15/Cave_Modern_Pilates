@@ -20,8 +20,8 @@ export default function BlackFridayPage({ active = false, expired = false, liveO
   if (expired) return <div className="bf-page"><header className="bf-hero"><div className="bf-hero-body"><div><h1>The sale has ended.</h1><a href="/pricing">View regular pricing →</a></div></div></header></div>;
   return <div className="bf-page">
     <header className="bf-hero">
-      <div className="bf-hero-meta"><p className="bf-eyebrow">Cave Modern Pilates</p><span>November 23–December 3</span></div>
-      <div className="bf-hero-body"><div><p className="bf-sale-label">The Cave sale</p><h1>Black Friday</h1><span className="bf-status">{active ? "Through December 3" : "Opens November 23"}</span></div><div className="bf-hero-art bf-bubble" aria-hidden="true"><img src={blackFridayArtwork} alt="" /></div></div>
+      <div className="bf-hero-meta"><p className="bf-eyebrow">Cave Modern Pilates</p><span>November 23–30</span></div>
+      <div className="bf-hero-body"><div><p className="bf-sale-label">The Cave sale</p><h1>Black Friday</h1><span className="bf-status">{active ? "Through November 30" : "Opens November 23"}</span></div><div className="bf-hero-art bf-bubble" aria-hidden="true"><img src={blackFridayArtwork} alt="" /></div></div>
       <nav className="bf-tabs" aria-label="Black Friday deals">
         {groups.map(group => <a key={group.id} href={`#${group.id}`}>{group.title}<span aria-hidden="true">↓</span></a>)}
       </nav>

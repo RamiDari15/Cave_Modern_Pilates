@@ -12,11 +12,11 @@ test('Regular memberships and packages remain available', () => {
 });
 import { BLACK_FRIDAY_WINDOW, isBlackFridaySaleActive, isBlackFridayVisible, isBlackFridayServiceReady } from '../src/promotionWindows.js';
 import { supportedMembershipQuote } from '../server/contract-catalog.mjs';
-test('Sale uses Central midnight and includes all of December 3', () => {
+test('Sale uses Central midnight and includes all of November 30', () => {
  assert.equal(isBlackFridaySaleActive(BLACK_FRIDAY_WINDOW.startsAt-1),false);
  assert.equal(isBlackFridaySaleActive(BLACK_FRIDAY_WINDOW.startsAt),true);
  assert.equal(isBlackFridaySaleActive(Date.parse('2026-11-23T12:00:00-06:00')),true);
- assert.equal(isBlackFridaySaleActive(Date.parse('2026-12-03T23:59:59-06:00')),true);
+ assert.equal(isBlackFridaySaleActive(Date.parse('2026-11-30T23:59:59-06:00')),true);
  assert.equal(isBlackFridaySaleActive(BLACK_FRIDAY_WINDOW.endsAt),false);
  assert.equal(isBlackFridayVisible(BLACK_FRIDAY_WINDOW.endsAt),false);
 });
