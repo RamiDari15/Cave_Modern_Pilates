@@ -155,6 +155,17 @@ test("versioned membership checkout revalidates consent and provider quote befor
     assert.equal(result.status, 200); assert.deepEqual(calls.map((call) => call.path), ["/public/v6/sale/contracts", "/public/v6/sale/purchasecontract"]);
   });
 
+  await t.test("Black Friday cart checkout blocks early and expired carts before provider calls", async () => {
+    const originalNow = Date.now;
+    try {
+      for (const date of ["2026-11-25T23:59:59-06:00", "2026-12-04T00:00:00-06:00"]) {
+        reset(); Date.now = () => new Date(date).getTime();
+        const result = await request({ items: [{id:"100067",kind:"service",price:159,quantity:1}] }, "/api/cart/checkout");
+        assert.equal(result.status,409); assert.match(result.body.message,/November 26/); noCharge();
+      }
+    } finally { Date.now = originalNow; }
+  });
+
   await t.test("unknown checkout versions and raw card fields cannot bypass the app protocol", async () => {
     reset(); assert.equal((await request(appBody({ checkoutVersion: "2" }))).status, 400); assert.equal(calls.length, 0);
     reset(); assert.equal((await request(appBody({ cardNumber: "4111111111111111" }))).status, 400); noCharge();

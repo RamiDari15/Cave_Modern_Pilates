@@ -55,7 +55,7 @@ test("catalog drops removed options after refresh and never resurrects a snapsho
  assert.equal(first.dropIn.length,1);
  contracts=[]; services=[]; now+=61000;
  const removed=await catalog();
- assert.deepEqual(removed,{newbie:[],classPacks:[],dropIn:[],memberships:[],privateSessions:[]});
+ assert.deepEqual(removed,{blackFriday:[],newbie:[],classPacks:[],dropIn:[],memberships:[],privateSessions:[]});
  fail=true; now+=61000;
  assert.deepEqual(await catalog(),removed);
  Date.now=realNow;

@@ -21,7 +21,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod, hasAvailableMonthlyGuestPass } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage, withoutOctoberBuyThreeGetOnePackage } from "./promotionWindows";
+import { BLACK_FRIDAY_WINDOW, isBlackFridaySaleActive, isBlackFridayVisible, isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage, withoutOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
@@ -830,6 +830,13 @@ function useClientSession() {
 }
 
 function App() {
+  const [, refreshSaleWindow] = useState(0);
+  useEffect(() => {
+    const timers = Object.values(BLACK_FRIDAY_WINDOW).map(at => { const delay = at - Date.now(); return delay > 0 && delay < 2147483647 ? window.setTimeout(() => refreshSaleWindow(value => value + 1), delay + 20) : null; });
+    const refresh = () => refreshSaleWindow(value => value + 1);
+    window.addEventListener("focus", refresh);
+    return () => { timers.forEach(clearTimeout); window.removeEventListener("focus", refresh); };
+  }, []);
   const [page, setPage] = useState(getPageFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1136,7 +1143,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
 function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading, introOffer }) {
   const cart = useCart();
-  if (page === "black-friday") return <BlackFridayPage />;
+  if (page === "black-friday") return <BlackFridayShop store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
 
   if (page === "pricing" && new URLSearchParams(window.location.search).get("category") === "private-sessions") {
     return <PricingCategoryPage category={{ key: "privateSessions", title: "Private Sessions", href: "/pricing?category=private-sessions" }} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
@@ -1436,7 +1443,7 @@ function getHomePricingPreview(store, memberships) {
   const visibleClassPacks = classPacks.filter((item) => !String(item.name).toLowerCase().includes("training"));
 
   return [
-    { title: "Black Friday", image: blackFridayImage, description: "Newbie, class pack, and membership deals. November 26–December 3.", label: "Sale preview", href: "/black-friday", priceLabel: "Purchases not open yet", items: [] },
+    ...(isBlackFridayVisible() ? [{ title: "Black Friday", image: blackFridayImage, description: "Newbie, class pack, and membership deals. November 26–December 3.", label: "Sale preview", href: "/black-friday", priceLabel: isBlackFridaySaleActive() ? "Shop the offers" : "Opens November 26", items: [] }] : []),
     {
       title: "New Client",
       image: newbieSquare,
@@ -1658,10 +1665,12 @@ function usePricingCatalog(store, memberships) {
       });
 
     refresh();
+    const boundaryTimers = Object.values(BLACK_FRIDAY_WINDOW).map(at => { const delay = at - Date.now(); return delay > 0 && delay < 2147483647 ? window.setTimeout(refresh, delay + 50) : null; });
     const timer = window.setInterval(refresh, 60000);
     window.addEventListener("focus", refresh);
     return () => {
       window.clearInterval(timer);
+      boundaryTimers.forEach(clearTimeout);
       window.removeEventListener("focus", refresh);
       mounted = false;
     };
@@ -1690,6 +1699,7 @@ function usePricingCatalog(store, memberships) {
 
     privateSessions: sortBySessionsAsc(catalog?.privateSessions || []).map((item) => ({ ...item, description: /^\d+ classes?$/.test(item.description || "") ? `${item.sessions} private session${item.sessions === 1 ? "" : "s"}` : item.description })),
 
+    blackFriday: catalog?.blackFriday || [],
     memberships: membershipItems,
 
     loading
@@ -1744,7 +1754,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
-        <a className="pricing-choice-card black-friday" href="/black-friday"><div className="pricing-choice-image bf-bubble" aria-hidden="true"><img src={blackFridayBubble} alt="" /></div><div className="pricing-choice-copy"><strong>Black Friday</strong></div></a>
+        {isBlackFridayVisible() && <a className="pricing-choice-card black-friday" href="/black-friday"><div className="pricing-choice-image bf-bubble" aria-hidden="true"><img src={blackFridayBubble} alt="" /></div><div className="pricing-choice-copy"><strong>Black Friday</strong></div></a>}
         {octoberOffer && (
           <a className="pricing-choice-card october-offer" href={OCTOBER_OFFER_HREF}>
             <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />
@@ -2287,6 +2297,22 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
       {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
     </form>
   );
+}
+
+function BlackFridayShop({ store, memberships, clientSession, cart }) {
+  const catalog = usePricingCatalog(store, memberships);
+  const { cards, loaded, refresh } = useSavedCards(clientSession);
+  const active = isBlackFridaySaleActive();
+  return <>
+    <BlackFridayPage active={active} expired={!isBlackFridayVisible()} liveOffers={catalog.blackFriday} renderOffer={(item) =>
+      <PricingCard key={`${item.kind}-${item.id}`} item={item}
+        category={{ key: item.kind === "contract" ? "memberships" : "blackFriday", href: "/black-friday" }}
+        savedCards={cards} cardsLoaded={loaded} clientSession={clientSession} onCardAdded={refresh}
+        onAddToCart={item.kind === "service" ? () => cart.addItem(item) : undefined} onPurchaseSuccess={refresh} />
+    } />
+    {active && cart.items.length > 0 && <button className="cart-fab" onClick={cart.open}>Cart ({cart.items.reduce((sum, item) => sum + item.quantity, 0)})</button>}
+    {active && cart.isOpen && <CartDrawer cart={cart} clientSession={clientSession} savedCards={cards} cardsLoaded={loaded} onCardAdded={refresh} />}
+  </>;
 }
 
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {

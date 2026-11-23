@@ -42,7 +42,7 @@ export function isBackToSchoolPromotionActive(now = Date.now()) {
   return timestamp >= Date.parse("2026-09-01T00:00:00-05:00") && timestamp < Date.parse("2026-10-01T00:00:00-05:00");
 }
 
-// Black Friday is a preview until the studio explicitly opens purchasing.
+// Keep seasonal offers separate from the regular pricing catalog.
 export function isBlackFridayOffer(item) {
   const name = [item?.name, item?.sourceName, item?.Name].filter(Boolean).join(" ");
   const id = String(item?.id ?? item?.Id ?? item?.contractId ?? "");
@@ -50,4 +50,20 @@ export function isBlackFridayOffer(item) {
   return /black[\s-]*friday/i.test(name) ||
     ["100066", "100067", "100068"].includes(id) ||
     (contract && ["104", "117", "118", "119", "120", "122"].includes(id));
+}
+
+export const BLACK_FRIDAY_WINDOW = Object.freeze({
+  startsAt: Date.parse("2026-11-26T00:00:00-06:00"),
+  endsAt: Date.parse("2026-12-04T00:00:00-06:00")
+});
+export function isBlackFridaySaleActive(now = Date.now()) {
+  return Number(now) >= BLACK_FRIDAY_WINDOW.startsAt && Number(now) < BLACK_FRIDAY_WINDOW.endsAt;
+}
+export function isBlackFridayVisible(now = Date.now()) {
+  return Number(now) < BLACK_FRIDAY_WINDOW.endsAt;
+}
+export function isBlackFridayServiceReady(item) {
+  const expected = { "100066": [59, null], "100067": [159, 6], "100068": [279, 12] }[String(item?.id)];
+  return Boolean(expected && Number(String(item.price).replace(/[^0-9.]/g, "")) === expected[0] &&
+    (expected[1] === null ? /unlimited/i.test(item.name || "") : Number(item.sessions) === expected[1]) && item.sellOnline !== false);
 }

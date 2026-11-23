@@ -11,9 +11,9 @@ import { resolve } from "node:path";
 import { NO_SHOW_POLICY_PARAGRAPHS } from "../src/studioPolicies.js";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
 import { getGuestPassPeriod } from "../src/guestPass.js";
-import { isBlackFridayOffer, isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
+import { isBlackFridaySaleActive, isBlackFridayServiceReady, isBlackFridayOffer, isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
 import { cartPurchaseEvents, buildMetaEvent, recordConversion } from "./adConversions.mjs";
-import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
+import { supportedMembershipQuote, membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 import { handleFrontDeskRequest } from "./frontDesk.mjs";
 import { handleLeaderboardRequest } from "./leaderboard.mjs";
 
@@ -1531,8 +1531,8 @@ return true;
         return true;
       }
 
-      if (isBlackFridayOffer(item)) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are not open yet." });
+      if (isBlackFridayOffer(item) && !isBlackFridaySaleActive()) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
         return true;
       }
 
@@ -2824,7 +2824,7 @@ const clientPayload = compactObject({
     if (path === "/api/pricing/catalog" && request.method === "GET") {
 
       if (pricingCatalogCache.data && pricingCatalogCache.expiresAt > Date.now()) {
-  sendJson(response, 200, { ...pricingCatalogCache.data, membershipCheckoutEnabled: process.env.MINDBODY_CONTRACT_PRICES_VERIFIED === "true" });
+  sendJson(response, 200, { ...pricingCatalogCache.data, catalog: { ...pricingCatalogCache.data.catalog, blackFriday: isBlackFridaySaleActive() ? pricingCatalogCache.data.catalog.blackFriday || [] : [] }, membershipCheckoutEnabled: process.env.MINDBODY_CONTRACT_PRICES_VERIFIED === "true" });
   return true;
 }
       const { locationId } = getBookingConfig();
@@ -2961,6 +2961,7 @@ const unlimitedServices = publicServices.filter((s) =>
 );
 
 catalog = {
+  blackFriday: [...services.filter((item) => isBlackFridayOffer(item) && isBlackFridayServiceReady(item)), ...contractItems.filter((item) => isBlackFridayOffer(item) && liveContracts.some((raw) => String(raw.Id) === item.id && supportedMembershipQuote(raw)))],
   privateSessions: services.filter((s) => isPrivateStoreItem(s) && isPricingItemCurrentlyVisible(s)),
   newbie: publicServices.filter((s) => s.isNewbiePromo),
 
@@ -2978,6 +2979,7 @@ catalog = {
       } else {
         // Never resurrect removed products from the bundled store snapshot.
         catalog = {
+          blackFriday: [],
           privateSessions: [],
           newbie: [],
           classPacks: [],
@@ -2996,7 +2998,7 @@ const responseBody = {
 pricingCatalogCache.data = responseBody;
 pricingCatalogCache.expiresAt = Date.now() + pricingCatalogCache.TTL_MS;
 
-sendJson(response, 200, responseBody);
+sendJson(response, 200, { ...responseBody, catalog: { ...catalog, blackFriday: isBlackFridaySaleActive() ? catalog.blackFriday || [] : [] } });
 return true;
     }
 
@@ -3011,9 +3013,21 @@ return true;
         return true;
       }
 
-      if (items.some(isBlackFridayOffer)) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are not open yet." });
+      if (items.some(isBlackFridayOffer) && !isBlackFridaySaleActive()) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
         return true;
+      }
+      if (items.some(isBlackFridayOffer)) {
+        const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
+        const services = firstListByKey(data, "Services");
+        const valid = items.filter(isBlackFridayOffer).every((item) => {
+          const raw = services.find((service) => String(service.Id) === String(item.id));
+          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
+        });
+        if (!valid) {
+          sendJson(response, 409, { ok: false, message: "This Black Friday offer is not available for online purchase yet. No charge was made." });
+          return true;
+        }
       }
       const promotion = validateClassPackPromotion(body.promoCode, items);
       const clientId = session?.clientId || (session ? await resolveSessionClientId(session).catch(() => "") : "");
@@ -3135,6 +3149,22 @@ return true;
         return true;
       }
 
+      if (items.some(isBlackFridayOffer) && !isBlackFridaySaleActive()) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
+        return true;
+      }
+      if (items.some(isBlackFridayOffer)) {
+        const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
+        const services = firstListByKey(data, "Services");
+        const valid = items.filter(isBlackFridayOffer).every((item) => {
+          const raw = services.find((service) => String(service.Id) === String(item.id));
+          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
+        });
+        if (!valid) {
+          sendJson(response, 409, { ok: false, message: "This Black Friday offer is not available for online purchase yet. No charge was made." });
+          return true;
+        }
+      }
       const promotion = validateClassPackPromotion(body.promoCode, items);
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart checkout");
@@ -3453,8 +3483,13 @@ return true;
         // An unavailable current quote must never fall through to a charge.
       }
 
-      if (isBlackFridayOffer({ kind: "contract", id: body.contractId }) || currentContracts.some(isBlackFridayOffer)) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are not open yet." });
+      if ((isBlackFridayOffer({ kind: "contract", id: body.contractId }) || currentContracts.some(isBlackFridayOffer)) && !isBlackFridaySaleActive()) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
+        return true;
+      }
+
+      if (currentContracts.some(isBlackFridayOffer) && !supportedMembershipQuote(currentContracts[0])) {
+        sendJson(response, 409, { ok: false, message: "This Black Friday membership's discounted billing schedule is not ready. No charge was made." });
         return true;
       }
 

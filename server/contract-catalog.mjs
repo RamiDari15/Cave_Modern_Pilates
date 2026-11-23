@@ -1,3 +1,4 @@
+import { isBlackFridayOffer } from "../src/promotionWindows.js";
 // Field definitions: Mindbody Public API v6 Contract and AutopaySchedule models.
 // https://github.com/mindbody/Mindbody-API-SDKs/tree/main/PublicAPI
 const AMOUNT_FIELDS = [
@@ -111,9 +112,10 @@ export function supportedMembershipQuote(contract) {
       item.clientsChargedOn !== "OnSaleDate" ||
       !["ContractExpires", "ContractAutomaticallyRenews"].includes(item.actionUponCompletionOfAutopays)) return null;
   const months = item.commitmentMonths;
+  const blackFriday = isBlackFridayOffer(item);
   if (!Number.isSafeInteger(months) || months < 1 || months >= 9999 || item.numberOfAutopays !== months ||
       item.depositAmount !== 0 || item.discountAmount !== 0 ||
-      item.firstAutopayFree !== false || item.lastAutopayFree !== false) return null;
+      (!blackFriday && item.firstAutopayFree !== false) || item.lastAutopayFree !== false) return null;
 
   const promoFields = ["PromoPaymentAmountSubtotal", "PromoPaymentAmountTax", "PromoPaymentAmountTotal"];
   const noPromoCount = contract.NumberOfPromoAutopays == null || count(contract.NumberOfPromoAutopays, true) === 0;
@@ -122,13 +124,24 @@ export function supportedMembershipQuote(contract) {
   // Mindbody's optional promotional fields are absent on Cave's flat contracts.
   // Accept that shape only with zero fees/free payments and exact totals below.
   // Check raw fields so malformed values normalized to null cannot pass.
-  if (!noPromoCount || (!noPromoFields && !zeroPromo)) return null;
+  if (!blackFriday && (!noPromoCount || (!noPromoFields && !zeroPromo))) return null;
 
   const totals = [item.firstPaymentAmountTotal, item.recurringPaymentAmountTotal, item.totalContractAmountTotal];
   const cents = (value) => Math.round(value * 100);
-  if (!totals.every((value) => typeof value === "number" && Number.isFinite(value) && value > 0 &&
-      Number.isSafeInteger(cents(value)) && Math.abs(value * 100 - cents(value)) < 0.000001) ||
-      cents(totals[0]) !== cents(totals[1]) || cents(totals[2]) !== cents(totals[1]) * months) return null;
+  if (!totals.every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0 &&
+      Number.isSafeInteger(cents(value)) && Math.abs(value * 100 - cents(value)) < 0.000001) || totals[1] <= 0) return null;
+  if (blackFriday) {
+    // Only Cave's explicitly advertised first-month discounts are supported.
+    if (![3, 12].includes(months) || item.firstAutopayFree !== (months === 12)) return null;
+    const expectedFirst = months === 12 ? 0 : cents(totals[1]) - 3000;
+    if (expectedFirst < 0 || cents(totals[0]) !== expectedFirst ||
+        cents(totals[2]) !== expectedFirst + cents(totals[1]) * (months - 1)) return null;
+    if (months === 12 && (!noPromoCount || (!noPromoFields && !zeroPromo))) return null;
+    if (months === 3 && !(noPromoCount && (noPromoFields || zeroPromo)) &&
+        !(item.numberOfPromoAutopays === 1 && item.promoPaymentAmountTotal === totals[0] &&
+          item.promoPaymentAmountSubtotal !== null && item.promoPaymentAmountTax !== null &&
+          cents(item.promoPaymentAmountSubtotal + item.promoPaymentAmountTax) === expectedFirst)) return null;
+  } else if (cents(totals[0]) !== cents(totals[1]) || cents(totals[2]) !== cents(totals[1]) * months) return null;
 
   return {
     agreementTerms: item.agreementTerms,
