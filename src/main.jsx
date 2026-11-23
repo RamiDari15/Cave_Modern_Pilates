@@ -3343,7 +3343,7 @@ function cleanPricingName(name) {
 function pricingTitleLines(item, category) {
   if (isBlackFridayOffer(item)) {
     if (item.kind === "contract") return [String(item.name).toLowerCase().includes("unlimited") ? "Unlimited Membership" : `${String(item.name).match(/(?:4|8)/)?.[0] || ""} Class Membership`, `${item.commitmentMonths}-Month Commitment`];
-    return [{"100066":"The Cave Intro", "100067":"Buy 5, Get 1 Free", "100068":"Buy 10, Get 2 Free"}[String(item.id)] || item.name];
+    return [{"100066":"The Cave Intro · 14 Days Unlimited", "100067":"Buy 5, Get 1 Free", "100068":"Buy 10, Get 2 Free"}[String(item.id)] || item.name];
   }
 
   const cleanName = cleanPricingName(item.name);
