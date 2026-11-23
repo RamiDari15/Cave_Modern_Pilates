@@ -1,3 +1,5 @@
+import blackFridayImage from "../assets/black-friday-sale.png";
+import BlackFridayPage from "./BlackFridayPage.jsx";
 import { isClassVisible } from "./scheduleVisibility.js";
 import newbieSquare from "../assets/category-newbie-square.png";
 import membershipSquare from "../assets/category-memberships-square.png";
@@ -89,6 +91,7 @@ const FOOTER_LINKS = [
 ];
 
 const PAGE_TITLES = {
+  "black-friday": "Black Friday Deals | Cave Modern Pilates",
   "class-types": "Class Types | Cave Modern Pilates",
   "prenatal-postnatal": "Prenatal & Postnatal | Cave Modern Pilates",
   "meet-your-reformer": "The Cave Method — Meet Your Reformer | Cave Modern Pilates",
@@ -509,7 +512,7 @@ function getPageFromPath() {
     return "challenge";
   }
 
-  return ["class-types", "prenatal-postnatal", "meet-your-reformer", "challenge", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
+  return ["black-friday", "class-types", "prenatal-postnatal", "meet-your-reformer", "challenge", "pricing", "newbie", "memberships", "class-packs", "drop-in", "schedule", "about", "contact", "faq", "login", "signup", "sms", "account", "terms", "policies"].includes(name) ? name : "home";
 }
 
 function cleanInternalUrl(value, fallback = ROUTES.home) {
@@ -1132,6 +1135,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
 function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading, introOffer }) {
   const cart = useCart();
+  if (page === "black-friday") return <BlackFridayPage />;
 
   if (page === "pricing" && new URLSearchParams(window.location.search).get("category") === "private-sessions") {
     return <PricingCategoryPage category={{ key: "privateSessions", title: "Private Sessions", href: "/pricing?category=private-sessions" }} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
@@ -1431,6 +1435,7 @@ function getHomePricingPreview(store, memberships) {
   const visibleClassPacks = classPacks.filter((item) => !String(item.name).toLowerCase().includes("training"));
 
   return [
+    { title: "Black Friday", image: blackFridayImage, description: "Newbie, class pack, and membership deals. November 26–December 3.", label: "Sale preview", href: "/black-friday", priceLabel: "Purchases not open yet", items: [] },
     {
       title: "New Client",
       image: newbieSquare,
@@ -1462,7 +1467,7 @@ function getHomePricingPreview(store, memberships) {
 }
 
 function previewStoreItems(items, categoryKey, limit) {
-  return items.slice(0, limit).map((item) => ({
+  return items.filter(isPricingItemCurrentlyVisible).slice(0, limit).map((item) => ({
     name: homePricingName(item, categoryKey),
     price: item.price || "Ask studio"
   }));
@@ -1738,6 +1743,7 @@ function PricingLandingPage({ store, memberships, clientSession }) {
     <section className="pricing-choice section">
       <h1 className="sr-only">Pilates memberships, class packs, and pricing in Orland Park</h1>
       <div className="pricing-choice-grid">
+        <a className="pricing-choice-card black-friday" href="/black-friday"><div className="bf-bubble" aria-hidden="true">BLACK<br/>FRIDAY</div><div className="pricing-choice-copy"><strong>Black Friday</strong></div></a>
         {octoberOffer && (
           <a className="pricing-choice-card october-offer" href={OCTOBER_OFFER_HREF}>
             <div className="pricing-choice-image" role="img" aria-label="Buy 3, get 1 free" style={{ backgroundImage: `url(${octoberOfferImage})` }} />

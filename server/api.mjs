@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 import { NO_SHOW_POLICY_PARAGRAPHS } from "../src/studioPolicies.js";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "../src/phone.js";
 import { getGuestPassPeriod } from "../src/guestPass.js";
-import { isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
+import { isBlackFridayOffer, isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible } from "../src/promotionWindows.js";
 import { cartPurchaseEvents, buildMetaEvent, recordConversion } from "./adConversions.mjs";
 import { membershipQuoteMatches, normalizeMindbodyContract } from "./contract-catalog.mjs";
 import { handleFrontDeskRequest } from "./frontDesk.mjs";
@@ -1531,6 +1531,11 @@ return true;
         return true;
       }
 
+      if (isBlackFridayOffer(item)) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are not open yet." });
+        return true;
+      }
+
       if (item.requiresWaiver && !body.acceptWaiver) {
         sendJson(response, 400, { ok: false, message: "Please accept the liability waiver before continuing." });
         return true;
@@ -2968,7 +2973,7 @@ catalog = {
     !s.sessions || s.sessions <= 1
   ),
 
-  memberships: contractItems
+  memberships: contractItems.filter((item) => isPricingItemCurrentlyVisible(item))
 };
       } else {
         // Never resurrect removed products from the bundled store snapshot.
@@ -2977,7 +2982,7 @@ catalog = {
           newbie: [],
           classPacks: [],
           dropIn: [],
-          memberships: contractItems
+          memberships: contractItems.filter((item) => isPricingItemCurrentlyVisible(item))
         };
       }
 
@@ -3006,6 +3011,10 @@ return true;
         return true;
       }
 
+      if (items.some(isBlackFridayOffer)) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are not open yet." });
+        return true;
+      }
       const promotion = validateClassPackPromotion(body.promoCode, items);
       const clientId = session?.clientId || (session ? await resolveSessionClientId(session).catch(() => "") : "");
       const { locationId } = getBookingConfig();
@@ -3442,6 +3451,11 @@ return true;
           String(contract.Id ?? contract.ContractId ?? "") === String(body.contractId));
       } catch (_) {
         // An unavailable current quote must never fall through to a charge.
+      }
+
+      if (isBlackFridayOffer({ kind: "contract", id: body.contractId }) || currentContracts.some(isBlackFridayOffer)) {
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are not open yet." });
+        return true;
       }
 
       if (currentContracts.length !== 1 || !membershipContractMatchesAdvertisedPrice(currentContracts[0])) {
