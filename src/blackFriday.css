@@ -11,7 +11,7 @@ body:has(.bf-page),body:has(.bf-page)>#root,body:has(.bf-page) main{background:#
 .bf-status:before{content:"";width:6px;height:6px;border-radius:50%;background:#6d7964}
 .bf-bubble{position:relative;aspect-ratio:1;overflow:hidden;border-radius:50%;clip-path:circle(49% at 50% 50%)}
 .bf-bubble img{position:absolute;width:187.46%;max-width:none;height:auto;left:-30.61%;top:-9.04%;display:block;pointer-events:none}
-.bf-hero-art{width:250px;transform:rotate(-6deg);box-shadow:0 14px 35px #1c28151c}
+.bf-hero-art{width:250px;box-shadow:0 14px 35px #1c28151c}
 .bf-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid #24302626}
 .bf-tabs a{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:23px 28px;text-decoration:none;font-size:15px;font-weight:500;color:#1b201b;transition:background .2s ease}
 .bf-tabs a+a{border-left:1px solid #24302626}.bf-tabs a:hover{background:#dfe3d9}.bf-tabs a span{transition:transform .2s ease}.bf-tabs a:hover span{transform:translateY(3px)}
