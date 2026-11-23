@@ -845,7 +845,7 @@ function App() {
   const isInterior = page !== "home";
   const promoCatalog = usePricingCatalog(cache.store || {}, cache.memberships || []);
   const introOffer = !promoCatalog.loading ? promoCatalog.newbie.find(item => isTwoWeekUnlimitedIntro(item) && item.sellOnline !== false && item.id && item.price) : null;
-  const showIntroPromo = Boolean(introOffer) && !["login", "signup", "sms", "terms", "policies"].includes(page);
+  const showIntroPromo = Boolean(introOffer) && !["login", "signup", "sms", "terms", "policies", "black-friday"].includes(page);
 
   useEffect(() => {
     const onPopState = () => {
@@ -2304,7 +2304,7 @@ function BlackFridayShop({ store, memberships, clientSession, cart }) {
   const { cards, loaded, refresh } = useSavedCards(clientSession);
   const active = isBlackFridaySaleActive();
   return <>
-    <BlackFridayPage active={active} expired={!isBlackFridayVisible()} liveOffers={catalog.blackFriday} renderOffer={(item) =>
+    <BlackFridayPage active={active} expired={!isBlackFridayVisible()} liveOffers={[...(catalog.blackFriday || [])].sort((a, b) => ["100066","100067","100068","120","117","104","118","122","119"].indexOf(String(a.id)) - ["100066","100067","100068","120","117","104","118","122","119"].indexOf(String(b.id)))} renderOffer={(item) =>
       <PricingCard key={`${item.kind}-${item.id}`} item={item}
         category={{ key: item.kind === "contract" ? "memberships" : "blackFriday", href: "/black-friday" }}
         savedCards={cards} cardsLoaded={loaded} clientSession={clientSession} onCardAdded={refresh}
@@ -3341,6 +3341,11 @@ function cleanPricingName(name) {
 }
 
 function pricingTitleLines(item, category) {
+  if (isBlackFridayOffer(item)) {
+    if (item.kind === "contract") return [String(item.name).toLowerCase().includes("unlimited") ? "Unlimited Membership" : `${String(item.name).match(/(?:4|8)/)?.[0] || ""} Class Membership`, `${item.commitmentMonths}-Month Commitment`];
+    return [{"100066":"The Cave Intro", "100067":"Buy 5, Get 1 Free", "100068":"Buy 10, Get 2 Free"}[String(item.id)] || item.name];
+  }
+
   const cleanName = cleanPricingName(item.name);
 
   if (category.key !== "memberships") {
