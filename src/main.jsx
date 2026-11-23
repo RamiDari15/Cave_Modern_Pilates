@@ -2785,6 +2785,9 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
 
   const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
+  const blackFridayBilling = isContract && isBlackFridayOffer(item) && item.firstPaymentAmountTotal === 0
+    ? `First month free. Then ${item.price}/month for the remaining ${item.numberOfAutopays - 1} months. ${item.commitmentMonths}-month commitment.`
+    : null;
   const promoEligible = !isContract && isAnyClassPack(item);
   const itemAmount = moneyValue(item.price);
   const discountedAmount = appliedPromo && promoEligible ? itemAmount * 0.85 : itemAmount;
@@ -2908,6 +2911,7 @@ const payload = isContract
           </p>
           <h3>{titleLines.map((line) => <span key={line}>{line}</span>)}</h3>
           {category.introOffer ? <p className="pricing-card-desc">Unlimited reformer classes. New clients only.</p> : cardDescription ? <p className="pricing-card-desc">{cardDescription}</p> : null}
+          {blackFridayBilling ? <p className="pricing-card-desc">{blackFridayBilling}</p> : null}
           {details?.waiverAllowance ? <p className="pricing-card-perks"><strong>Monthly waivers</strong>{details.waiverAllowance}</p> : null}
           {category.key === "classPacks" ? (
   <p className="pricing-card-expiry">Expires 1 month after purchase</p>
@@ -3002,6 +3006,8 @@ const payload = isContract
               </div>
               <button className="cart-close" type="button" onClick={closeModal} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
             </div>
+
+            {blackFridayBilling ? <p className="payment-safe-note">$0 due today. {blackFridayBilling}</p> : null}
 
             {buyState.type === "success" ? (
               <div className="purchase-modal-success">
