@@ -20,8 +20,8 @@ export default function BlackFridayPage({ active = false, expired = false, liveO
   if (expired) return <div className="bf-page"><header className="bf-hero"><div className="bf-hero-body"><div><h1>The sale has ended.</h1><a href="/pricing">View regular pricing →</a></div></div></header></div>;
   return <div className="bf-page">
     <header className="bf-hero">
-      <div className="bf-hero-meta"><p className="bf-eyebrow">Cave Modern Pilates</p><span>November 26–December 3</span></div>
-      <div className="bf-hero-body"><div><p className="bf-sale-label">The Cave sale</p><h1>Black Friday</h1><span className="bf-status">{active ? "Through December 3" : "Opens November 26"}</span></div><div className="bf-hero-art bf-bubble" aria-hidden="true"><img src={blackFridayArtwork} alt="" /></div></div>
+      <div className="bf-hero-meta"><p className="bf-eyebrow">Cave Modern Pilates</p><span>November 23–December 3</span></div>
+      <div className="bf-hero-body"><div><p className="bf-sale-label">The Cave sale</p><h1>Black Friday</h1><span className="bf-status">{active ? "Through December 3" : "Opens November 23"}</span></div><div className="bf-hero-art bf-bubble" aria-hidden="true"><img src={blackFridayArtwork} alt="" /></div></div>
       <nav className="bf-tabs" aria-label="Black Friday deals">
         {groups.map(group => <a key={group.id} href={`#${group.id}`}>{group.title}<span aria-hidden="true">↓</span></a>)}
       </nav>
@@ -30,7 +30,7 @@ export default function BlackFridayPage({ active = false, expired = false, liveO
       <div className="bf-heading"><h2>{group.title}</h2><p>{group.note}</p></div>
       <div className="bf-offers">{active && liveOffers.filter(item => group.id === "memberships" ? item.kind === "contract" : group.id === "newbie" ? String(item.id) === "100066" : ["100067", "100068"].includes(String(item.id))).length > 0 ? liveOffers.filter(item => group.id === "memberships" ? item.kind === "contract" : group.id === "newbie" ? String(item.id) === "100066" : ["100067", "100068"].includes(String(item.id))).map(renderOffer) : group.offers.map(([name, price, detail, copy]) => <article className="bf-offer" key={name}>
         <p className="bf-eyebrow">Black Friday</p><h3>{name}</h3><p className="bf-price">{price}</p><strong>{detail}</strong><p>{copy}</p>
-        <button disabled type="button">{active ? "Not available online yet" : "Opens November 26"}</button>
+        <button disabled type="button">{active ? "Not available online yet" : "Opens November 23"}</button>
       </article>)}</div>
     </section>)}
     <a className="bf-back" href="/pricing">View regular pricing →</a>

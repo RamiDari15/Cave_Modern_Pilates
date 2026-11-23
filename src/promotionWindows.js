@@ -53,7 +53,7 @@ export function isBlackFridayOffer(item) {
 }
 
 export const BLACK_FRIDAY_WINDOW = Object.freeze({
-  startsAt: Date.parse("2026-11-26T00:00:00-06:00"),
+  startsAt: Date.parse("2026-11-23T00:00:00-06:00"),
   endsAt: Date.parse("2026-12-04T00:00:00-06:00")
 });
 export function isBlackFridaySaleActive(now = Date.now()) {

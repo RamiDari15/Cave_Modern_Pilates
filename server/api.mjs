@@ -1532,7 +1532,7 @@ return true;
       }
 
       if (isBlackFridayOffer(item) && !isBlackFridaySaleActive()) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 23 through December 3." });
         return true;
       }
 
@@ -3014,7 +3014,7 @@ return true;
       }
 
       if (items.some(isBlackFridayOffer) && !isBlackFridaySaleActive()) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 23 through December 3." });
         return true;
       }
       if (items.some(isBlackFridayOffer)) {
@@ -3150,7 +3150,7 @@ return true;
       }
 
       if (items.some(isBlackFridayOffer) && !isBlackFridaySaleActive()) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 23 through December 3." });
         return true;
       }
       if (items.some(isBlackFridayOffer)) {
@@ -3484,7 +3484,7 @@ return true;
       }
 
       if ((isBlackFridayOffer({ kind: "contract", id: body.contractId }) || currentContracts.some(isBlackFridayOffer)) && !isBlackFridaySaleActive()) {
-        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 26 through December 3." });
+        sendJson(response, 409, { ok: false, message: "Black Friday purchases are available November 23 through December 3." });
         return true;
       }
 

@@ -1443,7 +1443,7 @@ function getHomePricingPreview(store, memberships) {
   const visibleClassPacks = classPacks.filter((item) => !String(item.name).toLowerCase().includes("training"));
 
   return [
-    ...(isBlackFridayVisible() ? [{ title: "Black Friday", image: blackFridayImage, description: "Newbie, class pack, and membership deals. November 26–December 3.", label: "Sale preview", href: "/black-friday", priceLabel: isBlackFridaySaleActive() ? "Shop the offers" : "Opens November 26", items: [] }] : []),
+    ...(isBlackFridayVisible() ? [{ title: "Black Friday", image: blackFridayImage, description: "Newbie, class pack, and membership deals. November 23–December 3.", label: "Black Friday offers", href: "/black-friday", priceLabel: isBlackFridaySaleActive() ? "Shop the offers" : "Opens November 23", items: [] }] : []),
     {
       title: "New Client",
       image: newbieSquare,

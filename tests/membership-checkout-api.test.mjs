@@ -158,10 +158,10 @@ test("versioned membership checkout revalidates consent and provider quote befor
   await t.test("Black Friday cart checkout blocks early and expired carts before provider calls", async () => {
     const originalNow = Date.now;
     try {
-      for (const date of ["2026-11-25T23:59:59-06:00", "2026-12-04T00:00:00-06:00"]) {
+      for (const date of ["2026-11-22T23:59:59-06:00", "2026-12-04T00:00:00-06:00"]) {
         reset(); Date.now = () => new Date(date).getTime();
         const result = await request({ items: [{id:"100067",kind:"service",price:159,quantity:1}] }, "/api/cart/checkout");
-        assert.equal(result.status,409); assert.match(result.body.message,/November 26/); noCharge();
+        assert.equal(result.status,409); assert.match(result.body.message,/November 23/); noCharge();
       }
     } finally { Date.now = originalNow; }
   });
