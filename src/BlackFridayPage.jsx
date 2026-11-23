@@ -2,26 +2,26 @@ import React from "react";
 import "./blackFriday.css";
 
 const groups = [
-  { id: "newbie", title: "Newbie Deals", note: "A little more time to make Cave your own.", offers: [
-    ["The Cave Intro", "$59", "14 days unlimited", "For new clients. Unlimited reformer classes for two weeks."]
+  { id: "newbie", title: "Newbie Deals", note: "For your first classes at Cave.", offers: [
+    ["The Cave Intro", "$59", "14 days unlimited", "New clients only."]
   ] },
-  { id: "packs", title: "Class Pack Deals", note: "Your usual pack, with a few extra visits.", offers: [
-    ["Buy 5, Get 1 Free", "$159", "6 classes", "One bonus class included."],
-    ["Buy 10, Get 2 Free", "$279", "12 classes", "Two bonus classes included."]
+  { id: "packs", title: "Class Pack Deals", note: "Extra classes, included.", offers: [
+    ["Buy 5, Get 1 Free", "$159", "6 classes", "5 classes + 1 free."],
+    ["Buy 10, Get 2 Free", "$279", "12 classes", "10 classes + 2 free."]
   ] },
-  { id: "memberships", title: "Membership Deals", note: "Choose your commitment. Enjoy a little extra at the start.", offers: [
-    ["3-Month Memberships", "$30 off", "Your first month", "Available on 4-class, 8-class, and unlimited memberships. Regular monthly pricing follows."],
-    ["12-Month Memberships", "First month free", "12-month commitment", "Available on 4-class, 8-class, and unlimited memberships. Regular monthly pricing follows."]
+  { id: "memberships", title: "Membership Deals", note: "4 classes, 8 classes, or unlimited.", offers: [
+    ["3-Month Memberships", "$30 off", "Your first month", "Regular monthly pricing after month one."],
+    ["12-Month Memberships", "First month free", "12-month commitment", "Regular monthly pricing after month one."]
   ] }
 ];
 
 export default function BlackFridayPage() {
   return <div className="bf-page">
     <header className="bf-hero">
-      <p className="bf-eyebrow">Cave Modern Pilates · November 26–December 3</p>
+      <p className="bf-eyebrow">Cave Modern Pilates</p>
       <h1>Black Friday</h1>
-      <p>More time at Cave. A little less on you.</p>
-      <span className="bf-status">Sale preview · Purchases not open yet</span>
+      <p>November 26–December 3</p>
+      <span className="bf-status">Preview the offers</span>
       <nav className="bf-tabs" aria-label="Black Friday deals">
         {groups.map(group => <a key={group.id} href={`#${group.id}`}>{group.title}<span aria-hidden="true">↓</span></a>)}
       </nav>
