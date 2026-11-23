@@ -33,3 +33,17 @@ body:has(.bf-page),body:has(.bf-page)>#root,body:has(.bf-page) main{background:#
 @media(max-width:850px){.bf-group{grid-template-columns:1fr;gap:22px}.bf-heading p{max-width:none}.bf-hero-body{grid-template-columns:1fr 180px;padding-right:28px}.bf-hero-art{width:180px}.bf-hero h1{font-size:64px}}
 @media(max-width:600px){.bf-page{padding:28px 18px 56px}.bf-hero{border-radius:24px;margin-bottom:36px}.bf-hero-meta{margin:0 22px;padding:20px 0;flex-direction:column;align-items:flex-start;gap:10px}.bf-hero-meta>span{font-size:12px}.bf-hero-body{padding:26px 22px;grid-template-columns:1fr 88px;gap:12px}.bf-hero-art{width:88px}.bf-hero h1{font-size:clamp(32px,8.5vw,48px);margin-bottom:18px}.bf-sale-label{font-size:12px}.bf-status{font-size:11px}.bf-tabs{grid-template-columns:1fr}.bf-tabs a{padding:16px 22px;font-size:14px}.bf-tabs a+a{border-left:0;border-top:1px solid #24302626}.bf-offers{grid-template-columns:1fr}.bf-offer{padding:26px}.bf-group{padding-top:26px;margin-bottom:30px}.bf-heading h2{font-size:28px}.bf-price{font-size:44px}}
 @media(prefers-reduced-motion:reduce){.bf-tabs a,.bf-tabs a span,.bf-offer,.pricing-choice-card.black-friday .bf-bubble{transition:none}.bf-tabs a:hover span,.bf-offer:hover,.black-friday:hover .bf-bubble{transform:none}}
+
+/* Scope the shared purchase cards to the sale layout. */
+.bf-offers > .pricing-card{min-width:0;min-height:0;height:auto;padding:32px 26px;border-radius:28px;display:flex;flex-direction:column;gap:28px;background:linear-gradient(145deg,#fafaf7,#e9eae4);box-shadow:0 10px 30px #0000000a}
+.bf-offers .pricing-card-summary{width:100%;min-height:0}
+.bf-offers .pricing-card-price{font-size:clamp(42px,4vw,60px);line-height:1.05;margin:0 0 24px;letter-spacing:-.045em}
+.bf-offers .pricing-card h3{font-size:21px;line-height:1.25;max-width:23ch}
+.bf-offers .pricing-card-desc{font-size:14px;line-height:1.65;margin:18px auto 0;max-width:32ch}
+.bf-offers .pricing-card-perks{margin:20px auto 0;font-size:13px;line-height:1.6}
+.bf-offers .membership-details-trigger{margin-top:20px}
+.bf-offers .pricing-card-actions{margin-top:auto;padding-top:0;gap:14px}
+.bf-offers .pricing-card-actions .pill-button{width:100%;min-height:48px;padding:14px 20px}
+.bf-offers .pricing-card-ctas{width:100%;display:flex;flex-direction:column;gap:16px;align-items:center}
+.bf-offers:has(>.pricing-card:only-child){grid-template-columns:minmax(0,1fr);max-width:420px;width:100%}
+@media(max-width:600px){.bf-offers > .pricing-card{padding:30px 24px;gap:26px}.bf-offers .pricing-card-price{font-size:52px}.bf-offers:has(>.pricing-card:only-child){max-width:none}.bf-group{scroll-margin-top:110px}}

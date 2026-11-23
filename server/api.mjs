@@ -2862,7 +2862,7 @@ try {
   });
 
   liveContracts = firstListByKey(contractData, "Contracts");
-  if (isBlackFridaySaleActive()) {
+  if (isBlackFridaySaleActive() && liveContracts.some((item) => ["120", "104", "122"].includes(String(item.Id)))) {
     try {
       const promoted = await bookingRequest("/sale/contracts", {
         token: staffToken,
@@ -2870,7 +2870,6 @@ try {
           "request.locationId": String(Number(locationId) || 1), "request.promoCode": "SAVE30" }
       });
       const promoContracts = firstListByKey(promoted, "Contracts").filter((item) => ["120", "104", "122"].includes(String(item.Id)));
-      console.info("BF_PROMO_VERIFY", JSON.stringify(promoContracts.map(({Id, FirstPaymentAmountTotal, RecurringPaymentAmountTotal, TotalContractAmountTotal, DiscountAmount, NumberOfPromoAutopays, PromoPaymentAmountTotal}) => ({Id, FirstPaymentAmountTotal, RecurringPaymentAmountTotal, TotalContractAmountTotal, DiscountAmount, NumberOfPromoAutopays, PromoPaymentAmountTotal}))));
       liveContracts = liveContracts.map((item) => promoContracts.find((promo) => String(promo.Id) === String(item.Id)) || item);
     } catch (error) { console.warn("[pricing/catalog] Promotion quote unavailable"); }
   }
@@ -5425,7 +5424,7 @@ async function purchaseStoreItem(session, item, body) {
   }
 
   if (item.kind === "contract") {
-    return purchaseContractItem(session, clientId, item, body);
+    throw httpError(409, "Please purchase memberships from their pricing page so the current billing terms can be verified.");
   }
 
   if (item.kind === "service") {

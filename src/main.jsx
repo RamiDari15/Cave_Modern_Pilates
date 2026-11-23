@@ -2785,8 +2785,8 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
 
   const isLoading = buyState.type === "loading";
   const isContract = item.kind === "contract";
-  const blackFridayBilling = isContract && isBlackFridayOffer(item) && item.firstPaymentAmountTotal === 0
-    ? `First month free. Then ${item.price}/month for the remaining ${item.numberOfAutopays - 1} months. ${item.commitmentMonths}-month commitment.`
+  const blackFridayBilling = isContract && isBlackFridayOffer(item) && Number.isFinite(item.firstPaymentAmountTotal)
+    ? `${item.firstPaymentAmountTotal === 0 ? "First month free" : `$${item.firstPaymentAmountTotal.toFixed(2)} for your first month`}. Then ${item.price}/month for the remaining ${item.numberOfAutopays - 1} months. ${item.commitmentMonths}-month commitment.`
     : null;
   const promoEligible = !isContract && isAnyClassPack(item);
   const itemAmount = moneyValue(item.price);
@@ -3007,7 +3007,7 @@ const payload = isContract
               <button className="cart-close" type="button" onClick={closeModal} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
             </div>
 
-            {blackFridayBilling ? <p className="payment-safe-note">$0 due today. {blackFridayBilling}</p> : null}
+            {blackFridayBilling ? <p className="payment-safe-note">${item.firstPaymentAmountTotal.toFixed(2)} due today. {blackFridayBilling}</p> : null}
 
             {buyState.type === "success" ? (
               <div className="purchase-modal-success">

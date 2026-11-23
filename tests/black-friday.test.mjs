@@ -43,3 +43,13 @@ test('Live first-free gross amounts become zero due now only with exact discount
   for (const change of [{DiscountAmount:30},{FirstAutopayFree:false},{DepositAmount:10},{TotalContractAmountTotal:monthly*12},{FirstPaymentAmountTotal:monthly+1}]) assert.equal(supportedMembershipQuote({...annual,...change}),null);
  }
 });
+
+test('SAVE30 quotes apply to exactly the first autopay for all three memberships', () => {
+ for (const [Id, monthly] of [[120,119],[104,199],[122,279]]) {
+  const first = monthly - 30;
+  const contract = {...base, Id, FirstPaymentAmountTotal:first, RecurringPaymentAmountTotal:monthly, TotalContractAmountTotal:first+2*monthly, NumberOfPromoAutopays:1, PromoPaymentAmountSubtotal:first, PromoPaymentAmountTax:0, PromoPaymentAmountTotal:first};
+  assert.equal(supportedMembershipQuote(contract)?.firstPaymentAmountTotal,first);
+  assert.equal(supportedMembershipQuote({...contract,NumberOfPromoAutopays:2}),null);
+  assert.equal(supportedMembershipQuote({...contract,PromoPaymentAmountTotal:monthly}),null);
+ }
+});
