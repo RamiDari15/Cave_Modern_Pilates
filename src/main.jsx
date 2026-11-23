@@ -21,7 +21,7 @@ import { NO_SHOW_POLICY, NO_SHOW_POLICY_PARAGRAPHS } from "./studioPolicies";
 import { MOBILE_PHONE_ERROR, normalizeMobilePhone } from "./phone";
 import { getGuestPassPeriod, hasAvailableMonthlyGuestPass } from "./guestPass";
 import { watchGuestPassRenewal } from "./guestPassRefresh";
-import { BLACK_FRIDAY_WINDOW, isBlackFridaySaleActive, isBlackFridayVisible, isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage, withoutOctoberBuyThreeGetOnePackage } from "./promotionWindows";
+import { BLACK_FRIDAY_WINDOW, isBlackFridayOffer, isBlackFridaySaleActive, isBlackFridayVisible, isBackToSchoolPromotionActive, isPricingItemCurrentlyVisible, isOctoberBuyThreeGetOnePackage, withoutOctoberBuyThreeGetOnePackage } from "./promotionWindows";
 import {
   getCaveUpdatesPreferences,
   normalizeKlaviyoPhone,
