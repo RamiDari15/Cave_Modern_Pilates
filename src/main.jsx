@@ -1,6 +1,7 @@
 import blackFridayBubble from "../assets/black-friday-bubble-source.png";
 import blackFridayImage from "../assets/black-friday-sale.png";
 import BlackFridayPage from "./BlackFridayPage.jsx";
+import { BlackFridayAnnouncement, BlackFridayCategoryCallout, BlackFridayCompactBand, BlackFridayHomeBand } from "./BlackFridayPromo.jsx";
 import { isClassVisible } from "./scheduleVisibility.js";
 import newbieSquare from "../assets/category-newbie-square.png";
 import membershipSquare from "../assets/category-memberships-square.png";
@@ -82,6 +83,8 @@ const NAV_ITEMS = [
   { label: "Contact Us", href: ROUTES.contact, page: "contact" },
   { label: "FAQ", href: ROUTES.faq, page: "faq" }
 ];
+
+const BLACK_FRIDAY_NAV_ITEM = { label: "Black Friday", href: "/black-friday", page: "black-friday", className: "bf-nav-link" };
 
 const FOOTER_LINKS = [
   { label: "About Us", href: ROUTES.about, page: "about" },
@@ -845,7 +848,10 @@ function App() {
   const isInterior = page !== "home";
   const promoCatalog = usePricingCatalog(cache.store || {}, cache.memberships || []);
   const introOffer = !promoCatalog.loading ? promoCatalog.newbie.find(item => isTwoWeekUnlimitedIntro(item) && item.sellOnline !== false && item.id && item.price) : null;
-  const showIntroPromo = Boolean(introOffer) && !["login", "signup", "sms", "terms", "policies", "black-friday"].includes(page);
+  const promoHiddenPage = ["login", "signup", "sms", "terms", "policies", "black-friday"].includes(page);
+  const blackFridayLive = isBlackFridaySaleActive();
+  const showBlackFridayPromo = blackFridayLive && !promoHiddenPage;
+  const showIntroPromo = !blackFridayLive && Boolean(introOffer) && !promoHiddenPage;
 
   useEffect(() => {
     const onPopState = () => {
@@ -891,10 +897,11 @@ function App() {
   }, []);
 
   const bookingUrl = cleanInternalUrl(cache.booking?.scheduleUrl, ROUTES.schedule);
-  const shellClass = `app-shell${isInterior ? " interior" : ""}${showIntroPromo ? " has-intro-promo" : ""}`;
+  const shellClass = `app-shell${isInterior ? " interior" : ""}${showIntroPromo || showBlackFridayPromo ? " has-intro-promo" : ""}${blackFridayLive ? " black-friday-live" : ""}`;
 
   return (
     <div className={shellClass}>
+      {showBlackFridayPromo ? <BlackFridayAnnouncement /> : null}
       {showIntroPromo ? <a className="intro-announcement" href={`${ROUTES.newbie}?offer=intro`}><span>New here? <strong>14 days unlimited · {compactPrice(introOffer.price)}</strong></span><span className="intro-announcement-link">Get the intro <span aria-hidden="true">↗</span></span></a> : null}
       <Header
         activePage={page}
@@ -918,6 +925,7 @@ function App() {
         />
       </main>
       {showIntroPromo && !["home", "newbie"].includes(page) ? <IntroPromoFeature offer={introOffer} compact /> : null}
+      {showBlackFridayPromo && !["home", "newbie", "class-packs", "memberships", "pricing", "account"].includes(page) ? <BlackFridayCompactBand /> : null}
       <Footer location={cache.location} />
       <AiAssistant page={page} bookingUrl={bookingUrl} clientSession={clientSession} />
       <CaveUpdatesInitialPopup page={page} clientSession={clientSession} />
@@ -1089,6 +1097,7 @@ function setStructuredData(page) {
 function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle, onCloseMenu }) {
   const accountHref = clientSession?.signedIn ? ROUTES.account : authStartHref(ROUTES.account, { force: true });
   const accountLabel = clientSession?.signedIn ? "Account" : "Login";
+  const navItems = isBlackFridaySaleActive() ? [NAV_ITEMS[0], BLACK_FRIDAY_NAV_ITEM, ...NAV_ITEMS.slice(1)] : NAV_ITEMS;
 
   return (
     <>
@@ -1098,8 +1107,8 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
         </a>
 
         <nav className="desktop-nav" aria-label="Primary navigation">
-          {NAV_ITEMS.map((item) => (
-            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><div className="method-nav-links"><a href="/class-types">Class Types</a><a href={item.href} aria-current={activePage === item.page ? "page" : undefined}>Our Reformer</a><a href="/prenatal-postnatal">Prenatal &amp; Postnatal</a></div></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
+          {navItems.map((item) => (
+            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><div className="method-nav-links"><a href="/class-types">Class Types</a><a href={item.href} aria-current={activePage === item.page ? "page" : undefined}>Our Reformer</a><a href="/prenatal-postnatal">Prenatal &amp; Postnatal</a></div></details> : <a key={item.page} className={item.className} href={item.href} aria-current={activePage === item.page ? "page" : undefined}>
               {item.label}
             </a>
           ))}
@@ -1127,8 +1136,8 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
       <div className={`mobile-menu${menuOpen ? " is-open" : ""}`} id="mobile-menu" aria-hidden={!menuOpen} hidden={!menuOpen}>
         <nav aria-label="Mobile navigation">
-          {NAV_ITEMS.map((item) => (
-            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><div className="method-nav-links"><a href="/class-types">Class Types</a><a href={item.href} onClick={onCloseMenu} aria-current={activePage === item.page ? "page" : undefined}>Our Reformer</a><a href="/prenatal-postnatal">Prenatal &amp; Postnatal</a></div></details> : <a key={item.page} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
+          {navItems.map((item) => (
+            item.page === "meet-your-reformer" ? <details className="method-nav" key={item.page}><summary>The Cave Method</summary><div className="method-nav-links"><a href="/class-types">Class Types</a><a href={item.href} onClick={onCloseMenu} aria-current={activePage === item.page ? "page" : undefined}>Our Reformer</a><a href="/prenatal-postnatal">Prenatal &amp; Postnatal</a></div></details> : <a key={item.page} className={item.className} href={item.href} aria-current={activePage === item.page ? "page" : undefined} onClick={onCloseMenu}>
               {item.label}
             </a>
           ))}
@@ -1156,6 +1165,7 @@ function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSess
   const pricingCategory = PRICING_CATEGORIES.find((category) => category.page === page);
 
   if (pricingCategory) {
+    if (isBlackFridaySaleActive() && ["newbie", "classPacks", "memberships"].includes(pricingCategory.key)) return <><BlackFridayCategoryCallout categoryKey={pricingCategory.key} /><PricingCategoryPage category={pricingCategory} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} /></>;
     return <PricingCategoryPage category={pricingCategory} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
   }
 
@@ -1329,9 +1339,10 @@ function HomePage({ memberships, store, bookingUrl, introOffer }) {
         </svg>
       </section>
 
+      {isBlackFridaySaleActive() ? <BlackFridayHomeBand /> : null}
       <div className="home-member-perks"><MembershipPerks /></div>
       <ComingUp />
-      {introOffer ? <IntroPromoFeature offer={introOffer} /> : null}
+      {introOffer && !isBlackFridaySaleActive() ? <IntroPromoFeature offer={introOffer} /> : null}
 
       <section className="home-pricing-preview section">
         <div className="section-heading center">
