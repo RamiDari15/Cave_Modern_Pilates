@@ -1,3 +1,4 @@
+import { isCaveIntro, introPrice, quoteIntroCart } from "./introPricing.mjs";
 import { isScheduleReleased } from "../src/scheduleRelease.js";
 import { waitlistAvailability } from "../src/waitlist.js";
 import { studioProfileAccess } from "./studioProfileAccess.mjs";
@@ -2938,7 +2939,7 @@ const isSoldOnlineValue = (item) => {
         const services = liveServices.map((item) => {
           const id = String(item.Id || item.ProductId || "");
           const name = item.Name || "";
-          const price = item.OnlinePrice != null ? item.OnlinePrice : (item.Price != null ? item.Price : null);
+          const price = isCaveIntro(item) ? (() => { try { return introPrice(item); } catch { return null; } })() : (item.OnlinePrice != null ? item.OnlinePrice : (item.Price != null ? item.Price : null));
           const priceStr = price != null ? `$${Number(price).toFixed(2)}` : "";
           const rawSessions = Number(item.Count || 0);
           const isUnlimited = /\bunlimited\b/i.test(name) || rawSessions >= 9999;
@@ -3035,7 +3036,7 @@ return true;
         const services = firstListByKey(data, "Services");
         const valid = items.filter(isBlackFridayOffer).every((item) => {
           const raw = services.find((service) => String(service.Id) === String(item.id));
-          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
+          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: isCaveIntro(raw) ? introPrice(raw) : raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
         });
         if (!valid) {
           sendJson(response, 409, { ok: false, message: "This Black Friday offer is not available for online purchase yet. No charge was made." });
@@ -3046,6 +3047,24 @@ return true;
       const clientId = session?.clientId || (session ? await resolveSessionClientId(session).catch(() => "") : "");
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart quote").catch(() => null);
+
+      if (items.some(isCaveIntro)) {
+        try {
+          if (!staffToken) throw new Error("Unable to verify the intro price right now. Please try again shortly.");
+          const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
+          const verified = await quoteIntroCart({ items, services: firstListByKey(data, "Services"), promoCode: body.promoCode,
+            quote: (Items) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
+              Test: true, ClientId: clientId || undefined, LocationId: Number(locationId) || 1,
+              InStore: false, CalculateTax: true, Items, Payments: []
+            } })
+          });
+          const cart = verified.result?.ShoppingCart || verified.result;
+          sendJson(response, 200, { ok: true, quoted: true, grandTotal: cart.GrandTotal, subTotal: cart.SubTotal, taxTotal: cart.TaxTotal || 0, discountTotal: cart.DiscountTotal || 0 });
+        } catch (error) {
+          sendJson(response, 409, { ok: false, message: error.message });
+        }
+        return true;
+      }
 
       if (!staffToken) {
         // Return per-item totals without a Mindbody quote
@@ -3171,7 +3190,7 @@ return true;
         const services = firstListByKey(data, "Services");
         const valid = items.filter(isBlackFridayOffer).every((item) => {
           const raw = services.find((service) => String(service.Id) === String(item.id));
-          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
+          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: isCaveIntro(raw) ? introPrice(raw) : raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
         });
         if (!valid) {
           sendJson(response, 409, { ok: false, message: "This Black Friday offer is not available for online purchase yet. No charge was made." });
@@ -3182,7 +3201,7 @@ return true;
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart checkout");
 
-      const cartItems = items
+      let cartItems = items
         .filter((item) => item.kind === "service")
         .map((item) => ({
           Item: {
@@ -3259,6 +3278,22 @@ return true;
 
       let checkoutAmount = 0;
 
+      if (items.some(isCaveIntro)) {
+        try {
+          const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
+          const verified = await quoteIntroCart({ items, services: firstListByKey(data, "Services"), promoCode: body.promoCode,
+            quote: (Items) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
+              Test: true, ClientId: clientId, LocationId: Number(locationId) || 1,
+              InStore: false, CalculateTax: true, Items, Payments: []
+            } })
+          });
+          cartItems = verified.cartItems;
+          checkoutAmount = extractCheckoutTotal(verified.result);
+        } catch (error) {
+          sendJson(response, 409, { ok: false, message: error.message });
+          return true;
+        }
+      } else {
       try {
         const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
           method: "POST",
@@ -3281,6 +3316,8 @@ return true;
           "[cart/checkout] Mindbody quote failed; using the locally calculated discounted total:",
           error.message
         );
+      }
+
       }
 
       if (!Number.isFinite(checkoutAmount) || checkoutAmount <= 0) {
