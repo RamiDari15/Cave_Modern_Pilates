@@ -845,6 +845,7 @@ function App() {
   const isInterior = page !== "home";
   const promoCatalog = usePricingCatalog(cache.store || {}, cache.memberships || []);
   const introOffer = !promoCatalog.loading ? promoCatalog.newbie.find(item => isTwoWeekUnlimitedIntro(item) && item.sellOnline !== false && item.id && item.price) : null;
+  const showBlackFridayPromo = isBlackFridaySaleActive() && !["login", "signup", "sms", "terms", "policies", "black-friday"].includes(page);
   const showIntroPromo = Boolean(introOffer) && !["login", "signup", "sms", "terms", "policies", "black-friday"].includes(page);
 
   useEffect(() => {
@@ -891,11 +892,15 @@ function App() {
   }, []);
 
   const bookingUrl = cleanInternalUrl(cache.booking?.scheduleUrl, ROUTES.schedule);
-  const shellClass = `app-shell${isInterior ? " interior" : ""}${showIntroPromo ? " has-intro-promo" : ""}`;
+  const shellClass = `app-shell${isInterior ? " interior" : ""}${showIntroPromo || showBlackFridayPromo ? " has-intro-promo" : ""}`;
 
   return (
     <div className={shellClass}>
-      {showIntroPromo ? <a className="intro-announcement" href={`${ROUTES.newbie}?offer=intro`}><span>New here? <strong>14 days unlimited · {compactPrice(introOffer.price)}</strong></span><span className="intro-announcement-link">Get the intro <span aria-hidden="true">↗</span></span></a> : null}
+      {showBlackFridayPromo ? <a className="intro-announcement black-friday-announcement" href="/black-friday" aria-label="Black Friday: The Cave Intro $59 for 14 days unlimited. Ends November 30. Shop the sale.">
+        <span className="black-friday-announcement-badge">Black Friday</span>
+        <span className="black-friday-announcement-copy"><strong>The Cave Intro $59 · 14 days unlimited</strong><span className="black-friday-announcement-detail"> · pack &amp; membership deals · ends Nov 30</span></span>
+        <span className="intro-announcement-link">Shop the sale <span aria-hidden="true">↗</span></span>
+      </a> : showIntroPromo ? <a className="intro-announcement" href={`${ROUTES.newbie}?offer=intro`}><span>New here? <strong>14 days unlimited · {compactPrice(introOffer.price)}</strong></span><span className="intro-announcement-link">Get the intro <span aria-hidden="true">↗</span></span></a> : null}
       <Header
         activePage={page}
         bookingUrl={bookingUrl}
