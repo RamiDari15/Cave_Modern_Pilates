@@ -3165,13 +3165,14 @@ function CartDrawer({ cart, clientSession, savedCards, cardsLoaded, onCardAdded 
 
   const cartItemsKey = cart.items.map((i) => `${i.id}:${i.kind}:${i.quantity}`).join(",");
   const hasPromoEligibleItem = cart.items.some(isAnyClassPack);
+  const requiresIntroQuote = cart.items.some(item => ["100055", "100066"].includes(String(item.id)));
   useEffect(() => {
     if (!cart.items.length || !clientSession?.signedIn) return;
     let mounted = true;
-    setQuoteState((s) => ({ ...s, loading: true }));
+    setQuoteState((s) => ({ ...s, loading: true, error: "", verifiedKey: "" }));
     apiRequest("/api/cart/quote", { method: "POST", body: { items: cart.items, ...(appliedPromo ? { promoCode: appliedPromo } : {}) } })
-      .then((data) => { if (mounted) setQuoteState({ grandTotal: data.grandTotal ?? cart.total, loading: false }); })
-      .catch(() => { if (mounted) setQuoteState((s) => ({ ...s, loading: false })); });
+      .then((data) => { if (mounted) setQuoteState({ grandTotal: data.grandTotal ?? cart.total, loading: false, verifiedKey: data.quoted ? cartItemsKey : "", error: "" }); })
+      .catch((error) => { if (mounted) setQuoteState((s) => ({ ...s, loading: false, verifiedKey: "", error: error.message || "Unable to confirm your total. Please try again." })); });
     return () => { mounted = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cartItemsKey, clientSession?.signedIn, appliedPromo]);
@@ -3246,6 +3247,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
           ))}
         </div>
 
+        {requiresIntroQuote && quoteState.error ? <p role="alert" className="form-status error">{quoteState.error}</p> : null}
         <div className="cart-totals">
           {quoteState.loading ? (
             <p className="cart-total-loading">Calculating...</p>
@@ -3322,7 +3324,7 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
             </div>
             {checkoutState.message ? <p className={`form-status ${checkoutState.type}`}>{checkoutState.message}</p> : null}
             <button className="pill-button black cart-checkout-btn" type="button"
-              disabled={checkoutState.type === "loading" || cart.items.length === 0} onClick={handleCheckout}>
+              disabled={checkoutState.type === "loading" || cart.items.length === 0 || (requiresIntroQuote && (quoteState.loading || quoteState.verifiedKey !== cartItemsKey))} onClick={handleCheckout}>
               {checkoutState.type === "loading" ? "Processing..." : `Complete Purchase · $${quoteState.grandTotal.toFixed(2)}`}
             </button>
           </>

@@ -3053,9 +3053,9 @@ return true;
           if (!staffToken) throw new Error("Unable to verify the intro price right now. Please try again shortly.");
           const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
           const verified = await quoteIntroCart({ items, services: firstListByKey(data, "Services"), promoCode: body.promoCode,
-            quote: (Items) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
+            quote: (Items, testAmount) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
               Test: true, ClientId: clientId || undefined, LocationId: Number(locationId) || 1,
-              InStore: false, CalculateTax: true, Items, Payments: []
+              InStore: false, CalculateTax: true, Items, Payments: [{ Type: "Cash", Metadata: { Amount: testAmount } }]
             } })
           });
           const cart = verified.result?.ShoppingCart || verified.result;
@@ -3282,9 +3282,9 @@ return true;
         try {
           const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
           const verified = await quoteIntroCart({ items, services: firstListByKey(data, "Services"), promoCode: body.promoCode,
-            quote: (Items) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
+            quote: (Items, testAmount) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
               Test: true, ClientId: clientId, LocationId: Number(locationId) || 1,
-              InStore: false, CalculateTax: true, Items, Payments: []
+              InStore: false, CalculateTax: true, Items, Payments: [{ Type: "Cash", Metadata: { Amount: testAmount } }]
             } })
           });
           cartItems = verified.cartItems;

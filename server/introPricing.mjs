@@ -40,10 +40,10 @@ export async function quoteIntroCart({ items, services, quote, now = Date.now(),
     if (cart?.GrandTotal == null) return NaN;
     return Number(cart.GrandTotal) - Number(cart.TaxTotal ?? 0);
   };
-  let result = await quote(cartItems);
+  let result = await quote(cartItems, undiscounted);
   if (cents(net(result)) !== cents(expected) && cents(net(result)) === cents(undiscounted) && expected < undiscounted) {
     cartItems.forEach((item, index) => { item.DiscountAmount = discounts[index]; });
-    result = await quote(cartItems);
+    result = await quote(cartItems, expected);
   }
   if (cents(net(result)) !== cents(expected)) throw new Error('Mindbody could not confirm the intro price. No charge was made. Please try again shortly.');
   return { result, cartItems };
