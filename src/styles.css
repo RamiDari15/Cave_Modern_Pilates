@@ -7087,7 +7087,7 @@ body.interior:has(.page-prenatal-postnatal),
 @media (max-width: 1100px) { .black-friday-announcement-detail { display: none; } }
 @media (max-width: 700px) {
  .black-friday-announcement { gap: 8px; padding: 6px 10px; height: 44px; }
- .black-friday-announcement > .black-friday-announcement-badge { font-size: 9px; padding: 4px 7px; }
+ .intro-announcement.black-friday-announcement > .black-friday-announcement-badge { font-size: 9px; padding: 4px 7px; }
  .black-friday-announcement-copy { display: none; }
  .black-friday-announcement .intro-announcement-link { font-size: 12px; }
 }

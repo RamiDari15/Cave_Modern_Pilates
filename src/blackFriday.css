@@ -48,6 +48,56 @@ body:has(.bf-page),body:has(.bf-page)>#root,body:has(.bf-page) main{background:#
 .bf-offers:has(>.pricing-card:only-child){grid-template-columns:minmax(0,1fr);max-width:420px;width:100%}
 @media(max-width:600px){.bf-offers > .pricing-card{padding:30px 24px;gap:26px}.bf-offers .pricing-card-price{font-size:52px}.bf-offers:has(>.pricing-card:only-child){max-width:none}.bf-group{scroll-margin-top:110px}}
 
+<<<<<<< HEAD
+/* Sitewide Black Friday takeover (only rendered while the sale window is open). */
+.desktop-nav a.bf-nav-link,.mobile-menu a.bf-nav-link{display:inline-flex;align-items:center;gap:7px}
+.desktop-nav a.bf-nav-link:before,.mobile-menu a.bf-nav-link:before{content:"";width:7px;height:7px;border-radius:50%;background:#d8c3a0;box-shadow:0 0 0 3px #d8c3a040}
+
+.bf-home{background:#1b201b;color:#efefe9;padding:clamp(48px,7vw,96px) 24px clamp(40px,6vw,80px)}
+.bf-home-inner{max-width:1160px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:clamp(28px,5vw,72px);align-items:center}
+.bf-home .bf-eyebrow{color:#d8c3a0}
+.bf-home h2{font-size:clamp(52px,8vw,112px);font-weight:400;letter-spacing:-.06em;line-height:.95;margin:18px 0 22px}
+.bf-home h2 em{font-family:Georgia,"Times New Roman",serif;font-style:italic;font-weight:400;letter-spacing:-.02em;color:#d8c3a0}
+.bf-home-lede{font-size:clamp(16px,1.5vw,19px);line-height:1.6;color:#c9ccc3;max-width:44ch;margin:0 0 30px}
+.bf-home-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px}
+.bf-home-cta{display:inline-flex;align-items:center;gap:10px;padding:15px 26px;border-radius:999px;background:#efefe9;color:#1b201b;font-weight:600;font-size:15px;text-decoration:none;transition:background .2s ease,transform .2s ease}
+.bf-home-cta:hover{background:#fff;transform:translateY(-1px)}
+.bf-home-cta:focus-visible,.bf-home-hero-deal:focus-visible,.bf-home-deals a:focus-visible,.bf-callout:focus-visible{outline:2px solid #d8c3a0;outline-offset:4px}
+.bf-home-timer{font-size:14px;color:#c9ccc3}.bf-home-timer strong{color:#efefe9;font-weight:600;font-variant-numeric:tabular-nums}
+.bf-home-hero-deal{display:flex;flex-direction:column;gap:10px;padding:clamp(28px,3vw,40px);border-radius:30px;background:linear-gradient(150deg,#efefe9,#dcded4);color:#1b201b;text-decoration:none;transition:transform .25s ease}
+.bf-home-hero-deal:hover{transform:translateY(-3px)}
+.bf-home-hero-deal .bf-eyebrow{color:#5d6857}
+.bf-home-hero-deal strong{font-size:clamp(84px,10vw,140px);font-weight:400;line-height:.95;letter-spacing:-.07em}
+.bf-home-hero-deal>span:last-child{font-size:17px;line-height:1.4;max-width:20ch}
+.bf-home-deals{list-style:none;padding:0;max-width:1160px;margin:clamp(36px,5vw,64px) auto 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#efefe92a;border:1px solid #efefe92a;border-radius:24px;overflow:hidden}
+.bf-home-deals a{display:flex;flex-direction:column;gap:6px;height:100%;padding:24px;background:#1b201b;color:#efefe9;text-decoration:none;transition:background .2s ease}
+.bf-home-deals a:hover{background:#262c25}
+.bf-home-deal-price{font-size:clamp(26px,2.6vw,36px);letter-spacing:-.04em;color:#d8c3a0}
+.bf-home-deal-title{font-weight:600;font-size:15px}
+.bf-home-deal-detail{font-size:13px;color:#aeb2a8}
+
+.bf-callout{display:flex;justify-content:space-between;align-items:center;gap:16px 24px;flex-wrap:wrap;max-width:1160px;margin:24px auto 0;width:calc(100% - 48px);padding:18px 24px;border-radius:20px;background:#1b201b;color:#efefe9;font-size:15px;line-height:1.5;text-decoration:none}
+.bf-callout strong{color:#d8c3a0;font-weight:600}
+.bf-callout-link{white-space:nowrap;font-weight:600;border-bottom:1px solid #d8c3a0}
+
+.bf-compact{display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap;width:min(calc(100% - 48px),1200px);margin:20px auto;padding:clamp(26px,4vw,44px);border-radius:30px;background:#1b201b;color:#efefe9}
+.bf-compact .bf-eyebrow{color:#d8c3a0}
+.bf-compact h2{font-size:clamp(28px,3vw,42px);font-weight:400;letter-spacing:-.04em;margin:12px 0 8px}
+.bf-compact p:last-child{margin:0;color:#c9ccc3;font-size:15px}
+
+@media(max-width:900px){.bf-home-inner{grid-template-columns:1fr}.bf-home-deals{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){
+ .bf-home-deal-price{font-size:22px}
+ .mobile-menu a.bf-nav-link:before{margin-right:4px}
+ .bf-home{padding-inline:16px}
+ .bf-home-deals a{padding:18px}
+ .bf-callout,.bf-compact{width:calc(100% - 32px)}
+ .bf-callout{font-size:14px;padding:16px 18px}
+}
+@media(prefers-reduced-motion:reduce){.bf-home-cta,.bf-home-hero-deal,.bf-home-deals a{transition:none}.bf-home-cta:hover,.bf-home-hero-deal:hover{transform:none}}
+/* The desktop nav is already full; keep the sale tab to wide screens and the mobile menu. */
+@media(max-width:1599px){.desktop-nav a.bf-nav-link{display:none}}
+=======
 /* New-client checkout helpers. */
 .bf-notices{display:grid;gap:14px;margin:-12px 0 36px}
 .bf-new-client-note{margin:0;padding:16px 20px;border-radius:18px;background:#ffffff14;border:1px solid #ffffff26;font-size:14px;line-height:1.6;color:#f2f3ef}
@@ -64,3 +114,4 @@ body:has(.bf-page),body:has(.bf-page)>#root,body:has(.bf-page) main{background:#
 .new-client-form .agreement-accept{font-size:13px;line-height:1.5;align-items:flex-start}
 .new-client-form .agreement-accept a{color:inherit}
 .new-client-fallback{display:block;margin-top:16px;text-align:center;font-size:13px;color:#5c6557}
+>>>>>>> origin/main

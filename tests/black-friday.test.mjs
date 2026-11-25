@@ -53,3 +53,9 @@ test('SAVE30 quotes apply to exactly the first autopay for all three memberships
   assert.equal(supportedMembershipQuote({...contract,PromoPaymentAmountTotal:monthly}),null);
  }
 });
+
+test('Intro is ready by ID and $59 price even when its Mindbody name omits "unlimited"', () => {
+ assert.equal(isBlackFridayServiceReady({id:100066,name:'THE CAVE INTRO | BLACK FRIDAY',price:'$59.00',sessions:null,sellOnline:true}),true);
+ assert.equal(isBlackFridayServiceReady({id:100066,name:'THE CAVE INTRO | BLACK FRIDAY',price:'$99.00',sessions:null,sellOnline:true}),false);
+ assert.equal(isBlackFridayServiceReady({id:100066,name:'THE CAVE INTRO',price:59,sellOnline:false}),false);
+});

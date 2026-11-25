@@ -65,5 +65,6 @@ export function isBlackFridayVisible(now = Date.now()) {
 export function isBlackFridayServiceReady(item) {
   const expected = { "100066": [59, null], "100067": [159, 6], "100068": [279, 12] }[String(item?.id)];
   return Boolean(expected && Number(String(item.price).replace(/[^0-9.]/g, "")) === expected[0] &&
-    (expected[1] === null ? /unlimited/i.test(item.name || "") : Number(item.sessions) === expected[1]) && item.sellOnline !== false);
+    // The intro is pinned by ID and $59 price; its Mindbody name doesn't have to say "unlimited".
+    (expected[1] === null || Number(item.sessions) === expected[1]) && item.sellOnline !== false);
 }
