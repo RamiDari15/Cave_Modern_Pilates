@@ -47,3 +47,20 @@ body:has(.bf-page),body:has(.bf-page)>#root,body:has(.bf-page) main{background:#
 .bf-offers .pricing-card-ctas{width:100%;display:flex;flex-direction:column;gap:16px;align-items:center}
 .bf-offers:has(>.pricing-card:only-child){grid-template-columns:minmax(0,1fr);max-width:420px;width:100%}
 @media(max-width:600px){.bf-offers > .pricing-card{padding:30px 24px;gap:26px}.bf-offers .pricing-card-price{font-size:52px}.bf-offers:has(>.pricing-card:only-child){max-width:none}.bf-group{scroll-margin-top:110px}}
+
+/* New-client checkout helpers. */
+.bf-notices{display:grid;gap:14px;margin:-12px 0 36px}
+.bf-new-client-note{margin:0;padding:16px 20px;border-radius:18px;background:#ffffff14;border:1px solid #ffffff26;font-size:14px;line-height:1.6;color:#f2f3ef}
+.bf-new-client-note strong{color:#fff}
+.bf-inapp-notice{padding:20px;border-radius:20px;background:#fafaf7;color:#191e18}
+.bf-inapp-notice p{margin:0;font-size:14px;line-height:1.55}
+.bf-inapp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin:14px 0 12px}
+.bf-inapp-actions .pill-button{min-height:44px;padding:12px 22px}
+.bf-inapp-actions .text-button{color:#191e18;font-size:14px}
+.bf-inapp-notice .bf-inapp-hint{font-size:12px;color:#5c6557}
+.new-client-checkout{max-height:calc(100dvh - 32px);overflow-y:auto}
+.new-client-signin{display:block;margin:4px 0 18px;padding:12px 14px;border-radius:12px;background:#f1f2ee;color:#191e18;font-size:14px;text-decoration:none}
+.new-client-form{display:grid;gap:12px}
+.new-client-form .agreement-accept{font-size:13px;line-height:1.5;align-items:flex-start}
+.new-client-form .agreement-accept a{color:inherit}
+.new-client-fallback{display:block;margin-top:16px;text-align:center;font-size:13px;color:#5c6557}

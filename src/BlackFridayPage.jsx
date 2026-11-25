@@ -16,7 +16,7 @@ const groups = [
   ] }
 ];
 
-export default function BlackFridayPage({ active = false, expired = false, liveOffers = [], renderOffer }) {
+export default function BlackFridayPage({ active = false, expired = false, liveOffers = [], renderOffer, notice = null }) {
   if (expired) return <div className="bf-page"><header className="bf-hero"><div className="bf-hero-body"><div><h1>The sale has ended.</h1><a href="/pricing">View regular pricing →</a></div></div></header></div>;
   return <div className="bf-page">
     <header className="bf-hero">
@@ -26,6 +26,7 @@ export default function BlackFridayPage({ active = false, expired = false, liveO
         {groups.map(group => <a key={group.id} href={`#${group.id}`}>{group.title}<span aria-hidden="true">↓</span></a>)}
       </nav>
     </header>
+    {notice ? <div className="bf-notices">{notice}</div> : null}
     {groups.map(group => <section className="bf-group" id={group.id} key={group.id}>
       <div className="bf-heading"><h2>{group.title}</h2><p>{group.note}</p></div>
       <div className="bf-offers">{active && liveOffers.filter(item => group.id === "memberships" ? item.kind === "contract" : group.id === "newbie" ? String(item.id) === "100066" : ["100067", "100068"].includes(String(item.id))).length > 0 ? liveOffers.filter(item => group.id === "memberships" ? item.kind === "contract" : group.id === "newbie" ? String(item.id) === "100066" : ["100067", "100068"].includes(String(item.id))).map(renderOffer) : group.offers.map(([name, price, detail, copy]) => <article className="bf-offer" key={name}>
