@@ -39,14 +39,6 @@ export function formatSaleCountdown(ms) {
   return `${mins}m`;
 }
 
-export function BlackFridayAnnouncement() {
-  const left = useSaleCountdown();
-  return <a className="intro-announcement bf-announcement" href="/black-friday">
-    <span><b className="bf-announcement-tag">Black Friday</b> <strong><span className="bf-announcement-name">The Cave Intro </span>$59 · 14 days unlimited</strong><span className="bf-announcement-extra"> · deals on every pack and membership · ends in {left}</span></span>
-    <span className="intro-announcement-link">Shop the sale <span aria-hidden="true">↗</span></span>
-  </a>;
-}
-
 export function BlackFridayHomeBand() {
   const left = useSaleCountdown();
   return <section className="bf-home" aria-labelledby="bf-home-title">

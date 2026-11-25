@@ -1,3 +1,4 @@
+import { isCaveIntro, introPrice, quoteIntroCart } from "./introPricing.mjs";
 import { isScheduleReleased } from "../src/scheduleRelease.js";
 import { waitlistAvailability } from "../src/waitlist.js";
 import { studioProfileAccess } from "./studioProfileAccess.mjs";
@@ -359,7 +360,7 @@ export async function handleApiRequest(request, response) {
       enforceSameOrigin(request);
     }
 
-    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/unbook-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase", "/api/gift-cards/options", "/api/gift-cards/purchase"].includes(path)) {
+    if (["/api/auth/start", "/api/auth/sign-in", "/api/auth/sign-up", "/api/auth/new-client", "/api/client/waiver", "/api/client/complete-profile", "/api/client/saved-cards", "/api/classes/book", "/api/payment/setup", "/api/mindbody/add-card-url", "/api/mindbody/book-class", "/api/mindbody/book-guest", "/api/mindbody/unbook-guest", "/api/mindbody/join-waitlist", "/api/mindbody/remove-from-waitlist", "/api/store/purchase", "/api/assistant/chat", "/api/account/profile", "/api/account/delete", "/api/account/payment-card", "/api/client/add-card", "/api/cart/checkout", "/api/pricing/contracts/purchase", "/api/gift-cards/options", "/api/gift-cards/purchase"].includes(path)) {
       enforceRateLimit(request);
     }
 
@@ -650,6 +651,84 @@ export async function handleApiRequest(request, response) {
     if (path === "/api/auth/sign-in" && request.method === "POST") {
       sendJson(response, 409, {
         message: "Use /api/auth/start for Mindbody OAuth sign-in."
+      });
+      return true;
+    }
+
+    if (path === "/api/auth/new-client" && request.method === "POST") {
+      // Express checkout for brand-new clients: create the Mindbody client from
+      // name, email and phone, sign the waiver, and start a studio session so the
+      // buyer can go straight to payment without a Mindbody login. An email that
+      // already belongs to a studio client never gets a session here.
+      const body = await readJsonBody(request);
+      const firstName = String(body.firstName || "").trim().slice(0, 60);
+      const lastName = String(body.lastName || "").trim().slice(0, 60);
+      const email = String(body.email || "").trim().toLowerCase().slice(0, 120);
+      const phone = normalizeMobilePhone(body.phone);
+      const signInUrl = `/api/auth/start?returnTo=${encodeURIComponent(safeReturnTo(body.returnTo || "/black-friday"))}`;
+
+      if (!firstName || !lastName) {
+        sendJson(response, 400, { ok: false, message: "Please enter your first and last name." });
+        return true;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        sendJson(response, 400, { ok: false, message: "Please enter a valid email address." });
+        return true;
+      }
+      if (!phone) {
+        sendJson(response, 400, { ok: false, message: MOBILE_PHONE_ERROR });
+        return true;
+      }
+      if (body.acceptWaiver !== true) {
+        sendJson(response, 400, { ok: false, message: "Please agree to the studio waiver to continue." });
+        return true;
+      }
+
+      const existing = await findStudioClientsByExactEmail(email);
+      if (existing.length) {
+        sendJson(response, 409, {
+          ok: false,
+          clientExists: true,
+          message: "You already have a Cave account with this email. Sign in to finish your purchase.",
+          loginUrl: signInUrl
+        });
+        return true;
+      }
+
+      let created;
+      try {
+        created = await addClient({ FirstName: firstName, LastName: lastName, Email: email, MobilePhone: phone, ...(body.promotionalTexts === true ? { SendPromotionalTexts: true } : {}) });
+      } catch (error) {
+        const message = String(error?.data?.Error?.Message || error?.data?.Message || error?.message || "");
+        if (/duplicate/i.test(message)) {
+          sendJson(response, 409, { ok: false, clientExists: true, message: "You already have a Cave account with this email. Sign in to finish your purchase.", loginUrl: signInUrl });
+          return true;
+        }
+        console.error("[auth/new-client] addClient failed:", message);
+        sendJson(response, error.status >= 400 && error.status < 500 ? 400 : 502, { ok: false, message: message ? `We could not create your account: ${message}` : "We could not create your account. Please try again." });
+        return true;
+      }
+
+      const session = sessionFromCreatedClient(created, { FirstName: firstName, LastName: lastName, Email: email });
+      if (!session.clientId) {
+        sendJson(response, 502, { ok: false, message: "We could not create your account. Please try again." });
+        return true;
+      }
+      session.authMode = "created-client";
+      session.user = { ...session.user, phone };
+      const waiver = normalizeWaiverPayload({ participantName: `${firstName} ${lastName}`, signature: `${firstName} ${lastName}`, email, phone, accepted: true });
+      const waiverSync = await attachClientWaiver(session, waiver).catch((error) => ({ storedInMindbody: false, message: error.message }));
+      session.waiver = publicWaiver(waiver);
+
+      setSessionCookie(response, session);
+      const tracking = await recordConversion(() => [buildMetaEvent({
+        eventName: "CompleteRegistration", eventId: body.trackingEventId,
+        email, externalId: session.clientId, request
+      })]);
+      sendJson(response, 200, {
+        tracking,
+        waiver: { storedInMindbody: Boolean(waiverSync?.storedInMindbody) },
+        ...createAppAuthPayload(request, session, { returnTo: body.returnTo || "/black-friday" })
       });
       return true;
     }
@@ -2938,7 +3017,7 @@ const isSoldOnlineValue = (item) => {
         const services = liveServices.map((item) => {
           const id = String(item.Id || item.ProductId || "");
           const name = item.Name || "";
-          const price = item.OnlinePrice != null ? item.OnlinePrice : (item.Price != null ? item.Price : null);
+          const price = isCaveIntro(item) ? (() => { try { return introPrice(item); } catch { return null; } })() : (item.OnlinePrice != null ? item.OnlinePrice : (item.Price != null ? item.Price : null));
           const priceStr = price != null ? `$${Number(price).toFixed(2)}` : "";
           const rawSessions = Number(item.Count || 0);
           const isUnlimited = /\bunlimited\b/i.test(name) || rawSessions >= 9999;
@@ -3035,7 +3114,7 @@ return true;
         const services = firstListByKey(data, "Services");
         const valid = items.filter(isBlackFridayOffer).every((item) => {
           const raw = services.find((service) => String(service.Id) === String(item.id));
-          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
+          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: isCaveIntro(raw) ? introPrice(raw) : raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
         });
         if (!valid) {
           sendJson(response, 409, { ok: false, message: "This Black Friday offer is not available for online purchase yet. No charge was made." });
@@ -3046,6 +3125,24 @@ return true;
       const clientId = session?.clientId || (session ? await resolveSessionClientId(session).catch(() => "") : "");
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart quote").catch(() => null);
+
+      if (items.some(isCaveIntro)) {
+        try {
+          if (!staffToken) throw new Error("Unable to verify the intro price right now. Please try again shortly.");
+          const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
+          const verified = await quoteIntroCart({ items, services: firstListByKey(data, "Services"), promoCode: body.promoCode,
+            quote: (Items, testAmount) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
+              Test: true, ClientId: clientId || undefined, LocationId: Number(locationId) || 1,
+              InStore: false, CalculateTax: true, Items, Payments: [{ Type: "Cash", Metadata: { Amount: testAmount } }]
+            } })
+          });
+          const cart = verified.result?.ShoppingCart || verified.result;
+          sendJson(response, 200, { ok: true, quoted: true, grandTotal: cart.GrandTotal, subTotal: cart.SubTotal, taxTotal: cart.TaxTotal || 0, discountTotal: cart.DiscountTotal || 0 });
+        } catch (error) {
+          sendJson(response, 409, { ok: false, message: error.message });
+        }
+        return true;
+      }
 
       if (!staffToken) {
         // Return per-item totals without a Mindbody quote
@@ -3171,7 +3268,7 @@ return true;
         const services = firstListByKey(data, "Services");
         const valid = items.filter(isBlackFridayOffer).every((item) => {
           const raw = services.find((service) => String(service.Id) === String(item.id));
-          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
+          return raw && isBlackFridayServiceReady({ id: raw.Id, name: raw.Name, price: isCaveIntro(raw) ? introPrice(raw) : raw.OnlinePrice ?? raw.Price, sessions: raw.Count, sellOnline: raw.SellOnline });
         });
         if (!valid) {
           sendJson(response, 409, { ok: false, message: "This Black Friday offer is not available for online purchase yet. No charge was made." });
@@ -3182,7 +3279,7 @@ return true;
       const { locationId } = getBookingConfig();
       const staffToken = await getMindbodyActionToken("Cart checkout");
 
-      const cartItems = items
+      let cartItems = items
         .filter((item) => item.kind === "service")
         .map((item) => ({
           Item: {
@@ -3259,6 +3356,22 @@ return true;
 
       let checkoutAmount = 0;
 
+      if (items.some(isCaveIntro)) {
+        try {
+          const data = await bookingRequest("/sale/services", { params: { "request.sellOnline": "true", "request.limit": "100", "request.includeDiscontinued": "false" } });
+          const verified = await quoteIntroCart({ items, services: firstListByKey(data, "Services"), promoCode: body.promoCode,
+            quote: (Items, testAmount) => bookingRequest("/sale/checkoutshoppingcart", { method: "POST", token: staffToken, body: {
+              Test: true, ClientId: clientId, LocationId: Number(locationId) || 1,
+              InStore: false, CalculateTax: true, Items, Payments: [{ Type: "Cash", Metadata: { Amount: testAmount } }]
+            } })
+          });
+          cartItems = verified.cartItems;
+          checkoutAmount = extractCheckoutTotal(verified.result);
+        } catch (error) {
+          sendJson(response, 409, { ok: false, message: error.message });
+          return true;
+        }
+      } else {
       try {
         const quoteResult = await bookingRequest("/sale/checkoutshoppingcart", {
           method: "POST",
@@ -3281,6 +3394,8 @@ return true;
           "[cart/checkout] Mindbody quote failed; using the locally calculated discounted total:",
           error.message
         );
+      }
+
       }
 
       if (!Number.isFinite(checkoutAmount) || checkoutAmount <= 0) {
@@ -4880,6 +4995,21 @@ async function hydrateOAuthSession(session) {
     platformUserId: platformUserId || session.platformUserId || "",
     hydratedAt
   };
+}
+
+async function findStudioClientsByExactEmail(email) {
+  // Unlike findMindbodyClientByEmail, a failed search is an error, never "not found",
+  // so an outage cannot lead to a duplicate studio client.
+  const token = await getMindbodyActionToken("New client email check");
+  const result = await bookingRequest("/client/clients", {
+    token,
+    params: { "request.searchText": email, "request.limit": 200, "request.offset": 0 }
+  });
+  const raw = result?.Clients ?? result?.clients;
+  if (raw === undefined || raw === null) throw httpError(502, "We could not check for an existing account. Please try again.");
+  const list = Array.isArray(raw) ? raw : [raw];
+  if (list.length >= 200) throw httpError(409, "Please sign in with your existing Cave account.");
+  return list.filter((client) => String(client?.Email || client?.EmailAddress || "").trim().toLowerCase() === email);
 }
 
 async function findMindbodyClientByEmail(email) {
