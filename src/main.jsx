@@ -2,6 +2,7 @@ import blackFridayBubble from "../assets/black-friday-bubble-source.png";
 import blackFridayImage from "../assets/black-friday-sale.png";
 import BlackFridayPage from "./BlackFridayPage.jsx";
 import { isClassVisible } from "./scheduleVisibility.js";
+import { detectInAppBrowser, externalBrowserUrl, mindbodyPricingOptionUrl } from "./inAppBrowser.js";
 import newbieSquare from "../assets/category-newbie-square.png";
 import membershipSquare from "../assets/category-memberships-square.png";
 import packsSquare from "../assets/category-class-packs-square.png";
@@ -1148,7 +1149,7 @@ function Header({ activePage, clientSession, isScrolled, menuOpen, onMenuToggle,
 
 function Page({ page, cache, bookingUrl, clientSession, setClientSession, isSessionLoading, cacheLoading, introOffer }) {
   const cart = useCart();
-  if (page === "black-friday") return <BlackFridayShop store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
+  if (page === "black-friday") return <BlackFridayShop store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} setClientSession={setClientSession} isSessionLoading={isSessionLoading} cart={cart} />;
 
   if (page === "pricing" && new URLSearchParams(window.location.search).get("category") === "private-sessions") {
     return <PricingCategoryPage category={{ key: "privateSessions", title: "Private Sessions", href: "/pricing?category=private-sessions" }} store={cache.store || {}} memberships={cache.memberships || []} clientSession={clientSession} cart={cart} />;
@@ -2064,6 +2065,7 @@ function useSavedCards(clientSession) {
     }
 
     let isMounted = true;
+    setLoaded(false);
     apiRequest("/api/client/saved-cards")
       .then((data) => {
         if (isMounted) {
@@ -2161,7 +2163,7 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
 
     setIsSubmitting(true);
     try {
-      await apiRequest("/api/account/payment-card", {
+      const saved = await apiRequest("/api/account/payment-card", {
         method: "POST",
         body: {
           cardNumber: digits,
@@ -2177,7 +2179,7 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
       // Clear all card fields immediately after successful submission
       setForm(emptyForm);
       setStatus({ type: "success", message: "Card saved to your studio account." });
-      onSuccess?.();
+      onSuccess?.(saved?.card || null);
     } catch (error) {
       if (error.loginUrl) { window.location.href = error.loginUrl; return; }
       setStatus({ type: "error", message: error.message || "Could not save card. Please try again." });
@@ -2304,20 +2306,155 @@ function AddCardForm({ clientSession, onSuccess, onCancel }) {
   );
 }
 
-function BlackFridayShop({ store, memberships, clientSession, cart }) {
+const BLACK_FRIDAY_ORDER = ["100066", "100067", "100068", "120", "117", "104", "118", "122", "119"];
+const offerKey = (item) => `${item.kind || "service"}-${item.id}`;
+
+function BlackFridayShop({ store, memberships, clientSession, setClientSession, isSessionLoading, cart }) {
   const catalog = usePricingCatalog(store, memberships);
   const { cards, loaded, refresh } = useSavedCards(clientSession);
   const active = isBlackFridaySaleActive();
+  const [checkoutItem, setCheckoutItem] = useState(null);
+  const [pendingBuy, setPendingBuy] = useState(() => new URLSearchParams(window.location.search).get("buy") || "");
+  const inApp = typeof navigator !== "undefined" ? detectInAppBrowser(navigator.userAgent) : null;
+  const signedOut = !isSessionLoading && !clientSession?.signedIn;
+
+  const clearPendingBuy = () => {
+    setPendingBuy("");
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("buy")) {
+      url.searchParams.delete("buy");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  };
+
+  const notice = active ? <>
+    {inApp ? <InAppBrowserNotice inApp={inApp} /> : null}
+    {signedOut ? <p className="bf-new-client-note"><strong>New to Cave?</strong> Tap <em>Buy Now</em> and continue with your name, email and phone. No Mindbody account or app needed.</p> : null}
+  </> : null;
+
   return <>
-    <BlackFridayPage active={active} expired={!isBlackFridayVisible()} liveOffers={[...(catalog.blackFriday || [])].sort((a, b) => ["100066","100067","100068","120","117","104","118","122","119"].indexOf(String(a.id)) - ["100066","100067","100068","120","117","104","118","122","119"].indexOf(String(b.id)))} renderOffer={(item) =>
-      <PricingCard key={`${item.kind}-${item.id}`} item={item}
-        category={{ key: item.kind === "contract" ? "memberships" : "blackFriday", href: "/black-friday" }}
-        savedCards={cards} cardsLoaded={loaded} clientSession={clientSession} onCardAdded={refresh}
-        onAddToCart={item.kind === "service" ? () => cart.addItem(item) : undefined} onPurchaseSuccess={refresh} />
-    } />
+    <BlackFridayPage active={active} expired={!isBlackFridayVisible()} notice={notice}
+      liveOffers={[...(catalog.blackFriday || [])].sort((a, b) => BLACK_FRIDAY_ORDER.indexOf(String(a.id)) - BLACK_FRIDAY_ORDER.indexOf(String(b.id)))}
+      renderOffer={(item) =>
+        <PricingCard key={offerKey(item)} item={item}
+          category={{ key: item.kind === "contract" ? "memberships" : "blackFriday", href: "/black-friday" }}
+          savedCards={cards} cardsLoaded={loaded} clientSession={clientSession} onCardAdded={refresh}
+          onAddToCart={item.kind === "service" ? () => cart.addItem(item) : undefined} onPurchaseSuccess={refresh}
+          onSignedOutBuy={setCheckoutItem}
+          autoOpen={Boolean(pendingBuy) && pendingBuy === offerKey(item)} onAutoOpened={clearPendingBuy} />
+      } />
+    {checkoutItem ? <NewClientCheckout item={checkoutItem} returnTo={`/black-friday?buy=${encodeURIComponent(offerKey(checkoutItem))}`}
+      onClose={() => setCheckoutItem(null)}
+      onCreated={(session) => { setPendingBuy(offerKey(checkoutItem)); setCheckoutItem(null); setClientSession(session); }} /> : null}
     {active && cart.items.length > 0 && <button className="cart-fab" onClick={cart.open}>Cart ({cart.items.reduce((sum, item) => sum + item.quantity, 0)})</button>}
     {active && cart.isOpen && <CartDrawer cart={cart} clientSession={clientSession} savedCards={cards} cardsLoaded={loaded} onCardAdded={refresh} />}
   </>;
+}
+
+function InAppBrowserNotice({ inApp }) {
+  const [copied, setCopied] = useState(false);
+  const href = window.location.href;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(href);
+      setCopied(true);
+    } catch {
+      window.prompt("Copy this link and open it in Safari or Chrome:", href);
+    }
+  };
+  const browser = inApp.platform === "android" ? "Chrome" : "Safari";
+  return <div className="bf-inapp-notice" role="note">
+    <p><strong>You’re in the {inApp.app} browser.</strong> Checkout is quickest in {inApp.platform === "other" ? "your phone’s browser" : browser}.</p>
+    <div className="bf-inapp-actions">
+      {inApp.platform !== "other" ? <a className="pill-button black" href={externalBrowserUrl(href, inApp.platform)}>Open in {browser}</a> : null}
+      <button className="text-button" type="button" onClick={copy}>{copied ? "Link copied" : "Copy link"}</button>
+    </div>
+    <p className="bf-inapp-hint">Or tap <strong>•••</strong> at the top and choose <strong>Open in {inApp.platform === "android" ? "browser" : "external browser"}</strong>. You can also stay here and tap Buy Now.</p>
+  </div>;
+}
+
+function NewClientCheckout({ item, returnTo, onClose, onCreated }) {
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", acceptWaiver: false, promotionalTexts: false });
+  const [status, setStatus] = useState({ type: "", message: "", loginUrl: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const signInHref = authStartHref(returnTo);
+  const isIntro = String(item.id) === "100066";
+  const set = (field) => (event) => {
+    const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    setForm((current) => ({ ...current, [field]: value }));
+    setStatus({ type: "", message: "", loginUrl: "" });
+  };
+
+  useEffect(() => {
+    const closeOnEscape = (event) => { if (event.key === "Escape" && !isSubmitting) onClose(); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [isSubmitting]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!form.firstName.trim() || !form.lastName.trim()) return setStatus({ type: "error", message: "Please enter your first and last name." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) return setStatus({ type: "error", message: "Please enter a valid email address." });
+    const phone = normalizeMobilePhone(form.phone);
+    if (!phone) return setStatus({ type: "error", message: MOBILE_PHONE_ERROR });
+    if (!form.acceptWaiver) return setStatus({ type: "error", message: "Please agree to the studio waiver to continue." });
+    setIsSubmitting(true);
+    setStatus({ type: "loading", message: "Creating your Cave account…" });
+    try {
+      const result = await apiRequest("/api/auth/new-client", {
+        method: "POST",
+        body: { ...form, firstName: form.firstName.trim(), lastName: form.lastName.trim(), email: form.email.trim(), phone, returnTo, trackingEventId: newTrackingEventId() }
+      });
+      trackConversionReceipt(result.tracking, form.email.trim());
+      onCreated(result.session);
+    } catch (error) {
+      setIsSubmitting(false);
+      if (error.data?.clientExists || error.clientExists) {
+        setStatus({ type: "error", message: error.message || "You already have a Cave account with this email.", loginUrl: signInHref });
+        return;
+      }
+      setStatus({ type: "error", message: friendlyApiErrorMessage(error, "We could not create your account. Please try again.") });
+    }
+  };
+
+  return createPortal(
+    <div className="purchase-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-client-checkout-title">
+      <div className="purchase-modal-backdrop" onClick={() => { if (!isSubmitting) onClose(); }} />
+      <div className="purchase-modal new-client-checkout">
+        <div className="purchase-modal-header">
+          <div>
+            <p className="purchase-modal-price">{item.price}{item.kind === "contract" ? <small className="pricing-price-period">per month</small> : null}</p>
+            <h3 className="purchase-modal-name" id="new-client-checkout-title">{item.name}</h3>
+          </div>
+          <button className="cart-close" type="button" onClick={onClose} disabled={isSubmitting} aria-label="Close"><X size={20} strokeWidth={1.7} /></button>
+        </div>
+        <a className="new-client-signin" href={signInHref}>Already have a Cave or Mindbody account? <strong>Sign in</strong></a>
+        <form className="new-client-form" onSubmit={submit} autoComplete="on" noValidate>
+          <p className="add-card-form-title">New to Cave? Continue with your email</p>
+          <div className="add-card-two-col">
+            <label className="payment-safe-field"><span>First name</span><input type="text" autoComplete="given-name" value={form.firstName} onChange={set("firstName")} disabled={isSubmitting} required /></label>
+            <label className="payment-safe-field"><span>Last name</span><input type="text" autoComplete="family-name" value={form.lastName} onChange={set("lastName")} disabled={isSubmitting} required /></label>
+          </div>
+          <label className="payment-safe-field"><span>Email</span><input type="email" inputMode="email" autoComplete="email" autoCapitalize="off" value={form.email} onChange={set("email")} disabled={isSubmitting} required /></label>
+          <label className="payment-safe-field"><span>Mobile phone</span><input type="tel" inputMode="tel" autoComplete="tel" placeholder="(708) 555-0123" value={form.phone} onChange={set("phone")} disabled={isSubmitting} required /></label>
+          <label className="agreement-accept">
+            <input type="checkbox" checked={form.acceptWaiver} onChange={set("acceptWaiver")} disabled={isSubmitting} />
+            <span>I have read and agree to the <a href="/assets/cave-modern-pilates-liability-waiver.pdf" target="_blank" rel="noreferrer">studio waiver and release</a>. Typing my name above is my signature.</span>
+          </label>
+          <label className="agreement-accept">
+            <input type="checkbox" checked={form.promotionalTexts} onChange={set("promotionalTexts")} disabled={isSubmitting} />
+            <span>Text me class reminders and studio offers (optional).</span>
+          </label>
+          {status.message ? <p className={`form-status ${status.type === "loading" ? "" : status.type}`} role="status">{status.message}</p> : null}
+          {status.loginUrl ? <a className="pill-button black" href={status.loginUrl}>Sign in to buy</a> : null}
+          <button className="book-class" type="submit" disabled={isSubmitting}>{isSubmitting ? "Creating account…" : "Continue to payment"}</button>
+          <p className="payment-safe-note">Next you’ll add a card. It’s saved securely to your studio account in Mindbody, and Cave never stores card numbers.</p>
+        </form>
+        {isIntro ? <a className="new-client-fallback" href={mindbodyPricingOptionUrl(item.id)} target="_blank" rel="noreferrer">Having trouble? Buy the $59 intro on Mindbody instead</a> : null}
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 function PricingCategoryPage({ category, store, memberships, clientSession, cart }) {
@@ -2775,8 +2912,10 @@ function membershipDetails(item) {
   };
 }
 
-function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess, isCurrentMembership = false }) {
+function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, onCardAdded, onAddToCart, onPurchaseSuccess, isCurrentMembership = false, onSignedOutBuy, autoOpen = false, onAutoOpened }) {
   const [showModal, setShowModal] = useState(false);
+  const [cardFormDismissed, setCardFormDismissed] = useState(false);
+  const [newCardLastFour, setNewCardLastFour] = useState("");
   const [showDetails, setShowDetails] = useState(false);
   const [selectedCard, setSelectedCard] = useState("");
   const [manualLastFour, setManualLastFour] = useState("");
@@ -2812,11 +2951,42 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     setManualLastFour("");
     setAcceptedTerms(false);
     setShowTerms(false);
-    setShowCardForm(false);
+    setShowCardForm(Boolean(cardsLoaded && !savedCards.length));
+    setCardFormDismissed(false);
+    setNewCardLastFour("");
     setPromoInput("");
     setAppliedPromo("");
     setPromoState({ type: "", message: "" });
     setShowModal(true);
+  };
+
+  // Brand-new clients have no card on file: open the card form right away and
+  // pick the new card as soon as it is saved.
+  useEffect(() => {
+    if (!showModal || !cardsLoaded) return;
+    if (!savedCards.length && !newCardLastFour && !cardFormDismissed) setShowCardForm(true);
+    if (savedCards.length && (!selectedCard || (selectedCard === "__manual__" && !manualLastFour))) {
+      const match = savedCards.find((card) => card.lastFour === newCardLastFour);
+      setSelectedCard((match || savedCards[0]).lastFour);
+    }
+  }, [showModal, cardsLoaded, savedCards, newCardLastFour]);
+
+  useEffect(() => {
+    if (!autoOpen || !clientSession?.signedIn || !cardsLoaded || showModal) return;
+    onAutoOpened?.();
+    if (isCurrentMembership || item.sellOnline === false || (isContract && item.purchaseAvailable === false)) return;
+    openModal();
+  }, [autoOpen, clientSession?.signedIn, cardsLoaded]);
+
+  const onCardSaved = (card) => {
+    setShowCardForm(false);
+    const lastFour = String(card?.lastFour || "").replace(/\D/g, "").slice(-4);
+    if (lastFour) {
+      setNewCardLastFour(lastFour);
+      setManualLastFour(lastFour);
+      setSelectedCard(lastFour);
+    }
+    onCardAdded?.();
   };
   const closeModal = () => { if (!isLoading) setShowModal(false); };
 
@@ -2936,6 +3106,10 @@ const payload = isContract
             <span className="pricing-current-status" aria-label="This is your active membership">Active</span>
           ) : isContract && item.purchaseAvailable === false ? (
             <a className="pill-button black" href="tel:+17146036995">Call to Purchase</a>
+          ) : !clientSession?.signedIn && onSignedOutBuy ? (
+            <button className="pill-button black" type="button" onClick={() => { trackInitiateCheckout([{ name: item.name, price: item.price, quantity: 1 }]); onSignedOutBuy(item); }}>
+              {isContract ? "Buy Membership" : "Buy Now"}
+            </button>
           ) : !clientSession?.signedIn ? (
             <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/pricing")}`}>
               Sign In to Buy
@@ -2953,7 +3127,7 @@ const payload = isContract
         </div>
       </article>
 
-      {showDetails ? (
+      {showDetails ? createPortal(
         <div className="purchase-modal-overlay membership-details-overlay" role="dialog" aria-modal="true" aria-labelledby={`membership-details-${item.id}`}>
           <button className="purchase-modal-backdrop" type="button" aria-label="Close membership details" onClick={() => setShowDetails(false)} />
           <section className="purchase-modal membership-details-modal">
@@ -2984,6 +3158,8 @@ const payload = isContract
                 <a className="pill-button black" href="tel:+17146036995">Call to Purchase</a>
               ) : clientSession?.signedIn ? (
                 <button className="pill-button black" type="button" onClick={() => { setShowDetails(false); openModal(); }}>Buy Membership</button>
+              ) : onSignedOutBuy ? (
+                <button className="pill-button black" type="button" onClick={() => { setShowDetails(false); onSignedOutBuy(item); }}>Buy Membership</button>
               ) : (
                 <>
                   <a className="pill-button black" href={`/api/auth/start?returnTo=${encodeURIComponent(category.href || "/memberships")}`}>Sign In to Purchase</a>
@@ -2993,9 +3169,9 @@ const payload = isContract
             </div>
           </section>
         </div>
-      ) : null}
+      , document.body) : null}
 
-      {showModal ? (
+      {showModal ? createPortal(
         <div className="purchase-modal-overlay" role="dialog" aria-modal="true" aria-label={`Purchase ${item.name}`}>
           <div className="purchase-modal-backdrop" onClick={closeModal} />
           <div className="purchase-modal">
@@ -3046,6 +3222,10 @@ const payload = isContract
                         </label>
                       ) : null}
                     </>
+                  ) : newCardLastFour ? (
+                    <p className="payment-safe-note"><strong>Paying with your card ending in {newCardLastFour}.</strong></p>
+                  ) : cardsLoaded && showCardForm ? (
+                    <p className="payment-safe-note">Add your card to finish checkout. It is saved securely to your Cave studio account in Mindbody.</p>
                   ) : (
                     <label className="payment-safe-field">
                       <span>Card on file — last 4</span>
@@ -3054,7 +3234,7 @@ const payload = isContract
                     </label>
                   )}
                   {showCardForm ? (
-                    <AddCardForm clientSession={clientSession} onSuccess={() => { setShowCardForm(false); onCardAdded?.(); }} onCancel={() => setShowCardForm(false)} />
+                    <AddCardForm clientSession={clientSession} onSuccess={onCardSaved} onCancel={() => { setShowCardForm(false); setCardFormDismissed(true); }} />
                   ) : (
                     <button className="payment-add-card" type="button" disabled={isLoading} onClick={() => setShowCardForm(true)}>
                       {cardsLoaded && savedCards.length === 0 ? "Add Card to Studio Account" : "Add / Update Card"}
@@ -3136,7 +3316,7 @@ const payload = isContract
             )}
           </div>
         </div>
-      ) : null}
+      , document.body) : null}
     </>
   );
 }
