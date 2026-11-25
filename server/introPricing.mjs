@@ -40,8 +40,19 @@ export async function quoteIntroCart({ items, services, quote, now = Date.now(),
     if (cart?.GrandTotal == null) return NaN;
     return Number(cart.GrandTotal) - Number(cart.TaxTotal ?? 0);
   };
-  let result = await quote(cartItems, undiscounted);
-  if (cents(net(result)) !== cents(expected) && cents(net(result)) === cents(undiscounted) && expected < undiscounted) {
+  // Mindbody validates the test payment before returning a quote. Send the
+  // expected promotional total, not the pre-discount catalog price.
+  let result;
+  try {
+    result = await quote(cartItems, expected);
+  } catch (error) {
+    const mismatch = String(error.message || '').match(/input payment total \(([\d.]+)\) does not match the calculated total \(([\d.]+)\)/i);
+    if (!mismatch || expected >= undiscounted || cents(Number(mismatch[1])) !== cents(expected) || cents(Number(mismatch[2])) !== cents(undiscounted)) throw error;
+    // Only retry when the provider confirms that the native discount is absent.
+    cartItems.forEach((item, index) => { item.DiscountAmount = discounts[index]; });
+    result = await quote(cartItems, expected);
+  }
+  if (cartItems.every(item => item.DiscountAmount === 0) && cents(net(result)) !== cents(expected) && cents(net(result)) === cents(undiscounted) && expected < undiscounted) {
     cartItems.forEach((item, index) => { item.DiscountAmount = discounts[index]; });
     result = await quote(cartItems, expected);
   }

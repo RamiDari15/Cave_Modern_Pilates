@@ -40,3 +40,31 @@ test('rejects invalid quantities, offline items and stacked codes', async () => 
   await assert.rejects(quoteIntroCart({ items, services: [{...services[0], SellOnline: false}], now, quote }), /not available/);
   await assert.rejects(quoteIntroCart({ items, services, now, quote, promoCode: 'SAVE30' }), /combined/);
 });
+
+test('native early-bird validates payment59 before returning its quote', async () => {
+  let calls = 0;
+  const r = await quoteIntroCart({ items, services, now, quote: async (cart, amount) => {
+    calls++;
+    if (amount !== 59) throw new Error(`The input payment total (${amount}) does not match the calculated total (59) for the entire cart.`);
+    assert.equal(cart[0].DiscountAmount, 0);
+    return { ShoppingCart: { GrandTotal: 59 } };
+  }});
+  assert.equal(calls, 1);
+  assert.equal(r.result.ShoppingCart.GrandTotal, 59);
+});
+test('missing native discount retries with6 and payment59, at most twice', async () => {
+  let calls = 0;
+  const r = await quoteIntroCart({ items, services, now, quote: async (cart, amount) => {
+    calls++; assert.equal(amount, 59);
+    if (cart[0].DiscountAmount === 0) throw new Error('The input payment total (59) does not match the calculated total (65) for the entire cart.');
+    return { ShoppingCart: { GrandTotal: 59 } };
+  }});
+  assert.equal(calls, 2); assert.equal(r.cartItems[0].DiscountAmount, 6);
+});
+test('eligibility and unexpected payment mismatches are never retried', async () => {
+  for (const message of ['Only new clients qualify', 'The input payment total (59) does not match the calculated total (99) for the entire cart.']) {
+    let calls = 0;
+    await assert.rejects(quoteIntroCart({ items, services, now, quote: async () => { calls++; throw new Error(message); }}));
+    assert.equal(calls, 1);
+  }
+});
