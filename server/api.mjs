@@ -450,6 +450,12 @@ export async function handleApiRequest(request, response) {
       });
 
       if (!supabaseRes.ok) {
+        const failure = await supabaseRes.json().catch(() => ({}));
+        console.error("contact_database_error", {
+          host: new URL(supabaseUrl).hostname,
+          status: supabaseRes.status,
+          code: String(failure.code || "").slice(0, 32)
+        });
         throw httpError(500, "Could not save your message. Please try again.");
       }
 
