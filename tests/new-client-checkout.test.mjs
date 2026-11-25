@@ -155,3 +155,9 @@ test("in-app browser detection", () => {
   assert.match(externalBrowserUrl("https://www.cavemodernpilates.com/black-friday", "android"), /^intent:\/\/www\.cavemodernpilates\.com\/black-friday#Intent;scheme=https;package=com\.android\.chrome;/);
   assert.equal(mindbodyPricingOptionUrl("100066"), "https://clients.mindbodyonline.com/classic/ws?studioid=5753835&stype=40&prodid=100066");
 });
+
+test("Vercel has a function file for the new-client route", async () => {
+  const fs = await import("node:fs");
+  const wrapper = fs.readFileSync(new URL("../api/auth/new-client.js", import.meta.url), "utf8");
+  assert.match(wrapper, /vercel-handler\.mjs/);
+});
