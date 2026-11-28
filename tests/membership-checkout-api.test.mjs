@@ -91,6 +91,37 @@ test("versioned membership checkout revalidates consent and provider quote befor
     assert.equal(calls[1].body.Amount, undefined);
   });
 
+  await t.test("membership promo codes reject invalid, ineligible and expired requests before charging", async () => {
+    const originalNow = Date.now;
+    try {
+      Date.now = () => new Date("2026-11-28T12:00:00-06:00").getTime();
+      for (const overrides of [{ contractId: "120", promoCode: "WRONG" }, { promoCode: "SAVE30" }]) {
+        reset(); const result = await request(appBody(overrides));
+        assert.equal(result.status, 400); assert.equal(calls.length, 0); noCharge();
+      }
+      Date.now = () => new Date("2026-12-01T00:00:00-06:00").getTime();
+      reset(); const result = await request(appBody({ contractId: "120", promoCode: "SAVE30" }));
+      assert.equal(result.status, 400); assert.equal(calls.length, 0); noCharge();
+    } finally { Date.now = originalNow; }
+  });
+
+  await t.test("SAVE30 is passed once to the provider with a verified first-month discount", async () => {
+    const originalNow = Date.now;
+    try {
+      Date.now = () => new Date("2026-11-28T12:00:00-06:00").getTime();
+      reset();
+      const deal = { ...contract, Id: 120, Name: "Black Friday 4 Class 3 Month Membership", FirstPaymentAmountTotal: 89, RecurringPaymentAmountTotal: 119, TotalContractAmountTotal: 327 };
+      currentContracts = [deal];
+      const result = await request(appBody({ contractId: "120", promoCode: " save30 ", quote: supportedMembershipQuote(deal) }));
+      assert.equal(result.status, 200, JSON.stringify(result.body));
+      assert.equal(calls[0].query["request.promoCode"], "SAVE30");
+      const purchases = calls.filter((call) => call.method === "POST");
+      assert.equal(purchases.length, 1);
+      assert.equal(purchases[0].body.PromotionCode, "SAVE30");
+      assert.equal(purchases[0].body.Amount, undefined);
+    } finally { Date.now = originalNow; }
+  });
+
   await t.test("both consents must be literal true before provider calls", async () => {
     for (const key of ["acceptTerms", "acceptWaiver"]) for (const value of [undefined, null, false, "true", 1]) {
       reset(); const result = await request(appBody({ [key]: value }));

@@ -3571,6 +3571,11 @@ return true;
         return true;
       }
 
+      if (body.promoCode && (normalizePromoCode(body.promoCode) !== "SAVE30" || !["120", "104", "122"].includes(String(body.contractId)) || !isBlackFridaySaleActive())) {
+        sendJson(response, 400, { ok: false, message: "This promo code is not valid for this membership. No charge was made." });
+        return true;
+      }
+
       if (!body.acceptTerms) {
         sendJson(response, 400, { ok: false, message: "Please accept the membership agreement before continuing." });
         return true;

@@ -2941,6 +2941,8 @@ function PricingCard({ item, category, savedCards, cardsLoaded, clientSession, o
   const blackFridayBilling = isContract && isBlackFridayOffer(item) && Number.isFinite(item.firstPaymentAmountTotal)
     ? `${item.firstPaymentAmountTotal === 0 ? "First month free" : `$${item.firstPaymentAmountTotal.toFixed(2)} for your first month`}. Then ${item.price}/month for the remaining ${item.numberOfAutopays - 1} months. ${item.commitmentMonths}-month commitment.`
     : null;
+  const membershipPromoEligible = isContract && ["120", "104", "122"].includes(String(item.id)) && isBlackFridaySaleActive();
+  const membershipPromoVerified = membershipPromoEligible && Number.isFinite(item.recurringPaymentAmountTotal) && Number.isFinite(item.firstPaymentAmountTotal) && Math.abs(Number(item.recurringPaymentAmountTotal) - Number(item.firstPaymentAmountTotal) - 30) < 0.01;
   const promoEligible = !isContract && isAnyClassPack(item);
   const itemAmount = moneyValue(item.price);
   const discountedAmount = appliedPromo && promoEligible ? itemAmount * 0.85 : itemAmount;
@@ -2963,9 +2965,9 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
     setShowCardForm(Boolean(cardsLoaded && !savedCards.length));
     setCardFormDismissed(false);
     setNewCardLastFour("");
-    setPromoInput("");
-    setAppliedPromo("");
-    setPromoState({ type: "", message: "" });
+    setPromoInput(membershipPromoEligible ? "SAVE30" : "");
+    setAppliedPromo(membershipPromoVerified ? "SAVE30" : "");
+    setPromoState(membershipPromoVerified ? { type: "success", message: "SAVE30 applied — $30 off your first month. Included in the amount due today." } : { type: "", message: "" });
     setShowModal(true);
   };
 
@@ -3010,6 +3012,21 @@ const effectiveLastFour = !savedCards.length || selectedCard === "__manual__"
 
   const applyPromo = () => {
     const code = normalizePromoCode(promoInput);
+    if (membershipPromoEligible) {
+      setAppliedPromo("");
+      if (code !== "SAVE30") {
+        setPromoState({ type: "error", message: "Use SAVE30 for this Black Friday membership." });
+        return;
+      }
+      if (!membershipPromoVerified) {
+        setPromoState({ type: "error", message: "The discounted billing amount could not be verified. Please refresh before purchasing." });
+        return;
+      }
+      setPromoInput(code);
+      setAppliedPromo(code);
+      setPromoState({ type: "success", message: "SAVE30 applied — $30 off your first month. Included in the amount due today." });
+      return;
+    }
     if (!CLASS_PACK_PROMO_CODES.has(code)) {
       setAppliedPromo("");
       setPromoState({ type: "error", message: "That promo code is invalid." });
@@ -3053,6 +3070,7 @@ const payload = isContract
       checkoutVersion: 2,
       contractId: item.id,
       quote: membershipQuoteFromItem(item),
+      ...(appliedPromo ? { promoCode: appliedPromo } : {}),
       storedCardLastFour,
       acceptTerms: true,
       acceptWaiver: true,
@@ -3251,7 +3269,7 @@ const payload = isContract
                   )}
                 </div>
 
-                {promoEligible ? (
+                {promoEligible || membershipPromoEligible ? (
                   <div className="payment-safe-box">
                     <label className="payment-safe-field">
                       <span>Promo code</span>
